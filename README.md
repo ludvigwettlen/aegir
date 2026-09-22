@@ -2,6 +2,8 @@
 
 Local-first macOS workspace for visible multi-agent conversations, Slack and Notion discovery, durable memory, and assigned goals. This is a new runtime; Hermes was used as product inspiration only.
 
+Agent model routing: the Lead role uses the Codex account default. Scout, Quill, and any other non-Lead agent use an available Luna model at low reasoning effort; hourly Slack/Notion discovery extraction uses the same lightweight tier. MCP fetching itself does not use a model. The app checks `model/list` before these runs and reports an error if no supported Luna model is available, rather than silently using a larger model. Model choices are not yet individually editable.
+
 ## Run
 
 Requires macOS, Node 20+, pnpm, and an authenticated `codex` binary (the ChatGPT desktop bundle is detected automatically). Run `pnpm install`, then `pnpm dev`. Build a local `.app` with `pnpm build`; it appears under `release/mac-arm64/Agent Desk.app` on Apple Silicon. `pnpm dist` produces a DMG. The local build is unsigned, so it is intended for development on this Mac, not distribution.

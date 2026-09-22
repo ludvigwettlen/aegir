@@ -9,6 +9,7 @@ import { ConnectorManager } from './connectors.js';
 import { MemoryService } from './memory.js';
 import { Reviewer } from './reviewer.js';
 import { skillsFor } from './skills.js';
+import { modelTierForRole } from '../shared/model-policy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -54,7 +55,7 @@ async function runAgent(roomId: string, agent: Agent, userText: string, depth = 
   const instructions = `${agent.instructions}\nYou are ${agent.name} (${agent.role}) in a room with other named agents. Address the user directly. If a specialist should contribute, mention them as @Name in your final reply. Be clear about source links and tool failures. Use connected tools for Slack and Notion. Select durable facts to save using your memory tool. Memory guidance: ${store.getSetting('memoryInstructions') || ''}\n${skillsFor(userText)}`;
   let streamed = '';
   try {
-    const result = await codex.run({ cwd, instructions, prompt: `Relevant memory:\n${recalled || '(none)'}\n\nRecent room transcript:\n${roomHistory}\n\nCurrent request:\n${userText}`, tools: [...connectors.listTools(), memoryTool(agent)], onThreadStarted: threadId => activeRoomThreads.set(roomId, threadId), onDelta: delta => { streamed += delta; store.updateMessage(message.id, streamed, 'streaming'); emit({ type: 'message-delta', roomId, messageId: message.id, delta }); } });
+    const result = await codex.run({ cwd, instructions, prompt: `Relevant memory:\n${recalled || '(none)'}\n\nRecent room transcript:\n${roomHistory}\n\nCurrent request:\n${userText}`, tools: [...connectors.listTools(), memoryTool(agent)], modelTier: modelTierForRole(agent.role), onThreadStarted: threadId => activeRoomThreads.set(roomId, threadId), onDelta: delta => { streamed += delta; store.updateMessage(message.id, streamed, 'streaming'); emit({ type: 'message-delta', roomId, messageId: message.id, delta }); } });
     store.updateMessage(message.id, result.text || streamed, result.status === 'completed' ? 'complete' : 'failed'); refresh();
     if (depth === 0 && result.status === 'completed') {
       const next = store.list<Agent>('agents').find(other => other.id !== agent.id && new RegExp(`@${other.name}\\b`, 'i').test(result.text));
@@ -71,7 +72,7 @@ async function startGoal(taskId: string, agentId: string) {
   try {
     const instructions = `${agent.instructions}\nYou are working on an assigned goal. Act on local files and connected tools as needed. Report what you changed, what remains, and any blockers. Ask for approval before deletion, credential access, app automation, or external writes. Save durable facts using your memory tool. Memory guidance: ${store.getSetting('memoryInstructions') || ''}\n${skillsFor(`${task.title} ${task.notes}`, true)}`;
     let streamed = '';
-    const result = await codex.run({ cwd, instructions, prompt: `Goal: ${task.title}\n${task.notes}\nSource: ${task.sourceUrl || '(none)'}`, tools: [...connectors.listTools(), memoryTool(agent)], onThreadStarted: threadId => { store.updateGoal(goal.id, 'running', '', threadId); refresh(); }, onDelta: delta => { streamed += delta; store.updateGoal(goal.id, 'running', streamed); refresh(); } });
+    const result = await codex.run({ cwd, instructions, prompt: `Goal: ${task.title}\n${task.notes}\nSource: ${task.sourceUrl || '(none)'}`, tools: [...connectors.listTools(), memoryTool(agent)], modelTier: modelTierForRole(agent.role), onThreadStarted: threadId => { store.updateGoal(goal.id, 'running', '', threadId); refresh(); }, onDelta: delta => { streamed += delta; store.updateGoal(goal.id, 'running', streamed); refresh(); } });
     const status = result.status === 'completed' ? 'done' : 'blocked';
     store.updateGoal(goal.id, status, result.text, result.threadId);
     store.updateTask(taskId, { status });

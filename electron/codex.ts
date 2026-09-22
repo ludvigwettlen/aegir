@@ -4,11 +4,12 @@ import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Approval } from '../shared/types.js';
+import { chooseLightweightModel, type AvailableModel, type ModelTier } from '../shared/model-policy.js';
 
 type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { message: string } };
 type Tool = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
 export interface ModelProvider {
-  run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }): Promise<{ threadId: string; text: string; status: string }>;
+  run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }): Promise<{ threadId: string; text: string; status: string }>;
   stop(threadId: string): Promise<void>;
 }
 
@@ -20,6 +21,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
   private approvals = new Map<string, { rpcId: number | string; method: string; threadId: string; params: any }>();
   private toolCalls = new Map<string, { rpcId: number | string; threadId: string }>();
   private toolReadOnly = new Map<string, boolean>();
+  private lightweightModel: Promise<{ model: string; effort: string }> | null = null;
   private toolHandler: ((provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean) => Promise<unknown>) | null = null;
   status = 'Not started';
   setToolHandler(handler: (provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean) => Promise<unknown>) { this.toolHandler = handler; }
@@ -31,7 +33,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     if (this.child) return;
     this.child = spawn(this.executable(), ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'] });
     this.child.stderr.on('data', (data: Buffer) => this.emit('log', data.toString()));
-    this.child.on('exit', () => { this.status = 'Stopped'; this.child = null; for (const [, p] of this.pending) p.reject(new Error('Codex app-server stopped')); this.pending.clear(); for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' }); this.turns.clear(); this.emit('status'); });
+    this.child.on('exit', () => { this.status = 'Stopped'; this.child = null; this.lightweightModel = null; for (const [, p] of this.pending) p.reject(new Error('Codex app-server stopped')); this.pending.clear(); for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' }); this.turns.clear(); this.emit('status'); });
     createInterface({ input: this.child.stdout }).on('line', line => { try { this.receive(JSON.parse(line) as RpcMessage); } catch { this.emit('log', `Invalid Codex event: ${line}`); } });
     await this.request('initialize', { clientInfo: { name: 'agent-desk', title: 'Agent Desk', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     this.notify('initialized', {});
@@ -86,21 +88,38 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     this.send({ id: item.rpcId, result });
     this.emit('approval-resolved', id);
   }
-  async run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }) {
+  private async resolveLightweightModel(): Promise<{ model: string; effort: string }> {
+    if (!this.lightweightModel) this.lightweightModel = (async () => {
+      const models: AvailableModel[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 5; page++) {
+        const result = await this.request('model/list', { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) }) as { data?: AvailableModel[]; nextCursor?: string | null };
+        models.push(...(result.data || []));
+        cursor = result.nextCursor || null;
+        if (!cursor) break;
+      }
+      const selected = chooseLightweightModel(models);
+      if (!selected) throw new Error('No supported lightweight Luna model is available for this Codex account. Check model availability before running specialists or discovery.');
+      return selected;
+    })().catch(error => { this.lightweightModel = null; throw error; });
+    return this.lightweightModel;
+  }
+  async run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }) {
     await this.start();
+    const route = input.modelTier === 'lightweight' ? await this.resolveLightweightModel() : null;
     for (const tool of input.tools) this.toolReadOnly.set(tool.name, tool.readOnly);
     const dynamicTools = input.tools.map(tool => ({ type: 'function', name: tool.name, description: `${tool.description}${tool.readOnly ? ' (read only)' : ' (requires approval to write)'}`, inputSchema: tool.inputSchema }));
     let threadId = input.threadId;
     if (threadId) { try { await this.request('thread/resume', { threadId }); } catch { threadId = undefined; } }
     if (!threadId) {
-      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: 'read-only', baseInstructions: input.instructions, dynamicTools });
+      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: 'read-only', baseInstructions: input.instructions, dynamicTools, ...(route || {}) });
       threadId = started.thread.id;
     }
     const id = threadId!;
     input.onThreadStarted?.(id);
     const done = new Promise<{ text: string; status: string }>(resolve => this.turns.set(id, { resolve, onDelta: input.onDelta, text: '', turnId: '' }));
     try {
-      const started = await this.request('turn/start', { threadId: id, input: [{ type: 'text', text: input.prompt, text_elements: [] }] });
+      const started = await this.request('turn/start', { threadId: id, input: [{ type: 'text', text: input.prompt, text_elements: [] }], ...(route || {}) });
       const turn = this.turns.get(id); if (turn) turn.turnId = started.turn.id;
       const result = await done; return { threadId: id, ...result };
     } catch (error) { this.turns.delete(id); throw error; }

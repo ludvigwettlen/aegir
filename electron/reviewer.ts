@@ -56,7 +56,7 @@ export class Reviewer extends EventEmitter {
             const raw = contentText(result);
             if (!raw || raw === '[]') { this.store.finishScan(scan.id, 'complete', 0, 0, null); continue; }
             const instructions = `You review exploratory ${provider} search results for one person's agent workspace. Return ONLY a JSON object with tasks and memories arrays. Tasks must have title, notes, sourceUrl, sourceKey. Memories must have content, sourceUrl. Only include clear commitments, actionable follow-ups, decisions, or durable facts. Never invent a source URL or fact. If source links are absent, omit the item. Keep at most 8 tasks and 8 memories. Memory instructions: ${this.store.getSetting('memoryInstructions') || ''}`;
-            const response = await this.model.run({ cwd: this.cwd, instructions, prompt: `Search query: ${query}\nSearch results:\n${raw}`, tools: [], onDelta: () => {} });
+            const response = await this.model.run({ cwd: this.cwd, instructions, prompt: `Search query: ${query}\nSearch results:\n${raw}`, tools: [], modelTier: 'lightweight', onDelta: () => {} });
             const extracted = jsonObject(response.text);
             let created = 0;
             for (const task of extracted.tasks || []) {
