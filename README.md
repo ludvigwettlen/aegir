@@ -18,7 +18,7 @@ OAuth tokens and the Slack secret are encrypted with Electron `safeStorage` on m
 
 ## Product notes
 
-The frontend uses Fragments for selected controls (currently the chat prompt and buttons), with app-owned layout and light-theme styling in `src/ui/light.scss`. The Tasks and Chat workspaces follow the Excalidraw sketches as a first pass; the structure is intentionally easy to adjust as the sketches evolve.
+The frontend uses Fragments for selected controls (prompt, buttons, badges, and cards), with app-owned layout and light-theme styling in `src/ui/light.scss`. Tasks, Chat, and Routines follow the Excalidraw sketches as a first pass; the structure is intentionally easy to adjust as the sketches evolve. The working rules for tokens, spacing, layout, and component use are in [the design style guide](docs/design-style-guide.md).
 
 Each room has a lead agent; mentioning another agent brings it into the conversation. The five built-in prompt workflows cover research, Slack review, transcript review, follow-up extraction, and goal execution. Search runs use the same MCP connection as interactive agent turns. Findings are source-linked and deduplicated into Proposed tasks. You can edit, accept, dismiss, or assign them, or type `/goal <task>` in a room.
 
