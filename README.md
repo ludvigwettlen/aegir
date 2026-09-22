@@ -18,6 +18,8 @@ OAuth tokens and the Slack secret are encrypted with Electron `safeStorage` on m
 
 ## Product notes
 
+The frontend uses Fragments for selected controls (currently the chat prompt and buttons), with app-owned layout and light-theme styling in `src/ui/light.scss`. The Tasks and Chat workspaces follow the Excalidraw sketches as a first pass; the structure is intentionally easy to adjust as the sketches evolve.
+
 Each room has a lead agent; mentioning another agent brings it into the conversation. The five built-in prompt workflows cover research, Slack review, transcript review, follow-up extraction, and goal execution. Search runs use the same MCP connection as interactive agent turns. Findings are source-linked and deduplicated into Proposed tasks. You can edit, accept, dismiss, or assign them, or type `/goal <task>` in a room.
 
 Codex runs in a read-only sandbox by default. File changes and commands that need broader permissions pause for an in-app approval; external MCP writes also pause. This is deliberately conservative: ordinary local edits may need approval too. The app does **not** yet implement a separate hard policy engine that can classify every possible credential read or app-automation command. Do not grant a broad command approval if you have not inspected it.

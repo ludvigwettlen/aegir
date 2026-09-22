@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Prompt } from '@usefragments/ui';
 import { Activity, ArrowDownRight, ArrowRight, AtSign, Bell, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Command, Compass, Cpu, ExternalLink, FileText, Inbox, LayoutGrid, MemoryStick, MessageCircle, MoreHorizontal, Plus, Search, Send, Settings2, ShieldCheck, Sparkles, SquareArrowOutUpRight, X } from 'lucide-react';
 import type { Agent, Approval, Message, Room, Snapshot, Task } from '../../shared/types';
 
@@ -12,11 +13,11 @@ function linkedText(value: string) { return value.split(/(https?:\/\/[^\s<>]+)/g
 
 export function App() {
   const [data, setData] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<View>('chat');
+  const [view, setView] = useState<View>('tasks');
+  const [taskTab, setTaskTab] = useState<'proposed' | 'active' | 'done'>('active');
   const [roomId, setRoomId] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
   const [showNewRoom, setShowNewRoom] = useState(false);
   useEffect(() => {
     void api.snapshot().then(value => { setData(value); setRoomId(value.rooms[0]?.id || ''); });
@@ -30,51 +31,42 @@ export function App() {
   const agents = data?.agents || [];
   const proposed = data?.tasks.filter(x => x.status === 'proposed').length || 0;
   if (!data) return <div className="loading"><span className="brand-mark"><Sparkles size={20}/></span> Loading Agent Desk…</div>;
-  return <div className="app-shell">
-    <aside className="sidebar">
-      <div className="sidebar-top"><div className="brand"><span className="brand-mark"><Sparkles size={17}/></span><div><strong>agent desk</strong><small>PERSONAL WORKSPACE</small></div></div><button className="icon-button subtle" title="Settings" onClick={() => setView('settings')}><Settings2 size={17}/></button></div>
-      <div className="sidebar-search"><Search size={15}/><input placeholder="Search your workspace" value={search} onChange={e => setSearch(e.target.value)}/><span>⌘ K</span></div>
-      <div className="side-section"><div className="side-label">WORKSPACE</div>
-        <Nav icon={<MessageCircle size={17}/>} active={view === 'chat'} label="Conversations" onClick={() => setView('chat')}/>
-        <Nav icon={<LayoutGrid size={17}/>} active={view === 'tasks'} label="Tasks & goals" onClick={() => setView('tasks')}/>
-        <Nav icon={<Activity size={17}/>} active={view === 'review'} label="Review activity" badge={proposed || undefined} onClick={() => setView('review')}/>
-        <Nav icon={<MemoryStick size={17}/>} active={view === 'memory'} label="Memory" onClick={() => setView('memory')}/>
-      </div>
-      <div className="side-section room-section"><div className="side-label row-between">ROOMS <button className="bare" title="New room" onClick={() => setShowNewRoom(true)}><Plus size={16}/></button></div>
-        {data.rooms.filter(x => !search || x.title.toLowerCase().includes(search.toLowerCase())).map(item => <button key={item.id} className={`room-item ${view === 'chat' && room?.id === item.id ? 'selected' : ''}`} onClick={() => { setRoomId(item.id); setView('chat'); }}><span className="room-glyph">#</span><span>{item.title}</span></button>)}
-      </div>
-      <div className="side-section agents-section"><div className="side-label row-between">YOUR AGENTS <button className="bare" title="Manage agents" onClick={() => setView('settings')}><Plus size={16}/></button></div>
-        {agents.map(agent => <button className="agent-item" key={agent.id} onClick={() => setView('settings')}>{avatar(agent, 'small')}<span><strong>{agent.name}</strong><small>{agent.role}</small></span><span className="agent-online"/></button>)}
-      </div>
-      <div className="sidebar-bottom"><div className="connection-mini"><span className={`connection-dot ${data.connectors.some(x => x.status === 'connected') ? 'green' : ''}`}/><span>{data.connectors.filter(x => x.status === 'connected').length} of 2 sources connected</span><button className="bare" onClick={() => setView('settings')}><ArrowRight size={14}/></button></div><button className="profile"><span className="profile-avatar">ME</span><span><strong>Your workspace</strong><small>Local on this Mac</small></span><MoreHorizontal size={16}/></button></div>
-    </aside>
-    <main className="main-area">
-      {view === 'chat' && room && <ChatView data={data} room={room} busy={busy} onSend={async text => { setBusy(true); await run(() => api.sendMessage(room.id, text)); setBusy(false); }} onSettings={() => setView('settings')}/>}
-      {view === 'tasks' && <TasksView data={data} run={run}/>}
-      {view === 'review' && <ReviewView data={data} run={run}/>}
-      {view === 'memory' && <MemoryView data={data} run={run}/>}
-      {view === 'settings' && <SettingsView data={data} run={run}/>}
-    </main>
+  const send = async (text: string) => { if (!room) return; setBusy(true); try { await run(() => api.sendMessage(room.id, text)); } finally { setBusy(false); } };
+  return <div className={`app-shell view-${view}`}>
+    <header className="app-header">
+      <div className="brand"><span className="brand-mark"><Sparkles size={16}/></span><strong>agent desk</strong></div>
+      <nav className="app-tabs" aria-label="Workspace"><button className={view === 'tasks' ? 'active' : ''} onClick={() => setView('tasks')}>Tasks{proposed > 0 && <span>{proposed}</span>}</button><button className={view === 'chat' ? 'active' : ''} onClick={() => setView('chat')}>Chat</button><button className={view === 'review' ? 'active' : ''} onClick={() => setView('review')}>Routines</button></nav>
+      <div className="app-header-tools"><button className={view === 'memory' ? 'active' : ''} title="Memory" aria-label="Memory" onClick={() => setView('memory')}><MemoryStick size={17}/></button><button className={view === 'settings' ? 'active' : ''} title="Settings" aria-label="Settings" onClick={() => setView('settings')}><Settings2 size={17}/></button><span className={`header-connection ${data.connectors.some(x => x.status === 'connected') ? 'connected' : ''}`} title={`${data.connectors.filter(x => x.status === 'connected').length} of 2 sources connected`}/></div>
+    </header>
+    <div className="workspace-body">
+      {view === 'tasks' && <>
+        <aside className="task-rail"><span className="rail-label">MY TASKS</span><button className={taskTab === 'active' ? 'selected' : ''} onClick={() => setTaskTab('active')}><LayoutGrid size={16}/> Upcoming <small>{data.tasks.filter(x => ['ready','running','blocked'].includes(x.status)).length}</small></button><button className={taskTab === 'proposed' ? 'selected' : ''} onClick={() => setTaskTab('proposed')}><Inbox size={16}/> Inbox <small>{proposed}</small></button><button className={taskTab === 'done' ? 'selected' : ''} onClick={() => setTaskTab('done')}><Check size={16}/> Completed</button><div className="rail-divider"/><span className="rail-label">WORKSPACE</span><button onClick={() => setView('review')}><Activity size={16}/> Review history</button><div className="rail-footer"><span className="profile-avatar">ME</span><span>Local on this Mac</span></div></aside>
+        <main className="task-pane"><TasksView data={data} run={run} tab={taskTab}/></main>
+        {room && <aside className="context-chat"><ChatView data={data} room={room} busy={busy} onSend={send} onSettings={() => setView('settings')} onRoomChange={setRoomId}/></aside>}
+      </>}
+      {view === 'chat' && <><aside className="room-rail"><div className="rail-heading"><span>ROOMS</span><Button variant="ghost" size="sm" icon aria-label="New room" onClick={() => setShowNewRoom(true)}><Plus size={16}/></Button></div>{data.rooms.map(item => <button key={item.id} className={`room-choice ${room?.id === item.id ? 'selected' : ''}`} onClick={() => setRoomId(item.id)}><span>#</span>{item.title}</button>)}<div className="rail-divider"/><span className="rail-label">AGENTS</span>{agents.map(agent => <div className="rail-agent" key={agent.id}>{avatar(agent, 'small')}<span><strong>{agent.name}</strong><small>{agent.role}</small></span></div>)}</aside><main className="standalone-chat">{room && <ChatView data={data} room={room} busy={busy} onSend={send} onSettings={() => setView('settings')} onRoomChange={setRoomId}/>}</main><aside className="artifact-pane"><div className="artifact-title">Sources & artifacts</div><p>Links and work produced in this room will be easy to revisit here.</p>{[...new Set(data.messages.filter(x => x.roomId === room?.id).flatMap(x => x.content.match(/https?:\/\/[^\s<>]+/g) || []))].slice(-8).map(url => <button key={url} onClick={() => void run(() => api.openExternal(url))}><ExternalLink size={14}/><span>{url}</span></button>)}</aside></>}
+      {view === 'review' && <main className="full-page"><ReviewView data={data} run={run}/></main>}
+      {view === 'memory' && <main className="full-page"><MemoryView data={data} run={run}/></main>}
+      {view === 'settings' && <main className="full-page"><SettingsView data={data} run={run}/></main>}
+    </div>
     {data.approvals.length > 0 && <ApprovalDock approvals={data.approvals} run={run}/>}
     {error && <div className="error-toast"><span>{error}</span><button className="bare" onClick={() => setError('')}><X size={15}/></button></div>}
     {showNewRoom && <NewRoomModal agents={agents} onClose={() => setShowNewRoom(false)} onCreate={(title, lead) => run(async () => { await api.createRoom(title, lead); const updated = await api.snapshot(); setRoomId(updated.rooms[0].id); setView('chat'); setShowNewRoom(false); })}/>}
   </div>;
 }
 
-function Nav({ icon, label, active, badge, onClick }: { icon: React.ReactNode; label: string; active?: boolean; badge?: number; onClick: () => void }) { return <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{badge ? <em>{badge}</em> : null}</button>; }
-
-function ChatView({ data, room, busy, onSend, onSettings }: { data: Snapshot; room: Room; busy: boolean; onSend: (text: string) => Promise<void>; onSettings: () => void }) {
+function ChatView({ data, room, busy, onSend, onSettings, onRoomChange }: { data: Snapshot; room: Room; busy: boolean; onSend: (text: string) => Promise<void>; onSettings: () => void; onRoomChange: (roomId: string) => void }) {
   const [input, setInput] = useState(''); const bottom = useRef<HTMLDivElement>(null);
   const messages = data.messages.filter(x => x.roomId === room.id);
   const lead = data.agents.find(x => x.id === room.leadAgentId);
   useEffect(() => bottom.current?.scrollIntoView({ behavior: 'smooth' }), [messages.length, messages.at(-1)?.content]);
-  const send = () => { const text = input.trim(); if (text) { setInput(''); void onSend(text); } };
+  const send = (value: string) => { const text = value.trim(); if (text) { setInput(''); void onSend(text); } };
   return <div className="chat-view">
-    <header className="topbar"><div className="topbar-title"><span className="hash-lg">#</span><div><h1>{room.title}</h1><p>Led by {lead?.name || 'an agent'} · {data.agents.length} agents available</p></div></div><div className="topbar-actions"><div className="presence-stack">{data.agents.slice(0, 3).map(agent => <span key={agent.id} title={agent.name}>{avatar(agent, 'tiny')}</span>)}</div><button className="topbar-button" onClick={onSettings}><Settings2 size={16}/> Agents</button></div></header>
+    <header className="topbar"><div className="topbar-title"><span className="hash-lg">#</span><div><select className="room-select" aria-label="Active room" value={room.id} onChange={event => onRoomChange(event.target.value)}>{data.rooms.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select><p>Led by {lead?.name || 'an agent'} · {data.agents.length} agents available</p></div></div><div className="topbar-actions"><div className="presence-stack">{data.agents.slice(0, 3).map(agent => <span key={agent.id} title={agent.name}>{avatar(agent, 'tiny')}</span>)}</div><button className="topbar-button" onClick={onSettings}><Settings2 size={16}/> Agents</button></div></header>
     <div className="chat-scroll">
       {messages.length === 0 ? <div className="empty-chat"><div className="empty-orbit"><span className="brand-mark large"><Sparkles size={26}/></span></div><span className="eyebrow">A SPACE TO THINK TOGETHER</span><h2>Good things start with a conversation.</h2><p>Ask {lead?.name || 'your lead agent'} anything, or bring a specialist in with @mention. Your agents share this room and keep their work visible.</p><div className="suggestions"><button onClick={() => setInput('Help me plan my week based on my recent work')}>Plan my week <ArrowRight size={14}/></button><button onClick={() => setInput('Search Slack for decisions I may have missed')}>Find recent decisions <ArrowRight size={14}/></button><button onClick={() => setInput('/goal Summarize my latest meeting transcripts')}>Start a goal <ArrowRight size={14}/></button></div></div> : <div className="message-list">{messages.map(message => <MessageCard key={message.id} message={message} agent={data.agents.find(x => x.id === message.agentId)}/>)}<div ref={bottom}/></div>}
     </div>
-    <div className="composer-wrap"><div className="composer"><textarea placeholder={`Message ${lead?.name || 'your agents'}…   @mention an agent, /goal to delegate`} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} rows={2}/><div className="composer-footer"><div className="composer-hints"><span><AtSign size={14}/> Mention agent</span><span><Command size={14}/> /goal</span></div>{busy && <button className="text-button" onClick={() => void api.stopRoom(room.id)}>Stop run</button>}<button className="send-button" disabled={!input.trim() || busy} onClick={send}>{busy ? <span className="spinner"/> : <Send size={15}/>}</button></div></div><p className="composer-note">Agents can make mistakes. Source links and approvals stay visible.</p></div>
+    <div className="composer-wrap"><Prompt className="composer" value={input} onChange={setInput} onSubmit={send} submitOnEnter minRows={2} maxRows={6} autoResize loading={busy} variant="ghost" placeholder={`Message ${lead?.name || 'your agents'}…`}><Prompt.Textarea aria-label="Message agents"/><Prompt.Toolbar><Prompt.Actions><span className="composer-help">@mention an agent · /goal to delegate</span></Prompt.Actions><Prompt.Info>{busy && <button className="text-button" onClick={() => void api.stopRoom(room.id)}>Stop run</button>}<Prompt.Submit aria-label="Send message"><Send size={16}/></Prompt.Submit></Prompt.Info></Prompt.Toolbar></Prompt><p className="composer-note">Agents can make mistakes. Source links and approvals stay visible.</p></div>
   </div>;
 }
 function MessageCard({ message, agent }: { message: Message; agent?: Agent }) {
@@ -87,17 +79,15 @@ function MessageCard({ message, agent }: { message: Message; agent?: Agent }) {
 
 function PageHeader({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) { return <header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div><div className="page-actions">{actions}</div></header>; }
 
-function TasksView({ data, run }: { data: Snapshot; run: (action: () => Promise<unknown>) => Promise<void> }) {
-  const [newTask, setNewTask] = useState(''); const [tab, setTab] = useState<'proposed' | 'active' | 'done'>('active');
+function TasksView({ data, run, tab }: { data: Snapshot; run: (action: () => Promise<unknown>) => Promise<void>; tab: 'proposed' | 'active' | 'done' }) {
+  const [newTask, setNewTask] = useState('');
   const groups = { proposed: data.tasks.filter(x => x.status === 'proposed'), active: data.tasks.filter(x => ['ready','running','blocked'].includes(x.status)), done: data.tasks.filter(x => x.status === 'done') };
-  return <div className="page-scroll"><PageHeader eyebrow="WORKSPACE / TASKS" title="Tasks & goals" description="A place for work to land, and a clear way to hand it off." actions={<button className="primary-button" onClick={() => document.getElementById('new-task')?.focus()}><Plus size={16}/> New task</button>}/>
-    <div className="stats-grid"><Stat icon={<Inbox size={18}/>} label="Proposed" value={groups.proposed.length} accent="violet"/><Stat icon={<LayoutGrid size={18}/>} label="Ready & running" value={groups.active.length} accent="teal"/><Stat icon={<Check size={18}/>} label="Completed" value={groups.done.length} accent="orange"/></div>
-    <div className="content-panel"><div className="tabbar"><button className={tab === 'active' ? 'current' : ''} onClick={() => setTab('active')}>Active <span>{groups.active.length}</span></button><button className={tab === 'proposed' ? 'current' : ''} onClick={() => setTab('proposed')}>Proposed <span>{groups.proposed.length}</span></button><button className={tab === 'done' ? 'current' : ''} onClick={() => setTab('done')}>Completed <span>{groups.done.length}</span></button></div>
+  return <div className="page-scroll task-page"><PageHeader eyebrow="MY TASKS" title={tab === 'active' ? 'Upcoming' : tab === 'proposed' ? 'Inbox' : 'Completed'} description={tab === 'proposed' ? 'Follow-ups found by your agents, ready for your review.' : tab === 'done' ? 'A record of the work you and your agents finished.' : 'Keep the important work moving, with agents close by.'} actions={<Button size="sm" onClick={() => document.getElementById('new-task')?.focus()}><Plus size={15}/> New task</Button>}/>
+    <div className="content-panel task-content"><div className="task-list-heading"><span>{tab === 'active' ? 'TO DO' : tab === 'proposed' ? 'PROPOSED' : 'FINISHED'}</span><small>{groups[tab].length} {groups[tab].length === 1 ? 'task' : 'tasks'}</small></div>
       <div className="quick-add"><Plus size={17}/><input id="new-task" placeholder="Add a task…" value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newTask.trim()) { void run(() => api.createTask(newTask.trim(), '')); setNewTask(''); } }}/><span>↵ to add</span></div>
       {groups[tab].length ? <div className="task-list">{groups[tab].map(task => <TaskRow key={task.id} task={task} agents={data.agents} goal={data.goals.find(goal => goal.taskId === task.id)} run={run}/>)}</div> : <div className="panel-empty"><span className="empty-icon"><LayoutGrid size={22}/></span><h3>{tab === 'proposed' ? 'No proposed work yet' : tab === 'done' ? 'Nothing completed yet' : 'A clear desk.'}</h3><p>{tab === 'proposed' ? 'Hourly reviews will suggest follow-ups here.' : tab === 'done' ? 'Finished goals will appear here.' : 'Add a task above or accept one from your review inbox.'}</p></div>}
     </div></div>;
 }
-function Stat({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: number; accent: string }) { return <div className={`stat-card ${accent}`}><span className="stat-icon">{icon}</span><span><small>{label}</small><strong>{value}</strong></span></div>; }
 function TaskRow({ task, agents, goal, run }: { task: Task; agents: Agent[]; goal?: Snapshot['goals'][number]; run: (action: () => Promise<unknown>) => Promise<void> }) {
   const [selected, setSelected] = useState(task.agentId || agents[0]?.id || '');
   const [editing, setEditing] = useState(false); const [title, setTitle] = useState(task.title); const [notes, setNotes] = useState(task.notes);

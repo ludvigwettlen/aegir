@@ -13,6 +13,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@radix-ui/react-dialog": "^1.1.15",
+    "@usefragments/ui": "^3.1.2",
     "better-sqlite3": "^12.2.0",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12",
+    "sass": "^1.104.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-electron": "^0.29.0",
@@ -37,8 +39,17 @@
   "build": {
     "appId": "dev.personal.agentdesk",
     "productName": "Agent Desk",
-    "directories": { "output": "release" },
-    "files": ["dist/**", "dist-electron/**", "node_modules/**", "package.json"],
-    "mac": { "category": "public.app-category.productivity" }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    }
   }
 }
