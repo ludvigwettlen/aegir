@@ -28,15 +28,15 @@ Use the `--space-*` scale (4, 8, 12, 16, 20, 24, 32 px) for new layout work. Con
 
 ## Layout
 
-- Header: 67 px, persistent Tasks / Chat / Routines navigation and utility actions.
-- Left rail: `--rail-width` (184 px; 155 px below 1250 px), for local navigation and source context.
+- The Tasks workspace places the three-way Tasks / Chat / Routines switcher in its top 104 px; use the Fragments single-select `ToggleGroup` so selection and keyboard navigation stay consistent. The other screens retain the compact header.
+- Tasks has a white 190 px list rail (155 px below 1250 px), a flexible task area, and a context chat occupying roughly 36% of the window.
 - Main pane: flexible, scrolls independently. Keep content left-aligned; avoid full-width prose.
-- Context chat: capped by `--context-width` (520 px), while the dedicated Chat view has a wider conversation and a source/artifact pane when space allows.
+- The Tasks context chat has a room header, quiet empty state, and composer fixed to the bottom. The dedicated Chat view has a wider conversation and a source/artifact pane when space allows.
 - At narrow widths, hide the artifact pane before compressing the conversation. Do not hide approvals or source links.
 
 ## Components and states
 
-Use Fragments for reusable controls: `Button`, `Badge`, `Card`, and `Prompt` are in use. Keep domain-specific composition (task rows, agent turns, routine list, source links) in app code. Prefer `Button` solid for the primary action, outline for secondary, ghost for repeated row actions, and link for navigation to evidence. Badges show connection and scan status; pair color with visible words. Cards group supporting information rather than every row.
+Use Fragments for reusable controls: `Button`, `Badge`, `Card`, `Prompt`, and `ToggleGroup` are in use. Keep domain-specific composition (task rows, agent turns, routine list, source links) in app code. Prefer `Button` solid for the primary action, outline for secondary, ghost for repeated row actions, and link for navigation to evidence. Badges show connection and scan status; pair color with visible words. Cards group supporting information rather than every row. The sketch-specific rules live in `src/ui/task-layout.scss`; shared tokens stay in `src/ui/light.scss`.
 
 Every actionable element needs a readable label and focus state. Empty states should say what will appear and how to start. Loading, disconnected, failure, approval, and done must each be explicit in the UI. Motion should be subtle and respect reduced-motion preferences.
 

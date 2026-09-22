@@ -5,5 +5,6 @@ import { App } from './ui/App';
 import '@usefragments/ui/styles';
 import './ui/styles.css';
 import './ui/light.scss';
+import './ui/task-layout.scss';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><ThemeProvider defaultMode="light"><App /></ThemeProvider></React.StrictMode>);
