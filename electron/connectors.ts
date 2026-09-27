@@ -83,7 +83,6 @@ export class ConnectorManager extends EventEmitter {
       const provider = url.pathname.endsWith('/slack') ? 'slack' : url.pathname.endsWith('/notion') ? 'notion' : null;
       if (!provider) { res.writeHead(404); res.end('Not found'); return; }
       if (!this.oauth[provider].checkState(url.searchParams.get('state'))) {
-        if (this.states[provider].status === 'connecting') this.failPendingAuthorization(provider, 'Authorization callback was missing or had an invalid state. Reconnect to try again.');
         res.writeHead(400); res.end('Invalid authorization callback'); return;
       }
       const code = url.searchParams.get('code');
