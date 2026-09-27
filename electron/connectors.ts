@@ -1,5 +1,4 @@
 import { createServer, type Server } from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { shell, safeStorage } from 'electron';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -8,6 +7,7 @@ import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.
 import type { OAuthClientMetadata, OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { Connector } from '../shared/types.js';
 import type { Store } from './db.js';
+import { createOAuthState, matchesOAuthState } from './oauth-state.js';
 
 type ProviderName = 'slack' | 'notion';
 type ToolInfo = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
@@ -34,14 +34,22 @@ class DesktopOAuthProvider implements OAuthClientProvider {
   get clientMetadata(): OAuthClientMetadata {
     return { redirect_uris: [this.redirectUrl], client_name: 'Agent Desk', response_types: ['code'], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: this.name === 'slack' ? 'client_secret_basic' : 'none', scope: this.name === 'slack' ? 'search:read.public search:read.private search:read.im search:read.mpim channels:history groups:history im:history mpim:history channels:read groups:read im:read mpim:read chat:write' : undefined };
   }
+  state(): string {
+    const value = createOAuthState();
+    this.secrets.set('oauthState', value);
+    return value;
+  }
   clientInformation(): OAuthClientInformationMixed | undefined { return this.secrets.get<OAuthClientInformationMixed>('client') || (this.name === 'slack' ? this.secrets.get<OAuthClientInformationMixed>('slackClient') : undefined); }
   saveClientInformation(value: OAuthClientInformationMixed) { this.secrets.set('client', value); }
   tokens(): OAuthTokens | undefined { return this.secrets.get<OAuthTokens>('tokens'); }
   saveTokens(value: OAuthTokens) { this.secrets.set('tokens', value); }
-  redirectToAuthorization(url: URL) { this.secrets.set('oauthState', url.searchParams.get('state')); this.onRedirect(url); }
+  redirectToAuthorization(url: URL) {
+    if (!this.checkState(url.searchParams.get('state'))) throw new Error('OAuth authorization URL is missing its state parameter');
+    this.onRedirect(url);
+  }
   saveCodeVerifier(value: string) { this.secrets.set('verifier', value); }
   codeVerifier(): string { const value = this.secrets.get<string>('verifier'); if (!value) throw new Error('OAuth verifier missing'); return value; }
-  checkState(value: string | null) { const expected = this.secrets.get<string>('oauthState'); return Boolean(expected && value && value === expected); }
+  checkState(value: string | null) { return matchesOAuthState(this.secrets.get<string>('oauthState'), value); }
   configureSlack(clientId: string, clientSecret: string) { this.secrets.set('slackClient', { client_id: clientId, client_secret: clientSecret }); }
   isSlackConfigured() { return Boolean(this.secrets.get('slackClient')); }
   clear() { for (const key of ['client', 'tokens', 'verifier', 'oauthState', 'slackClient']) this.secrets.clear(key); }
@@ -73,10 +81,14 @@ export class ConnectorManager extends EventEmitter {
     this.server = createServer((req, res) => {
       const url = new URL(req.url || '/', 'http://127.0.0.1:8765');
       const provider = url.pathname.endsWith('/slack') ? 'slack' : url.pathname.endsWith('/notion') ? 'notion' : null;
-      if (!provider || !this.oauth[provider].checkState(url.searchParams.get('state'))) { res.writeHead(400); res.end('Invalid authorization callback'); return; }
+      if (!provider) { res.writeHead(404); res.end('Not found'); return; }
+      if (!this.oauth[provider].checkState(url.searchParams.get('state'))) {
+        if (this.states[provider].status === 'connecting') this.failPendingAuthorization(provider, 'Authorization callback was missing or had an invalid state. Reconnect to try again.');
+        res.writeHead(400); res.end('Invalid authorization callback'); return;
+      }
       const code = url.searchParams.get('code');
-      if (!code) { res.writeHead(400); res.end('Authorization was cancelled'); return; }
-      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><body style="font-family:system-ui;padding:3rem"><h2>Connected to Agent Desk</h2><p>You can return to the app.</p></body></html>');
+      if (!code) { this.failPendingAuthorization(provider, 'Authorization was cancelled. Reconnect to try again.'); res.writeHead(400); res.end('Authorization was cancelled'); return; }
+      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><body style="font-family:system-ui;padding:3rem"><h2>Authorization received</h2><p>Return to Agent Desk to check the connection.</p></body></html>');
       void this.finishAuth(provider, code);
     });
     this.server.on('error', error => { for (const provider of ['slack', 'notion'] as const) this.setState(provider, 'error', `OAuth callback unavailable: ${String(error)}`); });
@@ -85,6 +97,12 @@ export class ConnectorManager extends EventEmitter {
   }
   private setState(provider: ProviderName, status: Connector['status'], detail: string, tools: string[] = []) {
     this.states[provider] = { id: provider, status, detail, tools, checkedAt: new Date().toISOString() }; this.emit('change');
+  }
+  private failPendingAuthorization(provider: ProviderName, detail: string) {
+    const transport = this.pending.get(provider);
+    this.pending.delete(provider);
+    if (transport) void transport.close().catch(() => {});
+    this.setState(provider, 'error', detail);
   }
   async connect(provider: ProviderName, clientId?: string, clientSecret?: string) {
     if (provider === 'slack' && clientId && clientSecret) this.oauth.slack.configureSlack(clientId.trim(), clientSecret.trim());
@@ -120,7 +138,7 @@ export class ConnectorManager extends EventEmitter {
   }
   private async finishAuth(provider: ProviderName, code: string) {
     try { const transport = this.pending.get(provider); if (!transport) throw new Error('No pending connection'); await transport.finishAuth(code); this.pending.delete(provider); await this.connect(provider); }
-    catch (error) { this.setState(provider, 'error', `Authorization failed: ${String(error)}`); }
+    catch (error) { this.failPendingAuthorization(provider, `Authorization failed: ${String(error)}`); }
   }
   async disconnect(provider: ProviderName) { await this.clients.get(provider)?.client.close(); this.clients.delete(provider); this.tools.delete(provider); this.oauth[provider].clear(); this.setState(provider, 'disconnected', 'Disconnected'); }
   listTools(): { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean }[] {
