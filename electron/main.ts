@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, shell, Tray } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, shell, Tray } from 'electron';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -20,6 +21,25 @@ let runtime: Runtime;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
+
+function migrateLegacyData() {
+  const currentDir = app.getPath('userData');
+  const currentDb = join(currentDir, 'aegir.sqlite');
+  if (existsSync(currentDb)) return;
+  const legacyDb = join(app.getPath('appData'), 'Agent Desk', 'agent-desk.sqlite');
+  if (!existsSync(legacyDb)) return;
+  mkdirSync(currentDir, { recursive: true });
+  for (const suffix of ['', '-wal', '-shm']) {
+    const source = `${legacyDb}${suffix}`;
+    if (existsSync(source)) copyFileSync(source, `${currentDb}${suffix}`);
+  }
+}
+function appIconPath(mode: 'light' | 'dark') {
+  return app.isPackaged ? join(process.resourcesPath, 'icons', `icon-${mode}.png`) : join(here, `../build/icon-${mode}.png`);
+}
+function updateDockIcon() {
+  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath(nativeTheme.shouldUseDarkColors ? 'dark' : 'light'));
+}
 
 function snapshot(): Snapshot {
   return {
@@ -76,7 +96,7 @@ function registerIpc() {
   handle('open-external', (url: string) => { if (!/^https?:\/\//.test(url)) throw new Error('Invalid URL'); return shell.openExternal(url); });
 }
 function createWindow() {
-  window = new BrowserWindow({ width: 1400, height: 900, minWidth: 950, minHeight: 620, titleBarStyle: 'hiddenInset', backgroundColor: '#111116', show: !app.getLoginItemSettings().wasOpenedAsHidden, webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
+  window = new BrowserWindow({ width: 1400, height: 900, minWidth: 950, minHeight: 620, titleBarStyle: 'hiddenInset', backgroundColor: '#111116', icon: appIconPath(nativeTheme.shouldUseDarkColors ? 'dark' : 'light'), show: !app.getLoginItemSettings().wasOpenedAsHidden, webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
   if (process.env.VITE_DEV_SERVER_URL) void window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else void window.loadFile(join(here, '../dist/index.html'));
   window.webContents.on('console-message', (_event, level, message) => { console.log(`[renderer:${level}] ${message}`); });
@@ -89,15 +109,16 @@ function createWindow() {
 function createTray() {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#111" d="M9 1 16 5v8l-7 4-7-4V5zm0 3L5 6v5l4 2 4-2V6z"/></svg>';
   tray = new Tray(nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`));
-  tray.setToolTip('Agent Desk');
-  tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Open Agent Desk', click: () => window?.show() }, { type: 'separator' }, { label: 'Quit', click: () => { (app as typeof app & { isQuitting?: boolean }).isQuitting = true; app.quit(); } }]));
+  tray.setToolTip('Ägir');
+  tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Open Ägir', click: () => window?.show() }, { type: 'separator' }, { label: 'Quit', click: () => { (app as typeof app & { isQuitting?: boolean }).isQuitting = true; app.quit(); } }]));
   tray.on('double-click', () => window?.show());
 }
 if (app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { window?.show(); window?.focus(); });
   app.whenReady().then(async () => {
+    migrateLegacyData();
     store = new Store(); codex = new CodexProvider(); connectors = new ConnectorManager(store); memory = new MemoryService(store);
-    const outputRoot = join(app.getPath('documents'), 'Agent Desk');
+    const outputRoot = join(app.getPath('documents'), 'Ägir');
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, { outputRoot, routineCwd: app.getPath('userData') });
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
@@ -125,7 +146,7 @@ if (app.requestSingleInstanceLock()) {
       } catch (error) { runtime.logToolResult(codexThreadId, String(error), true); throw error; }
     });
     connectors.on('change', refresh);
-    registerIpc(); connectors.start(); runtime.start(); createWindow(); createTray();
+    registerIpc(); connectors.start(); runtime.start(); updateDockIcon(); nativeTheme.on('updated', updateDockIcon); createWindow(); createTray();
     if (app.isPackaged && !store.getSetting('loginConfigured')) { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); store.setSetting('loginConfigured', 'true'); refresh(); }
     powerMonitor.on('resume', () => runtime.tick());
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();

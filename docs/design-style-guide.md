@@ -1,4 +1,4 @@
-# Agent Desk design style guide
+# Ägir design style guide
 
 This guide describes the existing desktop UI. The new Lime Glass system is documented in [design-system.md](design-system.md). Chat is the first migrated section; its semantic tokens are in `src/ui/design-system/tokens.scss`. The remaining blue values in `src/ui/light.scss` are legacy until their sections are migrated.
 

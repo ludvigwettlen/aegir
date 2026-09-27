@@ -37,7 +37,9 @@
 .ws-brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 12px; -webkit-app-region: drag;
   strong { font-family: Manrope, sans-serif; font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
 }
-.ws-brand-mark { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--ds-color-lime); color: var(--ds-color-ink); }
+.ws-brand-mark { width: 22px; height: 22px; display: block; flex: none;
+  img { display: block; width: 100%; height: 100%; object-fit: contain; }
+}
 .ws-nav-label { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #6b7866;
   button { border: 0; background: transparent; color: #6b7866; border-radius: 6px; width: 22px; height: 22px; display: grid; place-items: center; cursor: pointer; }
   button:hover { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }

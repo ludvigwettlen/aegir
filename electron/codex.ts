@@ -38,7 +38,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     this.child.stderr.on('data', (data: Buffer) => this.emit('log', data.toString()));
     this.child.on('exit', () => { this.status = 'Stopped'; this.child = null; this.lightweightModel = null; for (const [, p] of this.pending) p.reject(new Error('Codex app-server stopped')); this.pending.clear(); for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' }); this.turns.clear(); this.emit('status'); });
     createInterface({ input: this.child.stdout }).on('line', line => { try { this.receive(JSON.parse(line) as RpcMessage); } catch { this.emit('log', `Invalid Codex event: ${line}`); } });
-    await this.request('initialize', { clientInfo: { name: 'agent-desk', title: 'Agent Desk', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+    await this.request('initialize', { clientInfo: { name: 'aegir', title: 'Ägir', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     this.notify('initialized', {});
     this.status = 'Connected'; this.emit('status');
   }

@@ -1,5 +1,5 @@
 {
-  "name": "hermes-clone",
+  "name": "aegir",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -37,8 +37,8 @@
   },
   "main": "dist-electron/main.js",
   "build": {
-    "appId": "dev.personal.agentdesk",
-    "productName": "Agent Desk",
+    "appId": "dev.personal.aegir",
+    "productName": "Ägir",
     "directories": {
       "output": "release"
     },
@@ -48,8 +48,19 @@
       "node_modules/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon-light.png",
+        "to": "icons/icon-light.png"
+      },
+      {
+        "from": "build/icon-dark.png",
+        "to": "icons/icon-dark.png"
+      }
+    ],
     "mac": {
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "icon": "build/icon-light.png"
     }
   }
 }

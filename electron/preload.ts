@@ -29,4 +29,4 @@ const api: DesktopApi = {
   setLaunchAtLogin: enabled => ipcRenderer.invoke('launch-at-login', enabled),
   openExternal: url => ipcRenderer.invoke('open-external', url)
 };
-contextBridge.exposeInMainWorld('agentDesk', api);
+contextBridge.exposeInMainWorld('aegir', api);

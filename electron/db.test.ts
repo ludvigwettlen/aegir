@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Store } from './db.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
-const path = () => join(mkdtempSync(join(tmpdir(), 'agent-desk-')), 'test.sqlite');
+const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
 
 describe('store', () => {
   it('seeds a shared group, one private group per agent and the discovery routine', () => {

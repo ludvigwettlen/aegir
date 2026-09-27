@@ -141,7 +141,7 @@ Never write to, post in or send through external systems (Slack, Notion, email o
 If another agent in the group should do part of the work, mention them as @Name in your final reply.
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}\n${skillsFor(text)}`;
-    return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Agent Desk.${purpose}
+    return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Ägir.${purpose}
 Address the user directly. If another agent should contribute, mention them as @Name in your final reply. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}\n${skillsFor(text)}`;

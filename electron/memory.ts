@@ -15,7 +15,7 @@ function run(binary: string, args: string[], bank: string): Promise<string> {
 export class MemoryService {
   constructor(private store: Store) {}
   binary() { return this.store.getSetting('mnemosyneBinary') || 'mnemosyne'; }
-  private bank(scope: string) { return `agent-desk-${scope.replace(/[^a-z0-9-]/gi, '-')}`; }
+  private bank(scope: string) { return `aegir-${scope.replace(/[^a-z0-9-]/gi, '-')}`; }
   private async sync(id: string, scope: string, content: string, sourceUrl: string | null) {
     const bank = this.bank(scope);
     try { await run(this.binary(), ['bank', 'create', bank], bank); } catch { /* An existing bank is expected. */ }

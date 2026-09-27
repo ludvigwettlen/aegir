@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { Agent, Message, Routine, RoutineRun, Task, Thread } from '../../../shared/types';
 import { describeSchedule, nextRunAfter } from '../../../shared/routines';
 
-export const api = window.agentDesk;
+export const api = window.aegir;
 export type Run = (action: () => Promise<unknown>) => Promise<void>;
 export type Route =
   | { view: 'tasks'; list: 'today' | 'upcoming' | 'team' | 'needs' }

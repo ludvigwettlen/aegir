@@ -32,7 +32,7 @@ export class DesktopOAuthProvider implements OAuthClientProvider {
   constructor(private name: ProviderName, store: Store, private onRedirect: (url: URL) => void) { this.secrets = new KeychainState(store, name); }
   get redirectUrl() { return `http://127.0.0.1:8765/callback/${this.name}`; }
   get clientMetadata(): OAuthClientMetadata {
-    return { redirect_uris: [this.redirectUrl], client_name: 'Agent Desk', response_types: ['code'], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: this.name === 'slack' ? 'client_secret_basic' : 'none', scope: this.name === 'slack' ? 'search:read.public search:read.private search:read.im search:read.mpim channels:history groups:history im:history mpim:history channels:read groups:read im:read mpim:read chat:write' : undefined };
+    return { redirect_uris: [this.redirectUrl], client_name: 'Ägir', response_types: ['code'], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: this.name === 'slack' ? 'client_secret_basic' : 'none', scope: this.name === 'slack' ? 'search:read.public search:read.private search:read.im search:read.mpim channels:history groups:history im:history mpim:history channels:read groups:read im:read mpim:read chat:write' : undefined };
   }
   state(): string {
     const value = createOAuthState();
@@ -92,7 +92,7 @@ export class ConnectorManager extends EventEmitter {
       }
       const code = url.searchParams.get('code');
       if (!code) { this.failPendingAuthorization(provider, 'Authorization was cancelled. Reconnect to try again.'); res.writeHead(400); res.end('Authorization was cancelled'); return; }
-      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><body style="font-family:system-ui;padding:3rem"><h2>Authorization received</h2><p>Return to Agent Desk to check the connection.</p></body></html>');
+      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><body style="font-family:system-ui;padding:3rem"><h2>Authorization received</h2><p>Return to Ägir to check the connection.</p></body></html>');
       void this.finishAuth(provider, code);
     });
     this.server.on('error', error => { for (const provider of ['slack', 'notion'] as const) this.setState(provider, 'error', `OAuth callback unavailable: ${String(error)}`); });
@@ -115,7 +115,7 @@ export class ConnectorManager extends EventEmitter {
     try {
       await this.clients.get(provider)?.client.close(); this.clients.delete(provider);
       const transport = new StreamableHTTPClientTransport(new URL(endpoint[provider]), { authProvider: this.oauth[provider] });
-      const client = new Client({ name: 'agent-desk', version: '0.1.0' });
+      const client = new Client({ name: 'aegir', version: '0.1.0' });
       this.pending.set(provider, transport);
       await client.connect(transport);
       this.pending.delete(provider);

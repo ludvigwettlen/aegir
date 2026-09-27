@@ -1,4 +1,4 @@
-# Agent Desk design system
+# Ägir design system
 
 The Lime Glass direction is being introduced one section at a time. The [Paper Tasks sketch](https://app.paper.design/file/01M35BFSHJZGNPY821ZEJG3MQ2/p-1-0/BR-0) defines the compact layout. The third image in `design/concepts/03-lime-glass.png` defines the color and atmosphere. The workspace (sidebar, Tasks, groups and threads, Routines) is fully on Lime Glass; Memory and Settings still use some legacy styles from `light.scss`. The layouts follow the sketch canvas agreed in September 2026.
 
@@ -26,7 +26,7 @@ Ambient color belongs behind the content. Only translucent surfaces receive back
 
 ## Shared primitives
 
-`src/ui/design-system/primitives.tsx` adapts the Fragments components already in use. Import these Agent Desk exports in product views instead of importing the same components directly from `@usefragments/ui`. Their Fragments foundations retain semantics, keyboard behavior, and core sizing; `primitives.scss` applies our tokens and visual states. `ThemeProvider` remains a library integration, not a product component. The chat `Prompt` is adapted through `ChatComposer` below.
+`src/ui/design-system/primitives.tsx` adapts the Fragments components already in use. Import these Ägir exports in product views instead of importing the same components directly from `@usefragments/ui`. Their Fragments foundations retain semantics, keyboard behavior, and core sizing; `primitives.scss` applies our tokens and visual states. `ThemeProvider` remains a library integration, not a product component. The chat `Prompt` is adapted through `ChatComposer` below.
 
 ### `Button`
 
