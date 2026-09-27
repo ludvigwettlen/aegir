@@ -1,0 +1,87 @@
+/* Agent Desk treatments for the Fragments primitives already used in the app. */
+.ds-button {
+  border-radius: var(--ds-radius-control);
+  font-family: Inter, 'DM Sans', sans-serif;
+  font-weight: 650;
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+}
+.ds-button[data-ds-variant='solid'][data-ds-tone='accent'] {
+  border-color: var(--ds-color-lime);
+  background: var(--ds-color-lime);
+  color: var(--ds-color-ink);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--ds-color-lime) 28%, transparent);
+}
+.ds-button[data-ds-variant='solid'][data-ds-tone='accent']:hover:not(:disabled) {
+  border-color: var(--ds-color-lime-strong);
+  background: var(--ds-color-lime-strong);
+}
+.ds-button[data-ds-variant='outline'] {
+  border-color: var(--ds-color-line);
+  background: var(--ds-color-surface);
+  color: var(--ds-color-ink);
+}
+.ds-button[data-ds-variant='outline']:hover:not(:disabled),
+.ds-button[data-ds-variant='ghost']:hover:not(:disabled) {
+  border-color: var(--ds-color-lime);
+  background: var(--ds-color-lime-soft);
+  color: var(--ds-color-ink);
+}
+.ds-button[data-ds-variant='ghost'] { color: var(--ds-color-ink); }
+.ds-button[data-ds-variant='link'] { color: var(--ds-color-link); }
+.ds-button[data-ds-variant='link']:hover:not(:disabled) { color: var(--ds-color-lime-ink); }
+.ds-button:focus-visible { outline: 2px solid var(--ds-color-lime-strong); outline-offset: 2px; }
+.ds-button:disabled,
+.ds-button[data-ds-variant='solid'][data-ds-tone='accent']:disabled { border-color: var(--ds-color-line); background: var(--ds-color-disabled-surface); color: var(--ds-color-disabled-ink); box-shadow: none; }
+
+.ds-badge {
+  --fui-badge-dot-color: currentColor;
+  border-radius: 999px;
+  font-family: Inter, 'DM Sans', sans-serif;
+  font-weight: 650;
+}
+.ds-badge[data-ds-tone='neutral'] { background: var(--ds-color-disabled-surface); color: var(--ds-color-muted); }
+.ds-badge[data-ds-tone='accent'] { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }
+.ds-badge[data-ds-tone='info'] { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }
+.ds-badge[data-ds-tone='success'] { background: color-mix(in srgb, var(--ds-color-success) 13%, var(--ds-color-surface)); color: var(--ds-color-success); }
+.ds-badge[data-ds-tone='warning'] { background: var(--ds-color-lemon-soft); color: var(--ds-color-ink); }
+.ds-badge[data-ds-tone='danger'] { background: color-mix(in srgb, var(--ds-color-danger) 12%, var(--ds-color-surface)); color: var(--ds-color-danger); }
+.ds-badge[data-ds-variant='outline'] { background: var(--ds-color-surface); border-color: var(--ds-color-line); }
+
+.ds-card {
+  border-radius: var(--ds-radius-panel);
+  color: var(--ds-color-ink);
+}
+.ds-card[data-ds-variant='solid'] {
+  border-color: var(--ds-color-line);
+  background: var(--ds-color-surface);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--ds-color-ink) 5%, transparent);
+}
+.ds-card[data-ds-variant='soft'] { border-color: var(--ds-color-line); background: var(--ds-color-lime-soft); }
+.ds-card[data-ds-variant='outline'] {
+  border-color: var(--ds-color-line);
+  background: var(--ds-color-glass);
+  backdrop-filter: blur(var(--ds-blur-panel));
+  -webkit-backdrop-filter: blur(var(--ds-blur-panel));
+}
+
+.ds-toggle-group[role='radiogroup'] {
+  border-color: var(--ds-color-line);
+  background: var(--ds-color-disabled-surface);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--ds-color-ink) 8%, transparent);
+}
+.ds-toggle-group[role='radiogroup'] > .ds-toggle-item[role='radio'] {
+  background: var(--ds-color-surface);
+  color: var(--ds-color-muted);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--ds-color-ink) 8%, transparent);
+}
+.ds-toggle-group[role='radiogroup'] > .ds-toggle-item[role='radio']:hover:not([aria-checked='true']) { background: var(--ds-color-canvas); color: var(--ds-color-ink); }
+.ds-toggle-group[role='radiogroup'] > .ds-toggle-item[role='radio'][aria-checked='true'] {
+  background: var(--ds-color-lime-soft);
+  color: var(--ds-color-ink);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ds-color-lime) 15%, transparent);
+}
+.ds-toggle-group[role='radiogroup'] > .ds-toggle-item[role='radio']:focus-visible { outline: 2px solid var(--ds-color-lime-strong); outline-offset: -4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-button { transition: none; }
+}

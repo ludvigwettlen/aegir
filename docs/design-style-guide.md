@@ -1,6 +1,6 @@
 # Agent Desk design style guide
 
-This is the working guide for the desktop UI, not a finished brand system. Refined sketches should update it as the product takes shape. The current source of truth for values is the token block at the top of `src/ui/light.scss`.
+This guide describes the existing desktop UI. The new Lime Glass system is documented in [design-system.md](design-system.md). Chat is the first migrated section; its semantic tokens are in `src/ui/design-system/tokens.scss`. The remaining blue values in `src/ui/light.scss` are legacy until their sections are migrated.
 
 ## Direction
 

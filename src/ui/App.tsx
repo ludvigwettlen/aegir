@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, Prompt, ToggleGroup } from '@usefragments/ui';
-import { Activity, ArrowDownRight, ArrowRight, Check, ChevronDown, CircleHelp, Clock3, Compass, Cpu, ExternalLink, FileText, Inbox, LayoutGrid, MemoryStick, Plus, Send, Settings2, ShieldCheck, Sparkles, SquareArrowOutUpRight, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, ArrowRight, Check, ChevronDown, CircleHelp, Clock3, Compass, Cpu, ExternalLink, FileText, MemoryStick, Plus, Settings2, ShieldCheck, Sparkles, SquareArrowOutUpRight, X } from 'lucide-react';
 import type { Agent, Approval, Message, Room, Snapshot, Task } from '../../shared/types';
 import { modelTierForRole } from '../../shared/model-policy';
+import { ChatBubble, ChatComposer, ChatConversation, ChatEvent } from './design-system/chat';
+import { Badge, Button, Card, ToggleGroup } from './design-system/primitives';
+import { TaskEmptyState, TaskListNav, TaskQuickAdd, TaskStatus, type TaskList } from './design-system/tasks';
 
 type View = 'chat' | 'tasks' | 'review' | 'memory' | 'settings';
 const api = window.agentDesk;
@@ -14,7 +16,7 @@ function linkedText(value: string) { return value.split(/(https?:\/\/[^\s<>]+)/g
 export function App() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [view, setView] = useState<View>('tasks');
-  const [taskTab, setTaskTab] = useState<'proposed' | 'active' | 'done'>('active');
+  const [taskTab, setTaskTab] = useState<TaskList>('active');
   const [roomId, setRoomId] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -40,7 +42,7 @@ export function App() {
     </header>
     <div className="workspace-body">
       {view === 'tasks' && <>
-        <aside className="task-rail" aria-label="Task lists"><button className={taskTab === 'proposed' ? 'selected' : ''} onClick={() => setTaskTab('proposed')}><Inbox size={16}/> Inbox <small>{proposed}</small></button><button className={taskTab === 'active' ? 'selected' : ''} onClick={() => setTaskTab('active')}><LayoutGrid size={16}/> Upcoming <small>{data.tasks.filter(x => ['ready','running','blocked'].includes(x.status)).length}</small></button><button className={taskTab === 'done' ? 'selected' : ''} onClick={() => setTaskTab('done')}><Check size={16}/> Completed</button></aside>
+        <TaskListNav selected={taskTab} proposedCount={proposed} activeCount={data.tasks.filter(x => ['ready','running','blocked'].includes(x.status)).length} onSelect={setTaskTab}/>
         <main className="task-pane"><TasksView data={data} run={run} tab={taskTab}/></main>
         {room && <aside className="context-chat"><ChatView compact data={data} room={room} busy={busy} onSend={send} onSettings={() => setView('settings')} onRoomChange={setRoomId}/></aside>}
       </>}
@@ -56,42 +58,65 @@ export function App() {
 }
 
 function ChatView({ data, room, busy, compact = false, onSend, onSettings, onRoomChange }: { data: Snapshot; room: Room; busy: boolean; compact?: boolean; onSend: (text: string) => Promise<void>; onSettings: () => void; onRoomChange: (roomId: string) => void }) {
-  const [input, setInput] = useState(''); const bottom = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState('');
   const messages = data.messages.filter(x => x.roomId === room.id);
   const lead = data.agents.find(x => x.id === room.leadAgentId);
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: 'smooth' }), [messages.length, messages.at(-1)?.content]);
   const send = (value: string) => { const text = value.trim(); if (text) { setInput(''); void onSend(text); } };
   return <div className={`chat-view ${compact ? 'compact-chat' : ''}`}>
     <header className="topbar"><div className="topbar-title"><span className="hash-lg">#</span><div><div className="room-picker"><select className="room-select" aria-label="Active room" value={room.id} onChange={event => onRoomChange(event.target.value)}>{data.rooms.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select><ChevronDown size={13} aria-hidden="true"/></div><p>Led by {lead?.name || 'an agent'} · {data.agents.length} agents available</p></div></div><div className="topbar-actions"><div className="presence-stack">{data.agents.slice(0, 3).map(agent => <span key={agent.id} title={agent.name}>{avatar(agent, 'tiny')}</span>)}</div><button className="topbar-button" aria-label="Agent settings" onClick={onSettings}><Settings2 size={16}/> Agents</button></div></header>
-    <div className="chat-scroll">
-      {messages.length === 0 ? compact ? <div className="context-empty" aria-label="No messages in this room yet"><Sparkles size={33}/></div> : <div className="empty-chat"><div className="empty-orbit"><span className="brand-mark large"><Sparkles size={26}/></span></div><span className="eyebrow">A SPACE TO THINK TOGETHER</span><h2>Good things start with a conversation.</h2><p>Ask {lead?.name || 'your lead agent'} anything, or bring a specialist in with @mention. Your agents share this room and keep their work visible.</p><div className="suggestions"><button onClick={() => setInput('Help me plan my week based on my recent work')}>Plan my week <ArrowRight size={14}/></button><button onClick={() => setInput('Search Slack for decisions I may have missed')}>Find recent decisions <ArrowRight size={14}/></button><button onClick={() => setInput('/goal Summarize my latest meeting transcripts')}>Start a goal <ArrowRight size={14}/></button></div></div> : <div className="message-list">{messages.map(message => <MessageCard key={message.id} message={message} agent={data.agents.find(x => x.id === message.agentId)}/>)}<div ref={bottom}/></div>}
-    </div>
-    <div className="composer-wrap"><Prompt className="composer" value={input} onChange={setInput} onSubmit={send} submitOnEnter minRows={2} maxRows={6} autoResize loading={busy} variant="ghost" placeholder={`Message ${lead?.name || 'your agents'}…`}><Prompt.Textarea aria-label="Message agents"/><Prompt.Toolbar><Prompt.Actions><span className="composer-help">@mention an agent · /goal to delegate</span></Prompt.Actions><Prompt.Info>{busy && <button className="text-button" onClick={() => void api.stopRoom(room.id)}>Stop run</button>}<Prompt.Submit aria-label="Send message"><Send size={16}/></Prompt.Submit></Prompt.Info></Prompt.Toolbar></Prompt><p className="composer-note">Agents can make mistakes. Source links and approvals stay visible.</p></div>
+    <ChatConversation roomId={room.id} emptyState={compact ? <div className="context-empty" aria-label="No messages in this room yet"><Sparkles size={33}/></div> : <div className="empty-chat"><div className="empty-orbit"><span className="brand-mark large"><Sparkles size={26}/></span></div><span className="eyebrow">A SPACE TO THINK TOGETHER</span><h2>Good things start with a conversation.</h2><p>Ask {lead?.name || 'your lead agent'} anything, or bring a specialist in with @mention. Your agents share this room and keep their work visible.</p><div className="suggestions"><button onClick={() => setInput('Help me plan my week based on my recent work')}>Plan my week <ArrowRight size={14}/></button><button onClick={() => setInput('Search Slack for decisions I may have missed')}>Find recent decisions <ArrowRight size={14}/></button><button onClick={() => setInput('/goal Summarize my latest meeting transcripts')}>Start a goal <ArrowRight size={14}/></button></div></div>}>
+      {messages.map(message => <MessageCard key={message.id} message={message} agent={data.agents.find(x => x.id === message.agentId)}/>)}
+    </ChatConversation>
+    <ChatComposer value={input} onChange={setInput} onSubmit={send} onStop={() => void api.stopRoom(room.id)} leadName={lead?.name || 'your agents'} busy={busy}/>
   </div>;
 }
 function MessageCard({ message, agent }: { message: Message; agent?: Agent }) {
-  if (message.role === 'system') return <div className="handoff"><ArrowDownRight size={14}/>{message.content}</div>;
-  return <div className={`message ${message.role}`}>
-    {message.role === 'user' ? <span className="profile-avatar message-avatar">ME</span> : avatar(agent)}
-    <div className="message-body"><div className="message-meta"><strong>{message.role === 'user' ? 'You' : agent?.name || 'Agent'}</strong>{agent && <span className="role-pill">{agent.role}</span>}<time>{time(message.createdAt)}</time>{message.status === 'streaming' && <span className="live-pill"><span/> working</span>}{message.status === 'failed' && <span className="failed-pill">failed</span>}</div><div className="message-text">{message.content ? linkedText(message.content) : <span className="typing"><i/><i/><i/></span>}</div></div>
-  </div>;
+  if (message.role === 'system') return <ChatEvent>{message.content}</ChatEvent>;
+  return <ChatBubble variant={message.role === 'user' ? 'user' : 'agent'} author={message.role === 'user' ? 'You' : agent?.name || 'Agent'} role={message.role === 'user' ? undefined : agent?.role} timestamp={time(message.createdAt)} status={message.status} avatar={avatar(agent)}>
+    {message.content ? linkedText(message.content) : <span className="typing"><i/><i/><i/></span>}
+  </ChatBubble>;
 }
 
 function PageHeader({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) { return <header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div><div className="page-actions">{actions}</div></header>; }
 
-function TasksView({ data, run, tab }: { data: Snapshot; run: (action: () => Promise<unknown>) => Promise<void>; tab: 'proposed' | 'active' | 'done' }) {
+function TasksView({ data, run, tab }: { data: Snapshot; run: (action: () => Promise<unknown>) => Promise<void>; tab: TaskList }) {
   const [newTask, setNewTask] = useState('');
   const groups = { proposed: data.tasks.filter(x => x.status === 'proposed'), active: data.tasks.filter(x => ['ready','running','blocked'].includes(x.status)), done: data.tasks.filter(x => x.status === 'done') };
   return <div className="page-scroll task-page"><header className="task-heading"><h1>{tab === 'active' ? 'Upcoming' : tab === 'proposed' ? 'Inbox' : 'Completed'}</h1></header>
     <div className="content-panel task-content">
-      <div className="quick-add"><Plus size={20}/><input id="new-task" aria-label="Add a task" placeholder="Add a task…" value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newTask.trim()) { void run(() => api.createTask(newTask.trim(), '')); setNewTask(''); } }}/></div>
-      {groups[tab].length ? <div className="task-list">{groups[tab].map(task => <TaskRow key={task.id} task={task} agents={data.agents} goal={data.goals.find(goal => goal.taskId === task.id)} run={run}/>)}</div> : <div className="panel-empty"><span className="empty-icon"><LayoutGrid size={22}/></span><h3>{tab === 'proposed' ? 'No proposed work yet' : tab === 'done' ? 'Nothing completed yet' : 'A clear desk.'}</h3><p>{tab === 'proposed' ? 'Hourly reviews will suggest follow-ups here.' : tab === 'done' ? 'Finished goals will appear here.' : 'Add a task above or accept one from your review inbox.'}</p></div>}
+      <TaskQuickAdd value={newTask} onChange={setNewTask} onSubmit={() => { void run(() => api.createTask(newTask.trim(), '')); setNewTask(''); }}/>
+      {groups[tab].length ? <div className="task-list">{groups[tab].map(task => <TaskRow key={task.id} task={task} agents={data.agents} goal={data.goals.find(goal => goal.taskId === task.id)} run={run}/>)}</div> : <TaskEmptyState list={tab}/>}
     </div></div>;
 }
 function TaskRow({ task, agents, goal, run }: { task: Task; agents: Agent[]; goal?: Snapshot['goals'][number]; run: (action: () => Promise<unknown>) => Promise<void> }) {
   const [selected, setSelected] = useState(task.agentId || agents[0]?.id || '');
   const [editing, setEditing] = useState(false); const [title, setTitle] = useState(task.title); const [notes, setNotes] = useState(task.notes);
-  return <div className="task-row"><span className={`task-status ${task.status}`}>{task.status === 'done' ? <Check size={14}/> : task.status === 'running' ? <span className="spinner"/> : <span/>}</span><div className="task-main">{editing ? <div className="inline-editor"><input value={title} onChange={e => setTitle(e.target.value)}/><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}/><button className="small-button accent" disabled={!title.trim()} onClick={() => void run(async () => { await api.updateTask(task.id, { title: title.trim(), notes: notes.trim() }); setEditing(false); })}>Save changes</button><button className="text-button" onClick={() => setEditing(false)}>Cancel</button></div> : <><strong>{task.title}</strong>{task.notes && <p>{task.notes}</p>}</>}<div className="task-meta"><span>{date(task.createdAt)}</span>{task.sourceUrl && <button onClick={() => void run(() => api.openExternal(task.sourceUrl!))}><ExternalLink size={12}/> Source</button>}{goal && <span className={`goal-label ${goal.status}`}>{goal.status.replace('_', ' ')}</span>}</div>{goal?.detail && <p className="goal-detail">{goal.detail.slice(-600)}</p>}</div><div className="task-actions">{['proposed','ready','blocked'].includes(task.status) && <button className="small-button" onClick={() => setEditing(true)}>Edit</button>}{task.status === 'proposed' ? <><button className="small-button" onClick={() => void run(() => api.updateTask(task.id,{status:'ready'}))}>Accept</button><button className="icon-button" title="Dismiss" onClick={() => void run(() => api.updateTask(task.id,{status:'dismissed'}))}><X size={15}/></button></> : task.status === 'ready' || task.status === 'blocked' ? <><select value={selected} onChange={e => setSelected(e.target.value)}>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><button className="small-button accent" onClick={() => void run(() => api.startGoal(task.id, selected))}>Start goal <ArrowRight size={13}/></button></> : task.status === 'running' ? <button className="small-button" onClick={() => void run(() => api.stopGoal(task.id))}>Stop</button> : null}</div></div>;
+  return <div className="task-row">
+    <TaskStatus status={task.status}/>
+    <div className="task-main">
+      {editing ? <div className="inline-editor">
+        <input aria-label="Task title" value={title} onChange={e => setTitle(e.target.value)}/>
+        <textarea aria-label="Task notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3}/>
+        <Button size="sm" disabled={!title.trim()} onClick={() => void run(async () => { await api.updateTask(task.id, { title: title.trim(), notes: notes.trim() }); setEditing(false); })}>Save changes</Button>
+        <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+      </div> : <>
+        <div className="task-row-title"><strong>{task.title}</strong>{task.status === 'running' && <Badge size="sm" tone="info">Running</Badge>}{task.status === 'blocked' && <Badge size="sm" tone="warning">Blocked</Badge>}</div>
+        {task.notes && <p>{task.notes}</p>}
+      </>}
+      <div className="task-meta"><span>{date(task.createdAt)}</span>{task.sourceUrl && <Button variant="link" size="sm" onClick={() => void run(() => api.openExternal(task.sourceUrl!))}><ExternalLink size={12}/> Source</Button>}{goal && <span className={`goal-label ${goal.status}`}>{goal.status.replace('_', ' ')}</span>}</div>
+      {goal?.detail && <p className="goal-detail">{goal.detail.slice(-600)}</p>}
+    </div>
+    {!editing && <div className="task-actions">
+      {['proposed','ready','blocked'].includes(task.status) && <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Edit</Button>}
+      {task.status === 'proposed' ? <>
+        <Button size="sm" onClick={() => void run(() => api.updateTask(task.id,{status:'ready'}))}>Accept</Button>
+        <Button variant="ghost" size="sm" icon aria-label="Dismiss task" title="Dismiss" onClick={() => void run(() => api.updateTask(task.id,{status:'dismissed'}))}><X size={15}/></Button>
+      </> : task.status === 'ready' || task.status === 'blocked' ? <>
+        <select aria-label="Assign agent" value={selected} onChange={e => setSelected(e.target.value)}>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
+        <Button size="sm" onClick={() => void run(() => api.startGoal(task.id, selected))}>Start goal <ArrowRight size={13}/></Button>
+      </> : task.status === 'running' ? <Button variant="outline" size="sm" onClick={() => void run(() => api.stopGoal(task.id))}>Stop</Button> : null}
+    </div>}
+  </div>;
 }
 
 function ReviewView({ data, run }: { data: Snapshot; run: (action: () => Promise<unknown>) => Promise<void> }) {
