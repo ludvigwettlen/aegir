@@ -28,17 +28,11 @@
 .ws-sidebar {
   width: 244px; min-width: 244px; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 2px;
-  padding: 44px 10px 12px; overflow-y: auto;
+  padding: 68px 10px 12px; overflow-y: auto;
   background: rgba(255, 255, 255, 0.72); border-right: 1px solid var(--ds-color-line);
   backdrop-filter: blur(var(--ds-blur-panel)); -webkit-backdrop-filter: blur(var(--ds-blur-panel));
   -webkit-app-region: drag;
   > * { -webkit-app-region: no-drag; }
-}
-.ws-brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 12px; -webkit-app-region: drag;
-  strong { font-family: Manrope, sans-serif; font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
-}
-.ws-brand-mark { width: 22px; height: 22px; display: block; flex: none;
-  img { display: block; width: 100%; height: 100%; object-fit: contain; }
 }
 .ws-nav-label { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #6b7866;
   button { border: 0; background: transparent; color: #6b7866; border-radius: 6px; width: 22px; height: 22px; display: grid; place-items: center; cursor: pointer; }

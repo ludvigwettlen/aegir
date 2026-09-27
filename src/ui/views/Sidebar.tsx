@@ -19,7 +19,6 @@ export function Sidebar({ data, route, go, onNewGroup }: { data: Snapshot; route
   const privates = data.groups.filter(group => group.kind === 'private');
   const connected = data.connectors.filter(connector => connector.status === 'connected').map(connector => connector.id === 'slack' ? 'Slack' : 'Notion');
   return <nav className="ws-sidebar" aria-label="Workspace">
-    <div className="ws-brand"><picture className="ws-brand-mark"><source media="(prefers-color-scheme: dark)" srcSet="/icons/aegir-app-icon-dark.png"/><img src="/icons/aegir-app-icon-light.png" alt=""/></picture><strong>Ägir</strong></div>
     <Item active={isList('needs')} onClick={() => go({ view: 'tasks', list: 'needs' })} icon={<Inbox size={16}/>} label="Needs you" count={needs + data.approvals.length} tone="attention"/>
     <div className="ws-nav-label">TASKS</div>
     <Item active={isList('today')} onClick={() => go({ view: 'tasks', list: 'today' })} icon={<Sun size={16}/>} label="Today" count={tasksFor('today', data.tasks).length}/>

@@ -50,7 +50,7 @@ The app is a left sidebar plus one working area; there is no top navigation. Vie
 
 ### Sidebar
 
-The only navigation. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone.
+The only navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone.
 
 ### Task list
 
