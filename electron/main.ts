@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, shell, Tray } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, shell, Tray } from 'electron';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,13 +34,6 @@ function migrateLegacyData() {
     if (existsSync(source)) copyFileSync(source, `${currentDb}${suffix}`);
   }
 }
-function appIconPath(mode: 'light' | 'dark') {
-  return app.isPackaged ? join(process.resourcesPath, 'icons', `icon-${mode}.png`) : join(here, `../build/icon-${mode}.png`);
-}
-function updateDockIcon() {
-  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath(nativeTheme.shouldUseDarkColors ? 'dark' : 'light'));
-}
-
 function snapshot(): Snapshot {
   return {
     agents: store.list('agents'), groups: store.groups(), threads: store.threads(), messages: store.messages(), tasks: store.list('tasks'),
@@ -96,7 +89,7 @@ function registerIpc() {
   handle('open-external', (url: string) => { if (!/^https?:\/\//.test(url)) throw new Error('Invalid URL'); return shell.openExternal(url); });
 }
 function createWindow() {
-  window = new BrowserWindow({ width: 1400, height: 900, minWidth: 950, minHeight: 620, titleBarStyle: 'hiddenInset', backgroundColor: '#111116', icon: appIconPath(nativeTheme.shouldUseDarkColors ? 'dark' : 'light'), show: !app.getLoginItemSettings().wasOpenedAsHidden, webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
+  window = new BrowserWindow({ width: 1400, height: 900, minWidth: 950, minHeight: 620, titleBarStyle: 'hiddenInset', backgroundColor: '#111116', show: !app.getLoginItemSettings().wasOpenedAsHidden, webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } });
   if (process.env.VITE_DEV_SERVER_URL) void window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else void window.loadFile(join(here, '../dist/index.html'));
   window.webContents.on('console-message', (_event, level, message) => { console.log(`[renderer:${level}] ${message}`); });
@@ -146,7 +139,7 @@ if (app.requestSingleInstanceLock()) {
       } catch (error) { runtime.logToolResult(codexThreadId, String(error), true); throw error; }
     });
     connectors.on('change', refresh);
-    registerIpc(); connectors.start(); runtime.start(); updateDockIcon(); nativeTheme.on('updated', updateDockIcon); createWindow(); createTray();
+    registerIpc(); connectors.start(); runtime.start(); createWindow(); createTray();
     if (app.isPackaged && !store.getSetting('loginConfigured')) { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); store.setSetting('loginConfigured', 'true'); refresh(); }
     powerMonitor.on('resume', () => runtime.tick());
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();

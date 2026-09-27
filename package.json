@@ -38,7 +38,7 @@
   "main": "dist-electron/main.js",
   "build": {
     "appId": "dev.personal.aegir",
-    "productName": "Ägir",
+    "productName": "Aegir",
     "directories": {
       "output": "release"
     },
@@ -47,16 +47,6 @@
       "dist-electron/**",
       "node_modules/**",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "build/icon-light.png",
-        "to": "icons/icon-light.png"
-      },
-      {
-        "from": "build/icon-dark.png",
-        "to": "icons/icon-dark.png"
-      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

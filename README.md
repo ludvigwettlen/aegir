@@ -6,7 +6,7 @@ Agent model routing: the Lead role uses the Codex account default. Scout, Quill,
 
 ## Run
 
-Requires macOS, Node 20+, pnpm, and an authenticated `codex` binary (the ChatGPT desktop bundle is detected automatically). Run `pnpm install`, then `pnpm dev`. Build a local `.app` with `pnpm build`; it appears under `release/mac-arm64/Ägir.app` on Apple Silicon. `pnpm dist` produces a DMG. The local build is unsigned, so it is intended for development on this Mac, not distribution.
+Requires macOS, Node 20+, pnpm, and an authenticated `codex` binary (the ChatGPT desktop bundle is detected automatically). Run `pnpm install`, then `pnpm dev`. Build a local `.app` with `pnpm build`; it appears under `release/mac-arm64/Aegir.app` on Apple Silicon. The ASCII bundle filename avoids an Electron 37 startup crash with the `Ä` character; the product is still branded Ägir in the interface. `pnpm dist` produces a DMG. The local build is unsigned, so it is intended for development on this Mac, not distribution.
 
 The app keeps its window in the menu bar when closed. Packaged builds register as a background login item on first launch; the toggle is in Settings. Routines run on their schedule while the process is running and the Mac is awake; slots missed while asleep collapse into one run after wake.
 
