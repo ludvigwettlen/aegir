@@ -7,9 +7,12 @@ import type { Approval } from '../shared/types.js';
 import { chooseLightweightModel, type AvailableModel, type ModelTier } from '../shared/model-policy.js';
 
 type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { message: string } };
-type Tool = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
+export type Tool = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
+export type ToolHandler = (provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean, threadId: string) => Promise<unknown>;
+// sandbox: chat and routines stay read-only; handed-off tasks may write inside their own output folder (cwd).
+export type RunInput = { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void };
 export interface ModelProvider {
-  run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }): Promise<{ threadId: string; text: string; status: string }>;
+  run(input: RunInput): Promise<{ threadId: string; text: string; status: string }>;
   stop(threadId: string): Promise<void>;
 }
 
@@ -17,14 +20,14 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
   private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
-  private turns = new Map<string, { resolve: (value: any) => void; onDelta: (text: string) => void; text: string; turnId: string }>();
+  private turns = new Map<string, { resolve: (value: any) => void; onDelta: (text: string) => void; onItem?: (item: Record<string, unknown>) => void; text: string; turnId: string }>();
   private approvals = new Map<string, { rpcId: number | string; method: string; threadId: string; params: any }>();
   private toolCalls = new Map<string, { rpcId: number | string; threadId: string }>();
   private toolReadOnly = new Map<string, boolean>();
   private lightweightModel: Promise<{ model: string; effort: string }> | null = null;
-  private toolHandler: ((provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean) => Promise<unknown>) | null = null;
+  private toolHandler: ToolHandler | null = null;
   status = 'Not started';
-  setToolHandler(handler: (provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean) => Promise<unknown>) { this.toolHandler = handler; }
+  setToolHandler(handler: ToolHandler) { this.toolHandler = handler; }
   private executable() {
     const bundled = '/Applications/ChatGPT.app/Contents/Resources/codex';
     return process.env.CODEX_BINARY || (existsSync(bundled) ? bundled : 'codex');
@@ -54,6 +57,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     if (message.method === 'item/agentMessage/delta') {
       const turn = this.turns.get(message.params.threadId); if (turn) { turn.text += message.params.delta; turn.onDelta(message.params.delta); }
     }
+    if (message.method === 'item/completed' && message.params?.item) this.turns.get(message.params.threadId)?.onItem?.(message.params.item);
     if (message.method === 'turn/completed') {
       const turn = this.turns.get(message.params.threadId);
       if (turn) { this.turns.delete(message.params.threadId); const items = message.params.turn?.items || []; const finalText = items.filter((x: any) => x.type === 'agentMessage').map((x: any) => x.text).join('\n'); turn.resolve({ text: finalText || turn.text, status: message.params.turn?.status || 'completed' }); }
@@ -66,7 +70,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
       const [provider, ...parts] = String(params.tool).split('__'); const tool = parts.join('__');
       const id = randomUUID(); this.toolCalls.set(id, { rpcId: message.id!, threadId: params.threadId });
       try {
-        const value = await this.toolHandler?.(provider, tool, params.arguments || {}, this.toolReadOnly.get(String(params.tool)) === true);
+        const value = await this.toolHandler?.(provider, tool, params.arguments || {}, this.toolReadOnly.get(String(params.tool)) === true, String(params.threadId || ''));
         this.send({ id: message.id, result: { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? null) }] } });
       } catch (error) { this.send({ id: message.id, result: { success: false, contentItems: [{ type: 'inputText', text: String(error) }] } }); }
       this.toolCalls.delete(id); return;
@@ -104,20 +108,20 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     })().catch(error => { this.lightweightModel = null; throw error; });
     return this.lightweightModel;
   }
-  async run(input: { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void }) {
+  async run(input: RunInput) {
     await this.start();
     const route = input.modelTier === 'lightweight' ? await this.resolveLightweightModel() : null;
     for (const tool of input.tools) this.toolReadOnly.set(tool.name, tool.readOnly);
-    const dynamicTools = input.tools.map(tool => ({ type: 'function', name: tool.name, description: `${tool.description}${tool.readOnly ? ' (read only)' : ' (requires approval to write)'}`, inputSchema: tool.inputSchema }));
+    const dynamicTools = input.tools.map(tool => ({ type: 'function', name: tool.name, description: /^(slack|notion)__/.test(tool.name) ? `${tool.description}${tool.readOnly ? ' (read only)' : ' (requires approval to write)'}` : tool.description, inputSchema: tool.inputSchema }));
     let threadId = input.threadId;
     if (threadId) { try { await this.request('thread/resume', { threadId }); } catch { threadId = undefined; } }
     if (!threadId) {
-      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: 'read-only', baseInstructions: input.instructions, dynamicTools, ...(route || {}) });
+      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: input.sandbox || 'read-only', baseInstructions: input.instructions, dynamicTools, ...(route || {}) });
       threadId = started.thread.id;
     }
     const id = threadId!;
     input.onThreadStarted?.(id);
-    const done = new Promise<{ text: string; status: string }>(resolve => this.turns.set(id, { resolve, onDelta: input.onDelta, text: '', turnId: '' }));
+    const done = new Promise<{ text: string; status: string }>(resolve => this.turns.set(id, { resolve, onDelta: input.onDelta, onItem: input.onItem, text: '', turnId: '' }));
     try {
       const started = await this.request('turn/start', { threadId: id, input: [{ type: 'text', text: input.prompt, text_elements: [] }], ...(route || {}) });
       const turn = this.turns.get(id); if (turn) turn.turnId = started.turn.id;
