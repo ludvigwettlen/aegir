@@ -6,7 +6,7 @@ This guide describes the existing desktop UI. The new Lime Glass system is docum
 
 - Light mode is the default. Keep surfaces quiet and information dense, with one clear primary action per area.
 - Make agent activity legible: who acted, what is running, what needs approval, and where evidence came from.
-- Preserve the user's place. Tasks and Routines keep a context chat visible; Chat gives rooms and sources more room.
+- Preserve the user's place. A task's thread opens beside the list rather than replacing it; groups keep their thread list visible.
 - Use color for meaning and attention, not decoration. A source or status should still be understandable without color.
 
 ## Foundations
@@ -28,15 +28,14 @@ Use the `--space-*` scale (4, 8, 12, 16, 20, 24, 32 px) for new layout work. Con
 
 ## Layout
 
-- The Tasks workspace places the three-way Tasks / Chat / Routines switcher in its top 104 px; use the Fragments single-select `ToggleGroup` so selection and keyboard navigation stay consistent. The other screens retain the compact header.
-- Tasks has a white 190 px list rail (155 px below 1250 px), a flexible task area, and a context chat occupying roughly 36% of the window.
+- A 244 px sidebar is the only navigation. List-plus-detail views keep the list column fixed (task detail 440 px; thread and run lists 340 px, narrower below 1180 px).
 - Main pane: flexible, scrolls independently. Keep content left-aligned; avoid full-width prose.
-- The Tasks context chat has a room header, quiet empty state, and composer fixed to the bottom. The dedicated Chat view has a wider conversation and a source/artifact pane when space allows.
+- Threads have a header, a scrolling message list and a composer fixed to the bottom, in both the group view and the task detail pane.
 - At narrow widths, hide the artifact pane before compressing the conversation. Do not hide approvals or source links.
 
 ## Components and states
 
-Use Fragments for reusable controls: `Button`, `Badge`, `Card`, `Prompt`, and `ToggleGroup` are in use. Keep domain-specific composition (task rows, agent turns, routine list, source links) in app code. Prefer `Button` solid for the primary action, outline for secondary, ghost for repeated row actions, and link for navigation to evidence. Badges show connection and scan status; pair color with visible words. Cards group supporting information rather than every row. The sketch-specific rules live in `src/ui/task-layout.scss`; shared tokens stay in `src/ui/light.scss`.
+Use Fragments for reusable controls: `Button`, `Badge`, `Card`, `Prompt`, and `ToggleGroup` are in use. Keep domain-specific composition (task rows, agent turns, routine list, source links) in app code. Prefer `Button` solid for the primary action, outline for secondary, ghost for repeated row actions, and link for navigation to evidence. Badges show connection and scan status; pair color with visible words. Cards group supporting information rather than every row. Workspace views use `src/ui/workspace.scss`; legacy tokens for Memory and Settings stay in `src/ui/light.scss`.
 
 Every actionable element needs a readable label and focus state. Empty states should say what will appear and how to start. Loading, disconnected, failure, approval, and done must each be explicit in the UI. Motion should be subtle and respect reduced-motion preferences.
 

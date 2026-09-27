@@ -1,6 +1,6 @@
 # Agent Desk design system
 
-The Lime Glass direction is being introduced one section at a time. The [Paper Tasks sketch](https://app.paper.design/file/01M35BFSHJZGNPY821ZEJG3MQ2/p-1-0/BR-0) defines the compact layout. The third image in `design/concepts/03-lime-glass.png` defines the color and atmosphere. Chat and Tasks are migrated; shared Fragments primitives carry the same styling across the app.
+The Lime Glass direction is being introduced one section at a time. The [Paper Tasks sketch](https://app.paper.design/file/01M35BFSHJZGNPY821ZEJG3MQ2/p-1-0/BR-0) defines the compact layout. The third image in `design/concepts/03-lime-glass.png` defines the color and atmosphere. The workspace (sidebar, Tasks, groups and threads, Routines) is fully on Lime Glass; Memory and Settings still use some legacy styles from `light.scss`. The layouts follow the sketch canvas agreed in September 2026.
 
 ## Foundations
 
@@ -44,65 +44,52 @@ Use to group related content with a clear boundary. `solid` is an opaque elevate
 
 Use for a small set of mutually exclusive views or filters. The current workspace switcher is the first use. The group contains labeled items, with the selected item on a soft lime surface; hover and keyboard focus remain distinct. Keep the Fragments single-selection and arrow-key behavior. Do not use it for independent on/off choices or as a substitute for ordinary links.
 
-## Tasks components
+## Workspace layout
 
-The repeatable pieces are in `src/ui/design-system/tasks.tsx`, styled by `tasks.scss`. `TasksView` and `TaskRow` in `App.tsx` own task data and API actions; their layout and state styling follow the same rules.
+The app is a left sidebar plus one working area; there is no top navigation. Views live in `src/ui/views/` and share `src/ui/workspace.scss`. Two-column views (task list + detail, thread list + thread, run list + log) put the list on the left and keep the list's width fixed so the working column absorbs resizing.
 
-### `TaskListNav`
+### Sidebar
 
-Use for switching between Inbox, Upcoming, and Completed within Tasks. Each item has an icon, label, and optional count. The active list uses a soft lime background, dark green text, and `aria-current`; hover is a distinct lemon-soft state. Preserve the three-list meaning and avoid using color alone to identify the selected item.
+The only navigation. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone.
 
-### `TaskQuickAdd`
+### Task list
 
-Use above task lists for fast creation. It is a single-line form with a leading plus glyph, labeled text input, and trailing submit control. Enter and the button perform the same action; empty input disables submission. Keep the milky surface and visible lime focus boundary. Do not turn the plus glyph into a second action.
+A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall: status glyph, title, optional source icon, agent avatars plus a one-word state (working, review, blocked), and due date (overdue in amber). Rows are grouped by label; in Needs you they are grouped by status and show their label inline.
 
-### `TaskStatus`
+- **Glyphs** (`TaskGlyph`): an empty circle for your open task, a spinning partial lime ring while the team works, a lemon "!" for review or blocked, a spark for a suggestion, and a filled check for done. Each has an accessible label.
+- **Cursor**: the selected row uses the lime-soft selection style and scrolls into view. `J/K` or the arrow keys move it; clicking selects and opens.
+- **Shortcuts** are listed in the footer bar and must stay in sync with the handler: `X` done, `H` hand off, `L` label, `D` due, `↵` open, `Esc` close, `N` quick add, `Y` accept, `⌫` dismiss. Shortcuts are ignored while typing in a field.
+- **Quick add** is one line above the list with `N` shown; it parses `#label` and date words.
 
-Use at the start of each task row as a compact state cue. Proposed and blocked use lemon-soft, ready uses lime-soft, running uses active lime with a spinner, and done uses success green. The accessible label states the status in words. For running and blocked tasks, also show a visible text badge near the title; never make status depend solely on the indicator's color.
+### Task popovers
 
-### Task row
+Anchored under the row. The hand-off popover has a title, one instruction field and a footer stating that Atlas routes the work and that results are saved as files; `↵` submits, `⇧↵` adds a line, `Esc` cancels. The label and due popovers are a single field that commits on `↵` and closes on blur. Do not add agent pickers or autonomy settings here: hand-off is intentionally one instruction.
 
-Use one glass card per task with title, optional notes, creation date, optional source and goal detail, and actions matched to its state. `Edit` is secondary; `Accept`, `Start goal`, and `Save changes` are primary. Source is a link-style action that retains the external URL behavior. While editing, show only the editor's Save and Cancel actions—not the row's normal actions. Let actions wrap below content when the Tasks pane is narrow; do not truncate titles or notes to preserve the source context.
+### Task detail
 
-### `TaskEmptyState`
+The right-hand pane (440 px). A handed-off task shows its thread, with a header holding the task's status, label, due date and source, and Output (opens the folder) and Stop buttons. A task not yet handed off shows notes and Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
 
-Use when the selected task list has no entries. The icon, title, and guidance change with the list; the layout stays centered and restrained. Keep the quick-add form available above it so the state still offers a clear next action.
+### Thread list and thread
 
-## Chat components
+A group view lists its threads (title, status chip for task threads, last message snippet, participating agents, count and time) with Active / Tasks / Closed filters and a "Start a thread" field. Private groups show the agent's avatar and "Private · just you and <agent>".
 
-The reusable React components live in `src/ui/design-system/chat.tsx`; their styles live in `src/ui/design-system/chat.scss`.
+Messages are Slack-style, not bubbles: avatar, name, role chip, time, then text. Failures and streaming are shown in words and a typing indicator. System events are a single muted line with an arrow. Routine changes render as a card listing the before → after values, with Apply / Discard while pending and the outcome afterwards.
 
-### `ChatConversation`
+### Composer
 
-Use Fragments `ConversationList` as the scrolling layer in both the compact context chat and dedicated Chat view. Its smart auto-scroll follows new or streaming content only while the reader is near the bottom; scrolling up to read earlier messages must not be interrupted. Remount the list when the room changes so each room opens at its latest message. The component accepts our custom empty states and bubbles as children; its internal content spacing is overridden with Lime Glass chat spacing. Do not add a second manual scroll effect to `ChatView`.
+A two-line textarea that grows with content, with a hint bar and a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. Stop appears while an agent in the thread is running.
 
-### `ChatBubble`
+### Routine view
 
-- `variant="user"` aligns right on a soft lime surface. It has no avatar because placement identifies the speaker.
-- `variant="agent"` aligns left with an avatar, author, and optional role. The bubble uses a milky glass surface.
-- Keep message text in the bubble and timestamps below it. Streaming and failure are visible words as well as colors.
-- Pass rendered content as children so source links retain their normal interactive behavior.
-- Maximum bubble width is 76% of the conversation, rising to 84% at narrow widths. Do not stretch short turns across the pane.
-
-### `ChatEvent`
-
-Use for system handoffs, such as an agent joining or work being delegated. Keep it outside the bubble rhythm and include plain-language text.
-
-### `ChatComposer`
-
-Use the Fragments `Prompt` primitive for input, keyboard submission, loading, and the send control. The wrapper supplies the Lime Glass surface, hint text, stop action, and compact/full pane behavior. The send button has a lime focus/hover state; disabled is visibly muted. Keep the composer anchored below the scrolling conversation.
-
-### Room header and empty state
-
-The room picker and agent settings remain in `ChatView` because they depend on room data. Their styling uses the same tokens as the bubbles and composer. The compact empty state uses a single lime orb; the dedicated Chat screen retains a descriptive empty state and suggested prompts.
+A run list (grouped by day, with All / Failed / Did something filters) beside a monospace run log. The header has Discuss, Run now and Pause/Resume, plus collapsible instructions. Log lines are raw text: time with seconds, kind (run, system, call, result, agent, error), then the text. Colour only reinforces the kind column, and errors are red in both columns. The log is for debugging, so it has no chips or summaries beyond the run header.
 
 ## States and accessibility
 
 - Provide visible focus outlines on controls and source links.
 - Do not rely on color alone for working, failed, or connected states.
 - Preserve readable contrast over glow: opaque or near-opaque surface behind content, with `--ds-color-ink` or `--ds-color-muted` text.
-- Message alignment must survive long text, links, and the 355 px context pane.
-- Verify both the compact context chat and dedicated Chat view after changing a shared component.
+- Long titles truncate in lists but wrap in headers and messages; links wrap anywhere.
+- Verify threads both in a group view and in the narrower task detail pane after changing shared thread styles.
 
 ## Migration rule
 

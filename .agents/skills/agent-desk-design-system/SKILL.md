@@ -17,7 +17,7 @@ Evolve the interface section by section. Treat `docs/design-system.md` as the cu
 
 ## Current conventions
 
-- Shared Fragments adaptations are exported from `src/ui/design-system/primitives.tsx`; import those in product views. Chat's reusable components are in `src/ui/design-system/chat.tsx`, styled by `chat.scss`. New section-specific components may use the same directory, but do not force every UI element into it.
-- The current aesthetic uses an off-white canvas, milky glass surfaces, deep green ink, lime for primary action and user messages, and lemon as restrained ambient light. The selected concept is `design/concepts/03-lime-glass.png`; the Paper Tasks sketch linked from `docs/design-system.md` informs the compact layout.
+- Shared Fragments adaptations are exported from `src/ui/design-system/primitives.tsx`; import those in product views. Workspace views (sidebar, tasks, groups/threads, routines) live in `src/ui/views/`, styled by `src/ui/workspace.scss`. New section-specific components may go in `src/ui/design-system/`, but do not force every UI element into it.
+- The current aesthetic uses an off-white canvas, milky glass surfaces, deep green ink, lime for primary action and selection, and lemon as restrained ambient light. The selected concept is `design/concepts/03-lime-glass.png`; the Paper Tasks sketch linked from `docs/design-system.md` informs the compact layout.
 - Preserve existing behavior, source links, status text, and accessible names while changing presentation. Color alone must not convey working, failed, or selected state.
 - Token and component documentation should change in the same task as the implementation so the design system remains usable as it grows.
