@@ -15,7 +15,7 @@ export function ThreadView({ data, thread, group, run, header, compact = false }
     <ConversationList key={thread.id} className="ws-messages" autoScroll="smart" emptyState={<p className="ws-empty-line">No messages yet.</p>}>
       {messages.map(message => <MessageRow key={message.id} message={message} data={data} run={run}/>)}
     </ConversationList>
-    <Composer key={thread.id} data={data} group={group} busy={busy} placeholder={thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'} onSend={text => run(() => api.sendMessage(thread.id, text))} onStop={() => run(() => api.stopThread(thread.id))}/>
+    <Composer key={`composer-${thread.id}`} data={data} group={group} busy={busy} placeholder={thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'} onSend={text => run(() => api.sendMessage(thread.id, text))} onStop={() => run(() => api.stopThread(thread.id))}/>
   </section>;
 }
 
