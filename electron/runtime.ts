@@ -16,6 +16,8 @@ type Context = { kind: RunKind; threadId?: string; runId?: string; counts?: { ta
 export class Runtime {
   private active = new Map<string, Context>(); // Codex thread id → what it is running for
   private runningRoutines = new Set<string>();
+  private handingOffTasks = new Set<string>();
+  private lastMemoryRetryAt = 0;
   private timer: NodeJS.Timeout | null = null;
   constructor(private store: Store, private codex: CodexProvider, private connectors: ConnectorManager, private memory: MemoryService, private refresh: () => void, private emit: (event: AppEvent) => void, private paths: { outputRoot: string; routineCwd: string }) {}
 
@@ -49,20 +51,30 @@ export class Runtime {
   // A hand-off is one instruction. Atlas-style routing picks the group; the group lead starts in a fresh task thread.
   async handOff(taskId: string, instruction: string) {
     const task = this.store.get<Task>('tasks', taskId); if (!task) throw new Error('Task not found');
-    if (task.status === 'running') throw new Error('The team is already working on this task');
-    const brief = instruction.trim() || task.notes || task.title;
-    const group = await this.routeTask(task, brief);
-    const outputDir = task.outputDir || join(this.paths.outputRoot, `${slug(task.title)}-${task.id.slice(0, 6)}`);
-    mkdirSync(outputDir, { recursive: true });
-    let thread = task.threadId ? this.store.get<Thread>('threads', task.threadId) : undefined;
-    if (!thread) thread = this.store.createThread(group.id, task.title, 'task', task.id);
-    this.store.updateTask(taskId, { status: 'running', threadId: thread.id, outputDir, agentId: group.leadAgentId });
-    this.store.addMessage(thread.id, null, 'user', brief); this.refresh();
-    const lead = this.store.get<Agent>('agents', group.leadAgentId)!;
-    const ok = await this.runAgent(thread, group, lead, brief, 'task');
-    const latest = this.store.get<Task>('tasks', taskId);
-    if (latest?.status === 'running') this.store.updateTask(taskId, { status: ok ? 'review' : 'blocked' });
-    this.refresh();
+    if (task.status === 'running' || this.handingOffTasks.has(taskId)) throw new Error('The team is already working on this task');
+    this.handingOffTasks.add(taskId);
+    let started = false;
+    try {
+      const brief = instruction.trim() || task.notes || task.title;
+      const group = await this.routeTask(task, brief);
+      const outputDir = task.outputDir || join(this.paths.outputRoot, `${slug(task.title)}-${task.id.slice(0, 6)}`);
+      mkdirSync(outputDir, { recursive: true });
+      let thread = task.threadId ? this.store.get<Thread>('threads', task.threadId) : undefined;
+      if (!thread) thread = this.store.createThread(group.id, task.title, 'task', task.id);
+      this.store.updateTask(taskId, { status: 'running', threadId: thread.id, outputDir, agentId: group.leadAgentId });
+      started = true;
+      this.store.addMessage(thread.id, null, 'user', brief); this.refresh();
+      const lead = this.store.get<Agent>('agents', group.leadAgentId)!;
+      const ok = await this.runAgent(thread, group, lead, brief, 'task');
+      const latest = this.store.get<Task>('tasks', taskId);
+      if (latest?.status === 'running') this.store.updateTask(taskId, { status: ok ? 'review' : 'blocked' });
+      this.refresh();
+    } catch (error) {
+      if (started && this.store.get<Task>('tasks', taskId)?.status === 'running') {
+        this.store.updateTask(taskId, { status: 'blocked' }); this.refresh();
+      }
+      throw error;
+    } finally { this.handingOffTasks.delete(taskId); }
   }
   async stopTask(taskId: string) {
     const task = this.store.get<Task>('tasks', taskId);
@@ -190,6 +202,10 @@ ${memoryGuidance}\n${skillsFor(text)}`;
   stop() { if (this.timer) clearInterval(this.timer); }
   tick() {
     const now = new Date();
+    if (now.getTime() - this.lastMemoryRetryAt >= 60 * 60 * 1000) {
+      this.lastMemoryRetryAt = now.getTime();
+      void this.memory.retryPending().catch(error => console.error('Memory sync retry failed:', error));
+    }
     for (const routine of this.store.routines()) if (routine.enabled && !this.runningRoutines.has(routine.id) && isDue(routine.schedule, routine.lastRunAt, routine.createdAt, now)) void this.runRoutine(routine.id, 'schedule');
   }
   async runRoutine(routineId: string, trigger: RoutineRun['trigger']) {

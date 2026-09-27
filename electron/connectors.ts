@@ -27,7 +27,7 @@ class KeychainState {
   clear(key: string) { this.store.db.prepare('DELETE FROM settings WHERE key=?').run(`secret:${this.prefix}:${key}`); }
 }
 
-class DesktopOAuthProvider implements OAuthClientProvider {
+export class DesktopOAuthProvider implements OAuthClientProvider {
   private secrets: KeychainState;
   constructor(private name: ProviderName, store: Store, private onRedirect: (url: URL) => void) { this.secrets = new KeychainState(store, name); }
   get redirectUrl() { return `http://127.0.0.1:8765/callback/${this.name}`; }
@@ -50,6 +50,11 @@ class DesktopOAuthProvider implements OAuthClientProvider {
   saveCodeVerifier(value: string) { this.secrets.set('verifier', value); }
   codeVerifier(): string { const value = this.secrets.get<string>('verifier'); if (!value) throw new Error('OAuth verifier missing'); return value; }
   checkState(value: string | null) { return matchesOAuthState(this.secrets.get<string>('oauthState'), value); }
+  consumeState(value: string | null) {
+    if (!this.checkState(value)) return false;
+    this.secrets.clear('oauthState');
+    return true;
+  }
   configureSlack(clientId: string, clientSecret: string) { this.secrets.set('slackClient', { client_id: clientId, client_secret: clientSecret }); }
   isSlackConfigured() { return Boolean(this.secrets.get('slackClient')); }
   clear() { for (const key of ['client', 'tokens', 'verifier', 'oauthState', 'slackClient']) this.secrets.clear(key); }
@@ -82,7 +87,7 @@ export class ConnectorManager extends EventEmitter {
       const url = new URL(req.url || '/', 'http://127.0.0.1:8765');
       const provider = url.pathname.endsWith('/slack') ? 'slack' : url.pathname.endsWith('/notion') ? 'notion' : null;
       if (!provider) { res.writeHead(404); res.end('Not found'); return; }
-      if (!this.oauth[provider].checkState(url.searchParams.get('state'))) {
+      if (!this.oauth[provider].consumeState(url.searchParams.get('state'))) {
         res.writeHead(400); res.end('Invalid authorization callback'); return;
       }
       const code = url.searchParams.get('code');

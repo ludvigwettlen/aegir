@@ -37,13 +37,19 @@ export class MemoryService {
   async recall(query: string, agentId?: string): Promise<string> {
     const scopes = ['shared', ...(agentId ? [`agent-${agentId}`] : [])];
     const recalled: string[] = [];
+    const recalledScopes = new Set<string>();
     for (const scope of scopes) {
-      try { recalled.push(`[${scope}] ${await run(this.binary(), ['recall', query, '5'], this.bank(scope))}`); }
+      try {
+        const result = (await run(this.binary(), ['recall', query, '5'], this.bank(scope))).trim();
+        if (result) { recalled.push(`[${scope}] ${result}`); recalledScopes.add(scope); }
+      }
       catch { /* Use the local mirror below. */ }
     }
-    if (recalled.length) return recalled.join('\n');
     const terms = query.toLowerCase().split(/\W+/).filter(x => x.length > 3);
-    return this.store.list<{ scope: string; content: string }>('memories').filter(x => scopes.includes(x.scope) && terms.some(term => x.content.toLowerCase().includes(term))).slice(0, 8).map(x => `[${x.scope}] ${x.content}`).join('\n');
+    const local = this.store.list<{ id: string; scope: string; content: string }>('memories')
+      .filter(x => scopes.includes(x.scope) && (!recalledScopes.has(x.scope) || this.store.getSetting(`memorySynced:${x.id}`) === 'false') && terms.some(term => x.content.toLowerCase().includes(term)))
+      .slice(0, 8).map(x => `[${x.scope}] ${x.content}`);
+    return [...recalled, ...local].join('\n');
   }
   async forget(id: string) {
     const row = this.store.db.prepare('SELECT scope FROM memories WHERE id=?').get(id) as { scope: string } | undefined;

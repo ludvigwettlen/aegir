@@ -13,16 +13,16 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 
 // A fake Codex that calls one tool (if given) and then answers.
 function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime) => Promise<string> = async () => 'Done') {
-  const dir = mkdtempSync(join(tmpdir(), 'agent-desk-'));
+  const dir = mkdtempSync(join(tmpdir(), 'aegir-'));
   const store = new Store(join(dir, 'db.sqlite'));
   const runs: RunInput[] = [];
   let n = 0;
   let runtime!: Runtime;
   const codex = { run: async (input: RunInput) => { runs.push(input); const id = `codex-${++n}`; input.onThreadStarted?.(id); const text = await script(input, id, runtime); return { threadId: id, text, status: 'completed' }; }, stop: async () => {} } as unknown as CodexProvider;
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
-  const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
+  const memory = { recall: async () => '', remember: async () => ({ id: 'm' }), retryPending: vi.fn(async () => {}) } as unknown as MemoryService;
   runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir });
-  return { store, runtime, runs };
+  return { store, runtime, runs, memory };
 }
 
 describe('runtime', () => {
@@ -39,6 +39,37 @@ describe('runtime', () => {
     const run = runs.at(-1)!;
     expect(run).toMatchObject({ sandbox: 'workspace-write', cwd: updated.outputDir });
     expect(run.tools.map(tool => tool.name)).not.toContain('slack__post');
+  });
+
+  it('rejects a second hand-off while the first is still routing', async () => {
+    let finishRouting!: (result: string) => void;
+    const routing = new Promise<string>(resolve => { finishRouting = resolve; });
+    const { store, runtime } = setup(async input => input.instructions.includes('route tasks') ? routing : 'Done');
+    const group = store.groups().find(item => item.kind === 'group')!;
+    store.createGroup('Second group', [group.leadAgentId]);
+    const task = store.createTask({ title: 'Competitor pricing' });
+    const first = runtime.handOff(task.id, 'Compare competitors');
+    await expect(runtime.handOff(task.id, 'Compare again')).rejects.toThrow('already working');
+    finishRouting(JSON.stringify({ groupId: group.id }));
+    await first;
+    expect(store.threads().filter(thread => thread.taskId === task.id)).toHaveLength(1);
+    expect(store.messagesForThread(store.get<Task>('tasks', task.id)!.threadId!).filter(message => message.role === 'user')).toHaveLength(1);
+  });
+
+  it('reports a hand-off setup failure and leaves the task blocked', async () => {
+    const { store, runtime, memory } = setup();
+    vi.spyOn(memory, 'recall').mockRejectedValue(new Error('Recall failed'));
+    const task = store.createTask({ title: 'Competitor pricing' });
+    await expect(runtime.handOff(task.id, 'Compare competitors')).rejects.toThrow('Recall failed');
+    expect(store.get<Task>('tasks', task.id)?.status).toBe('blocked');
+  });
+
+  it('retries pending memories on a scheduler tick without routines', () => {
+    const { store, runtime, memory } = setup();
+    for (const routine of store.routines()) store.updateRoutine(routine.id, { enabled: false });
+    runtime.tick();
+    runtime.tick();
+    expect(memory.retryPending).toHaveBeenCalledTimes(1);
   });
 
   it('logs a routine run and records suggested tasks once', async () => {

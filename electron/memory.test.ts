@@ -1,19 +1,30 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryService } from './memory.js';
 import type { Store } from './db.js';
 import type { Memory } from '../shared/types.js';
 
-// Exercise the local fallback without depending on a Mnemosyne installation.
+const mnemosyne = vi.hoisted(() => ({ available: false, failPrivate: false }));
+
+// Exercise both the local fallback and a partial Mnemosyne response without an installation.
 vi.mock('node:child_process', () => ({
-  spawn: () => {
+  spawn: (_binary: string, args: string[], options: { env: { MNEMOSYNE_BANK: string } }) => {
     const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
-    queueMicrotask(() => child.emit('error', new Error('Mnemosyne unavailable')));
+    queueMicrotask(() => {
+      if (!mnemosyne.available || (mnemosyne.failPrivate && options.env.MNEMOSYNE_BANK.includes('agent-'))) {
+        child.emit('error', new Error('Mnemosyne unavailable'));
+      } else {
+        if (args[0] === 'recall') child.stdout.emit('data', 'Remote planning result');
+        child.emit('close', 0);
+      }
+    });
     return child;
   }
 }));
+
+afterEach(() => { mnemosyne.available = false; mnemosyne.failPrivate = false; });
 
 function fixture() {
   const rows: Memory[] = [];
@@ -66,6 +77,27 @@ describe('memory local fallback', () => {
     expect(recalled).toContain('Planning brief is due Friday');
     expect(recalled).toContain('Planning draft belongs to first agent');
     expect(recalled).not.toContain('Planning notes belong to second agent');
+  });
+
+  it('includes pending local memories even when another scope recalls remotely', async () => {
+    const { memory } = fixture();
+    await memory.remember('shared', 'Planning brief is due Friday', null);
+    await memory.remember('agent-a1b2', 'Planning draft belongs to first agent', null);
+    mnemosyne.available = true;
+    mnemosyne.failPrivate = true;
+    const recalled = await memory.recall('planning', 'a1b2');
+    expect(recalled).toContain('[shared] Remote planning result');
+    expect(recalled).toContain('[shared] Planning brief is due Friday');
+    expect(recalled).toContain('[agent-a1b2] Planning draft belongs to first agent');
+  });
+
+  it('syncs pending memories once Mnemosyne becomes available', async () => {
+    const { memory, settings } = fixture();
+    const row = await memory.remember('shared', 'Planning brief is due Friday', null);
+    expect(settings.get(`memorySynced:${row?.id}`)).toBe('false');
+    mnemosyne.available = true;
+    await memory.retryPending();
+    expect(settings.get(`memorySynced:${row?.id}`)).toBe('true');
   });
 
   it('corrects and forgets pending local memories', async () => {
