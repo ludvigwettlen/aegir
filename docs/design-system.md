@@ -63,11 +63,11 @@ A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall
 
 ### Task popovers
 
-Anchored under the row. The hand-off popover has a title, one instruction field and a footer stating that Atlas routes the work and that results are saved as files; `↵` submits, `⇧↵` adds a line, `Esc` cancels. The label and due popovers are a single field that commits on `↵` and closes on blur. Do not add agent pickers or autonomy settings here: hand-off is intentionally one instruction.
+Anchored under the row. The hand-off popover has a title, one instruction field and a footer stating that Atlas routes the work and that results are saved as files; `↵` submits, `⇧↵` adds a line, `Esc` cancels. The label and due popovers are a single field that commits on `↵` or blur; empty input clears the value, while an invalid date stays open with an inline error. Do not add agent pickers or autonomy settings here: hand-off is intentionally one instruction.
 
 ### Task detail
 
-The right-hand pane (440 px). A handed-off task shows its thread, with a header holding the task's status, label, due date and source, and Output (opens the folder) and Stop buttons. A task not yet handed off shows notes and Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
+The right-hand pane (440 px). Its header is the single editing surface for task title, notes, label and due date, whether or not the task has been handed off. Label and due-date controls include explicit clear actions. Deletion requires a second confirming click, is unavailable while the task is running, and removes an associated task thread and its messages while leaving external output files alone. A handed-off task shows its thread plus Output (opens the folder) and Stop buttons. A task not yet handed off shows Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
 
 ### Thread list and thread
 

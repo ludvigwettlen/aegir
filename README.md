@@ -33,6 +33,7 @@ Codex runs chat and routines in a read-only sandbox. Commands that need broader 
 Upgrading keeps existing data: rooms become groups, each room's history becomes a closed "Earlier conversation" thread, and goal output becomes a task thread. The old tables stay in the database. No Slack, Notion, or Mnemosyne account was connected during local development, so live OAuth, retrieval and full agent runs need an end-to-end check with your accounts.
 
 The UI is documented in [the design system](docs/design-system.md).
+Current follow-up work is tracked in [TODO.md](TODO.md).
 
 ## Verification
 

@@ -145,7 +145,23 @@ export class Store {
   }
   updateTask(id: string, change: TaskChange & Partial<Pick<Task, 'agentId' | 'threadId' | 'outputDir'>>) {
     const row = this.get<Task>('tasks', id); if (!row) throw new Error('Task not found');
-    this.db.prepare('UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt WHERE id=@id').run({ ...row, ...change, updatedAt: now() });
+    const next = { ...row, ...change, updatedAt: now() };
+    next.title = next.title.trim(); if (!next.title) throw new Error('A task needs a title');
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt WHERE id=@id').run(next);
+      if (change.title !== undefined && next.threadId) this.db.prepare("UPDATE threads SET title=?,updatedAt=? WHERE id=? AND kind='task'").run(next.title.slice(0, 120), next.updatedAt, next.threadId);
+    })();
+  }
+  deleteTask(id: string) {
+    const task = this.get<Task>('tasks', id); if (!task) throw new Error('Task not found');
+    if (task.status === 'running') throw new Error('Stop this task before deleting it');
+    this.db.transaction(() => {
+      if (task.threadId) {
+        this.db.prepare('DELETE FROM messages WHERE threadId=?').run(task.threadId);
+        this.db.prepare("DELETE FROM threads WHERE id=? AND kind='task'").run(task.threadId);
+      }
+      this.db.prepare('DELETE FROM tasks WHERE id=?').run(id);
+    })();
   }
 
   routines(): Routine[] { return (this.db.prepare('SELECT * FROM routines ORDER BY createdAt ASC').all() as RoutineRow[]).map(toRoutine); }

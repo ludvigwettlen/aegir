@@ -67,6 +67,7 @@ function registerIpc() {
     const allowed: TaskChange = {}; for (const key of ['title', 'notes', 'status', 'label', 'dueAt'] as const) if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
     store.updateTask(id, allowed); refresh();
   });
+  handle('delete-task', (id: string) => { store.deleteTask(id); refresh(); });
   handle('hand-off', (taskId: string, instruction: string) => runtime.handOff(taskId, instruction));
   handle('stop-task', (taskId: string) => runtime.stopTask(taskId));
   handle('open-task-output', async (taskId: string) => { const dir = store.get<Task>('tasks', taskId)?.outputDir; if (!dir) throw new Error('This task has no output folder yet'); const error = await shell.openPath(dir); if (error) throw new Error(error); });

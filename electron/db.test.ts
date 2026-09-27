@@ -58,4 +58,40 @@ describe('store', () => {
     expect(store.get<{ status: string }>('threads', thread.id)!.status).toBe('active');
     store.close();
   });
+
+  it('updates every editable task field and keeps its task thread title in sync', () => {
+    const store = new Store(path());
+    const group = store.groups()[0];
+    const task = store.createTask({ title: 'First title', notes: 'Old', label: 'old', dueAt: '2026-10-01' });
+    const thread = store.createThread(group.id, task.title, 'task', task.id);
+    store.updateTask(task.id, { threadId: thread.id });
+    store.updateTask(task.id, { title: '  Better title  ', notes: 'New', label: null, dueAt: null });
+    expect(store.get<{ title: string; notes: string; label: string | null; dueAt: string | null }>('tasks', task.id)).toMatchObject({ title: 'Better title', notes: 'New', label: null, dueAt: null });
+    expect(store.get<{ title: string }>('threads', thread.id)?.title).toBe('Better title');
+    expect(() => store.updateTask(task.id, { title: '  ' })).toThrow('A task needs a title');
+    store.close();
+  });
+
+  it('deletes a task and its task-thread conversation but keeps output files external', () => {
+    const store = new Store(path());
+    const group = store.groups()[0];
+    const task = store.createTask({ title: 'Remove me' });
+    const thread = store.createThread(group.id, task.title, 'task', task.id);
+    store.addMessage(thread.id, null, 'user', 'Task context');
+    store.updateTask(task.id, { threadId: thread.id });
+    store.deleteTask(task.id);
+    expect(store.get('tasks', task.id)).toBeUndefined();
+    expect(store.get('threads', thread.id)).toBeUndefined();
+    expect(store.messagesForThread(thread.id)).toEqual([]);
+    store.close();
+  });
+
+  it('does not delete a running task', () => {
+    const store = new Store(path());
+    const task = store.createTask({ title: 'In progress' });
+    store.updateTask(task.id, { status: 'running' });
+    expect(() => store.deleteTask(task.id)).toThrow('Stop this task before deleting it');
+    expect(store.get('tasks', task.id)).toBeDefined();
+    store.close();
+  });
 });

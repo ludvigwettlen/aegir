@@ -30,6 +30,7 @@ export interface DesktopApi {
   closeThread(threadId: string): Promise<void>;
   createTask(input: { title: string; notes?: string; label?: string | null; dueAt?: string | null }): Promise<Task>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
+  deleteTask(taskId: string): Promise<void>;
   handOff(taskId: string, instruction: string): Promise<void>;
   stopTask(taskId: string): Promise<void>;
   openTaskOutput(taskId: string): Promise<void>;

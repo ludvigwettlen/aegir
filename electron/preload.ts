@@ -13,6 +13,7 @@ const api: DesktopApi = {
   closeThread: threadId => ipcRenderer.invoke('close-thread', threadId),
   createTask: input => ipcRenderer.invoke('create-task', input),
   updateTask: (taskId, change) => ipcRenderer.invoke('update-task', taskId, change),
+  deleteTask: taskId => ipcRenderer.invoke('delete-task', taskId),
   handOff: (taskId, instruction) => ipcRenderer.invoke('hand-off', taskId, instruction),
   stopTask: taskId => ipcRenderer.invoke('stop-task', taskId),
   openTaskOutput: taskId => ipcRenderer.invoke('open-task-output', taskId),
