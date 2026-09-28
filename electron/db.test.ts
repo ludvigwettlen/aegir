@@ -40,6 +40,7 @@ describe('store', () => {
     const threads = store.threads().filter(thread => thread.groupId === 'r1');
     expect(threads.map(thread => [thread.title, thread.kind]).sort()).toEqual([['Earlier conversation', 'chat'], ['Write memo', 'task']]);
     const taskThread = store.get('tasks', 't1')!.threadId;
+    expect(store.get('tasks', 't1')!.completedAt).toBe('2026-01-04');
     expect(store.messagesForThread(taskThread!).map(message => message.content)).toEqual(['Memo written']);
     expect(store.groups().some(group => group.kind === 'group' && group.title === 'General')).toBe(false);
     store.close();
@@ -92,6 +93,45 @@ describe('store', () => {
     store.updateTask(task.id, { status: 'running' });
     expect(() => store.deleteTask(task.id)).toThrow('Stop this task before deleting it');
     expect(store.get('tasks', task.id)).toBeDefined();
+    store.close();
+  });
+
+  it('undoes a task deletion with its exact thread, messages, and attached links', () => {
+    const store = new Store(path());
+    const group = store.groups()[0];
+    const task = store.createTask({ title: 'Prepare report' }, true);
+    const thread = store.createThread(group.id, task.title, 'task', task.id);
+    const first = store.addMessage(thread.id, null, 'user', 'Keep this context');
+    store.updateTask(task.id, { threadId: thread.id });
+    const link = store.addTaskLink(task.id, 'obsidian://open?vault=Work&file=Report');
+    store.deleteTask(task.id, true);
+    expect(store.get('tasks', task.id)).toBeUndefined();
+    expect(store.messagesForThread(thread.id)).toEqual([]);
+    expect(store.taskLinks(task.id)).toEqual([]);
+
+    expect(store.undoTaskAction()).toEqual({ taskId: task.id, action: 'task deletion' });
+    expect(store.get('tasks', task.id)?.threadId).toBe(thread.id);
+    expect(store.get('threads', thread.id)?.id).toBe(thread.id);
+    expect(store.messagePage(thread.id).messages.map(message => message.id)).toEqual([first.id]);
+    expect(store.taskLinks(task.id)).toEqual([link]);
+    store.close();
+  });
+
+  it('undoes completion, edits, links, and creation in reverse order', () => {
+    const store = new Store(path());
+    const task = store.createTask({ title: 'Draft' }, true);
+    store.updateTask(task.id, { title: 'Send draft', status: 'done' }, true);
+    expect(store.get('tasks', task.id)?.completedAt).toBeTruthy();
+    const link = store.addTaskLink(task.id, 'https://example.com/draft');
+    store.removeTaskLink(link.id);
+    expect(store.undoTaskAction()?.action).toBe('link removal');
+    expect(store.taskLinks(task.id)).toEqual([link]);
+    expect(store.undoTaskAction()?.action).toBe('link attachment');
+    expect(store.taskLinks(task.id)).toEqual([]);
+    expect(store.undoTaskAction()?.action).toBe('task edit');
+    expect(store.get('tasks', task.id)).toMatchObject({ title: 'Draft', status: 'ready', completedAt: null });
+    expect(store.undoTaskAction()?.action).toBe('task creation');
+    expect(store.get('tasks', task.id)).toBeUndefined();
     store.close();
   });
 });

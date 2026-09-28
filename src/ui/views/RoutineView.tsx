@@ -43,10 +43,10 @@ export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot;
           <button aria-pressed={filter === 'did'} className={filter === 'did' ? 'on' : ''} onClick={() => setFilter('did')}>Did something · {runs.filter(item => didSomething(item.summary)).length}</button>
         </div>
       </header>
-      <div className="ws-thread-items">
+      <div className="ws-thread-items" data-keyboard-pane="list" tabIndex={-1}>
         {[...byDay].map(([label, items]) => <div key={label}>
           <div className="ws-group-label">{label.toUpperCase()}</div>
-          {items.map(item => <button key={item.id} className={`ws-run-item ${item.id === selected?.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}>
+          {items.map(item => <button key={item.id} data-keyboard-item data-keyboard-current={item.id === selected?.id ? '' : undefined} className={`ws-run-item ${item.id === selected?.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}>
             {item.status === 'ok' ? <Check size={14} className="ok"/> : item.status === 'failed' ? <X size={14} className="failed"/> : <span className="ws-live"/>}
             <span><strong>{time(item.startedAt)}</strong><small className={item.status === 'failed' ? 'failed' : ''}>{item.summary || (item.status === 'running' ? 'Running…' : '—')}</small></span>
             <em>{duration(item.startedAt, item.endedAt)}</em>
@@ -55,7 +55,7 @@ export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot;
         {!shown.length && <p className="ws-empty-line">{runs.length ? 'No runs match this filter.' : 'No runs yet. Run it now or wait for the next scheduled time.'}</p>}
       </div>
     </section>
-    <main className="ws-run-log" aria-label="Run log">
+    <main className="ws-run-log" aria-label="Run log" data-keyboard-pane="detail" tabIndex={-1}>
       {selected ? <>
         <header className="ws-thread-head"><div><h2>Run · {day(selected.startedAt)} {time(selected.startedAt)}</h2><p>{selected.id.slice(0, 8)} · {selected.trigger} · {selected.status} · {duration(selected.startedAt, selected.endedAt)}{selected.summary ? ` · ${selected.summary}` : ''}</p></div>
           <button className="ws-btn" onClick={() => void navigator.clipboard.writeText(logText)}><Copy size={13}/> Copy log</button></header>

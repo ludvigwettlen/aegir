@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   nativeImage,
@@ -13,6 +14,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
+import { normalizeTaskLink } from '../shared/task-links.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
@@ -49,6 +51,7 @@ function snapshot(): Snapshot {
     groups: store.groups(),
     threads: store.threadSummaries(),
     tasks: store.list('tasks'),
+    taskLinks: store.taskLinks(),
     routines: store.routines(),
     routineRuns: store.routineRuns(),
     connectors: Object.values(connectors.states),
@@ -126,7 +129,7 @@ function registerIpc() {
   handle(
     'create-task',
     (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null }) => {
-      const task = store.createTask(input);
+      const task = store.createTask(input, true);
       refresh();
       return task;
     },
@@ -135,12 +138,27 @@ function registerIpc() {
     const allowed: TaskChange = {};
     for (const key of ['title', 'notes', 'status', 'label', 'dueAt'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
-    store.updateTask(id, allowed);
+    store.updateTask(id, allowed, true);
     refresh();
   });
   handle('delete-task', (id: string) => {
-    store.deleteTask(id);
+    store.deleteTask(id, true);
     refresh();
+  });
+  handle('add-task-link', (taskId: string, url: string) => {
+    const link = store.addTaskLink(taskId, url);
+    refresh();
+    return link;
+  });
+  handle('read-clipboard-text', () => clipboard.readText());
+  handle('remove-task-link', (linkId: string) => {
+    store.removeTaskLink(linkId);
+    refresh();
+  });
+  handle('undo-task-action', () => {
+    const action = store.undoTaskAction();
+    if (action) refresh();
+    return action;
   });
   handle('hand-off', (taskId: string, instruction: string) => runtime.handOff(taskId, instruction));
   handle('stop-task', (taskId: string) => runtime.stopTask(taskId));
@@ -208,8 +226,9 @@ function registerIpc() {
     refresh();
   });
   handle('open-external', (url: string) => {
-    if (!/^https?:\/\//.test(url)) throw new Error('Invalid URL');
-    return shell.openExternal(url);
+    const safe = normalizeTaskLink(url);
+    if (!safe) throw new Error('Invalid URL');
+    return shell.openExternal(safe);
   });
 }
 function createWindow() {

@@ -1,0 +1,133 @@
+import { useEffect } from 'react';
+import { api, isTyping, type Route, type Run } from '../views/common';
+
+const listShortcuts = { t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
+
+export function useWorkspaceKeyboard(
+  run: Run,
+  setRoute: (route: Route) => void,
+  setNotice: (message: string) => void,
+) {
+  // One focus graph for the sidebar, list and detail panes. Text editors keep native keys.
+  useEffect(() => {
+    let pending = false;
+    let timer = 0;
+    const onKey = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
+      if (event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (event.key.toLowerCase() === 'n') {
+          event.preventDefault();
+          setRoute({ view: 'tasks', list: 'today' });
+          window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(() =>
+              document.querySelector<HTMLInputElement>('[data-quick-add]')?.focus(),
+            ),
+          );
+          return;
+        }
+        if (event.key.toLowerCase() === 'z' && !event.shiftKey && !isTyping(event)) {
+          event.preventDefault();
+          void run(async () => {
+            const undone = await api.undoTaskAction();
+            setNotice(undone ? `Undid ${undone.action}` : 'Nothing to undo');
+          });
+        }
+        return;
+      }
+      if (event.defaultPrevented || isTyping(event) || event.metaKey || event.ctrlKey || event.altKey)
+        return;
+      if (pending) {
+        pending = false;
+        window.clearTimeout(timer);
+        const list = listShortcuts[event.key as keyof typeof listShortcuts];
+        if (list) {
+          event.preventDefault();
+          setRoute({ view: 'tasks', list });
+          window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(() => {
+              const pane = document.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
+              (pane?.querySelector<HTMLElement>('[data-keyboard-current]') ||
+                pane?.querySelector<HTMLElement>('[data-keyboard-item]') || pane)?.focus();
+            }),
+          );
+        }
+        return;
+      }
+      if (event.key === 'g') {
+        pending = true;
+        timer = window.setTimeout(() => {
+          pending = false;
+        }, 900);
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      const pane = target?.closest<HTMLElement>('[data-keyboard-pane]');
+      const name = pane?.dataset.keyboardPane || (target === document.body
+        ? document.querySelector('[data-keyboard-pane="list"]') ? 'list' : 'page'
+        : '');
+      const sidebar = document.querySelector<HTMLElement>('[data-keyboard-pane="sidebar"]');
+      const list = document.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
+      const detail = document.querySelector<HTMLElement>('[data-keyboard-pane="detail"]');
+      const page = document.querySelector<HTMLElement>('[data-keyboard-pane="page"]');
+      const focusCurrent = (container: HTMLElement | null, selector: string) => {
+        const item =
+          container?.querySelector<HTMLElement>('[data-keyboard-current]') ||
+          container?.querySelector<HTMLElement>(selector);
+        (item || container)?.focus();
+      };
+      if (event.key === 'h' || event.key === 'ArrowLeft') {
+        if (name === 'list' || name === 'page') focusCurrent(sidebar, '[aria-current="page"]');
+        else if (name === 'detail') focusCurrent(list, '[data-keyboard-item]');
+        else return;
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'l' || event.key === 'ArrowRight') {
+        if (name === 'sidebar') {
+          const focusedItem = target?.closest<HTMLElement>('[data-nav-item]');
+          if (focusedItem && focusedItem.getAttribute('aria-current') !== 'page')
+            focusedItem.click();
+          window.requestAnimationFrame(() =>
+            focusCurrent(
+              document.querySelector<HTMLElement>('[data-keyboard-pane="list"]') ||
+                document.querySelector<HTMLElement>('[data-keyboard-pane="page"]'),
+              '[data-keyboard-item], button:not(:disabled), a[href]',
+            ),
+          );
+        } else if (name === 'list') {
+          const current =
+            list?.querySelector<HTMLElement>('[data-keyboard-current]') ||
+            list?.querySelector<HTMLElement>('[data-keyboard-item]');
+          if (!current) return;
+          if (current.hasAttribute('data-task-row')) current.click();
+          window.requestAnimationFrame(() =>
+            document.querySelector<HTMLElement>('[data-keyboard-pane="detail"]')?.focus(),
+          );
+        } else return;
+        event.preventDefault();
+        return;
+      }
+      if (!['j', 'k', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+      const container =
+        name === 'sidebar' ? sidebar : name === 'list' ? list : name === 'detail' ? detail : name === 'page' ? page : null;
+      if (!container) return;
+      const selector =
+        name === 'sidebar'
+          ? '[data-nav-item]'
+          : name === 'list'
+            ? '[data-keyboard-item]'
+            : 'button:not(:disabled), a[href], input, textarea';
+      const items = [...container.querySelectorAll<HTMLElement>(selector)];
+      if (!items.length) return;
+      const current = target ? items.findIndex((item) => item === target || item.contains(target)) : -1;
+      const down = event.key === 'j' || event.key === 'ArrowDown';
+      const start = current < 0 ? (down ? -1 : items.length) : current;
+      const next = items[Math.max(0, Math.min(items.length - 1, start + (down ? 1 : -1)))];
+      next?.focus();
+      if (name === 'list' && next?.tagName === 'BUTTON') next.click();
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [run]);
+}

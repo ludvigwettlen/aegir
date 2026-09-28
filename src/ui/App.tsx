@@ -2,7 +2,8 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Snapshot } from '../../shared/types';
 import { ApprovalDock } from './views/ApprovalDock';
-import { api, isTyping, type Route, type Run } from './views/common';
+import { api, type Route, type Run } from './views/common';
+import { useWorkspaceKeyboard } from './hooks/useWorkspaceKeyboard';
 import { GroupView } from './views/GroupView';
 import { MemoryView } from './views/MemoryView';
 import { NewGroupModal } from './views/NewGroupModal';
@@ -15,6 +16,7 @@ export function App() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [route, setRoute] = useState<Route>({ view: 'tasks', list: 'today' });
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [showNewGroup, setShowNewGroup] = useState(false);
   useEffect(() => {
     void api.snapshot().then(setData);
@@ -32,34 +34,12 @@ export function App() {
       );
     }
   }, []);
-  // g then t/u/w/n jumps between task lists, Linear/Godspeed style.
+  useWorkspaceKeyboard(run, setRoute, setNotice);
   useEffect(() => {
-    let pending = false;
-    let timer = 0;
-    const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (pending) {
-        pending = false;
-        window.clearTimeout(timer);
-        const list = ({ t: 'today', u: 'upcoming', w: 'team', n: 'needs' } as const)[
-          event.key as 't' | 'u' | 'w' | 'n'
-        ];
-        if (list) {
-          event.preventDefault();
-          setRoute({ view: 'tasks', list });
-        }
-        return;
-      }
-      if (event.key === 'g') {
-        pending = true;
-        timer = window.setTimeout(() => {
-          pending = false;
-        }, 900);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(''), 3500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   if (!data) return <div className="loading">Loading Ägir…</div>;
   const group =
     route.view === 'group' ? data.groups.find((item) => item.id === route.groupId) : undefined;
@@ -76,7 +56,7 @@ export function App() {
       <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} />
       <div className="ws-main">
         {route.view === 'tasks' && (
-          <TasksView key={route.list} data={data} run={run} list={route.list} />
+          <TasksView data={data} run={run} list={route.list} notify={setNotice} />
         )}
         {route.view === 'group' && group && (
           <GroupView
@@ -99,12 +79,12 @@ export function App() {
           />
         )}
         {route.view === 'memory' && (
-          <main className="full-page">
+          <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
             <MemoryView data={data} run={run} />
           </main>
         )}
         {route.view === 'settings' && (
-          <main className="full-page">
+          <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
             <SettingsView data={data} run={run} />
           </main>
         )}
@@ -118,6 +98,7 @@ export function App() {
           </button>
         </div>
       )}
+      {notice && <div className="ws-notice" role="status">{notice}</div>}
       {showNewGroup && (
         <NewGroupModal
           agents={data.agents}

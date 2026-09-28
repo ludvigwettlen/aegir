@@ -27,10 +27,11 @@ export function parseQuickAdd(text: string, today = new Date()): { title: string
   return { title: kept.join(' '), label, dueAt };
 }
 
-export type TaskView = 'today' | 'upcoming' | 'team' | 'needs';
+export type TaskView = 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
+  if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
   const open = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);

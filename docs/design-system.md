@@ -50,16 +50,16 @@ The app is a left sidebar plus one working area; there is no top navigation. Vie
 
 ### Sidebar
 
-The only navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone.
+The only navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
 
 ### Task list
 
-A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall: status glyph, title, optional source icon, agent avatars plus a one-word state (working, review, blocked), and due date (overdue in amber). Rows are grouped by label; in Needs you they are grouped by status and show their label inline.
+A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall: status glyph, title, optional source or attached-link icon, agent avatars plus a one-word state (working, review, blocked), and due date (overdue in amber). Open rows are grouped by label; in Needs you they are grouped by status and show their label inline. Completed tasks have their own list, newest completion first, with Space or the detail action to reopen.
 
 - **Glyphs** (`TaskGlyph`): an empty circle for your open task, a spinning partial lime ring while the team works, a lemon "!" for review or blocked, a spark for a suggestion, and a filled check for done. Each has an accessible label.
-- **Cursor**: the selected row uses the lime-soft selection style and scrolls into view. `J/K` or the arrow keys move it; clicking selects and opens.
-- **Shortcuts** are listed in the footer bar and must stay in sync with the handler: `X` done, `H` hand off, `L` label, `D` due, `↵` open, `Esc` close, `N` quick add, `Y` accept, `⌫` dismiss. Shortcuts are ignored while typing in a field.
-- **Quick add** is one line above the list with `N` shown; it parses `#label` and date words.
+- **Cursor and panes**: the selected row uses the lime-soft selection style and scrolls into view. `J/K` or Up/Down moves it. `H` or Left moves into the sidebar; `L` or Right opens the detail pane. The same pane motions work in group and routine lists. Selection is retained per task list.
+- **Shortcuts** are listed in the footer bar and must stay in sync with the handler: `Space` completes or reopens, `Enter` edits the selected title, `N` edits notes, `A` hands off, `B` sets a label, `Shift+B` clears it, `D` sets a due date, `Shift+D` clears it, `Cmd+N` creates a task, `Cmd+V` attaches a copied link, `Cmd+Z` undoes the last local task action, `Y` accepts, and Backspace dismisses a suggestion. `G` then `T/U/W/N/C` jumps to a task list. Shortcuts are ignored while typing in a field; text editors retain native undo.
+- **Quick add** is one line above open task lists with `Cmd+N` shown; it parses `#label` and date words. The completed list has no quick add field.
 
 ### Task popovers
 
@@ -67,7 +67,7 @@ Anchored under the row. The hand-off popover has a title, one instruction field 
 
 ### Task detail
 
-The right-hand pane (440 px). Its header is the single editing surface for task title, notes, label and due date, whether or not the task has been handed off. Label and due-date controls include explicit clear actions. Favor immediate, reversible task actions with `Cmd+Z` undo over confirmation dialogs. Deletion is unavailable while the task is running; it removes the associated task thread and messages while leaving external output files alone, and undo must restore the removed conversation. The current build still requires a second click to delete until undo is implemented. A handed-off task shows its thread plus Output (opens the folder) and Stop buttons. A task not yet handed off shows Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
+The right-hand pane (440 px). Its header is the single editing surface for task title, notes, label and due date, whether or not the task has been handed off. `Enter` on a selected row focuses and selects the title; `Enter` saves and `Escape` cancels title editing. `N` focuses notes. Label and due-date controls include explicit clear actions. Attached links appear beside the task's source link, with a remove button for each; attached links do not replace source provenance. Favor immediate, reversible task actions with `Cmd+Z` undo over confirmation dialogs. Deletion is unavailable while the task is running; one click removes the task and its task thread and messages while leaving external output files alone. Undo restores the removed conversation with its original IDs. The current session retains up to 100 task actions for undo. A handed-off task shows its thread plus Output (opens the folder) and Stop buttons. A task not yet handed off shows Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
 
 ### Thread list and thread
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, FileText, Inbox, Plus, Repeat2, Settings2, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, FileText, Inbox, Plus, Repeat2, Settings2, Sun, Users } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -23,6 +23,7 @@ function Item({
 }) {
   return (
     <button
+      data-nav-item
       className={`ws-nav-item ${active ? 'active' : ''}`}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
@@ -58,7 +59,7 @@ export function Sidebar({
     .filter((connector) => connector.status === 'connected')
     .map((connector) => (connector.id === 'slack' ? 'Slack' : 'Notion'));
   return (
-    <nav className="ws-sidebar" aria-label="Workspace">
+    <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
       <Item
         active={isList('needs')}
         onClick={() => go({ view: 'tasks', list: 'needs' })}
@@ -88,6 +89,13 @@ export function Sidebar({
         icon={<Users size={16} />}
         label="With the team"
         count={tasksFor('team', data.tasks).length}
+      />
+      <Item
+        active={isList('completed')}
+        onClick={() => go({ view: 'tasks', list: 'completed' })}
+        icon={<CheckCheck size={16} />}
+        label="Completed"
+        count={tasksFor('completed', data.tasks).length}
       />
       <div className="ws-nav-label">
         <span>GROUPS</span>
@@ -143,6 +151,7 @@ export function Sidebar({
       })}
       <div className="ws-sidebar-foot">
         <button
+          data-nav-item
           aria-label="Memory"
           title="Memory"
           className={route.view === 'memory' ? 'active' : ''}
@@ -151,6 +160,7 @@ export function Sidebar({
           <FileText size={15} />
         </button>
         <button
+          data-nav-item
           aria-label="Settings"
           title="Settings"
           className={route.view === 'settings' ? 'active' : ''}

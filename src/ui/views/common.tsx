@@ -1,11 +1,12 @@
 import type { CSSProperties,ReactNode } from 'react';
 import { describeSchedule,nextRunAfter } from '../../../shared/routines';
 import type { Agent,Routine,RoutineRun,Task } from '../../../shared/types';
+import type { TaskView } from '../../../shared/tasks';
 
 export const api = window.aegir;
 export type Run = (action: () => Promise<unknown>) => Promise<void>;
 export type Route =
-  | { view: 'tasks'; list: 'today' | 'upcoming' | 'team' | 'needs' }
+  | { view: 'tasks'; list: TaskView }
   | { view: 'group'; groupId: string; threadId?: string; draft?: string }
   | { view: 'routine'; routineId: string }
   | { view: 'memory' } | { view: 'settings' };

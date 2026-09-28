@@ -64,7 +64,9 @@ export type Task = {
   sourceKey: string | null;
   createdAt: string;
   updatedAt: string;
+  completedAt: string | null;
 };
+export type TaskLink = { id: string; taskId: string; url: string; createdAt: string };
 export type RoutineSchedule = {
   every: 'hour' | 'day' | 'week';
   at?: string;
@@ -133,6 +135,7 @@ export type Snapshot = {
   groups: Group[];
   threads: ThreadSummary[];
   tasks: Task[];
+  taskLinks: TaskLink[];
   routines: Routine[];
   routineRuns: RoutineRun[];
   connectors: Connector[];
@@ -168,6 +171,10 @@ export interface DesktopApi {
   }): Promise<Task>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
+  addTaskLink(taskId: string, url: string): Promise<TaskLink>;
+  readClipboardText(): Promise<string>;
+  removeTaskLink(linkId: string): Promise<void>;
+  undoTaskAction(): Promise<{ taskId: string; action: string } | null>;
   handOff(taskId: string, instruction: string): Promise<void>;
   stopTask(taskId: string): Promise<void>;
   openTaskOutput(taskId: string): Promise<void>;

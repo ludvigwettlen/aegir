@@ -115,7 +115,7 @@ export function GroupView({
             ))}
           </div>
         </header>
-        <div className="ws-thread-items">
+        <div className="ws-thread-items" data-keyboard-pane="list" tabIndex={-1}>
           {shown.map((thread) => {
             const task = thread.taskId
               ? data.tasks.find((item) => item.id === thread.taskId)
@@ -127,6 +127,8 @@ export function GroupView({
               <button
                 key={thread.id}
                 className={`ws-thread-item ${thread.id === selected?.id ? 'selected' : ''}`}
+                data-keyboard-item
+                data-keyboard-current={thread.id === selected?.id ? '' : undefined}
                 onClick={() => onSelectThread(thread.id)}
               >
                 <span className="ws-thread-item-top">

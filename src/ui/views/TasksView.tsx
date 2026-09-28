@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { ExternalLink, FolderOpen, Plus, Square, Trash2, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
+import { normalizeTaskLink } from '../../../shared/task-links';
 import { parseDue, parseQuickAdd, tasksFor, type TaskView } from '../../../shared/tasks';
 import {
   api,
@@ -26,6 +27,7 @@ const titles: Record<TaskView, string> = {
   upcoming: 'Upcoming',
   team: 'With the team',
   needs: 'Needs you',
+  completed: 'Completed',
 };
 type Popover = { kind: 'handoff' | 'label' | 'due'; taskId: string } | null;
 const rank: Record<Task['status'], number> = {
@@ -39,6 +41,7 @@ const rank: Record<Task['status'], number> = {
 };
 
 function groupTasks(list: TaskView, tasks: Task[]) {
+  if (list === 'completed') return tasks.length ? [['Completed', tasks] as [string, Task[]]] : [];
   const sorted = [...tasks].sort(
     (a, b) =>
       rank[a.status] - rank[b.status] ||
@@ -56,46 +59,103 @@ function groupTasks(list: TaskView, tasks: Task[]) {
   );
 }
 
-export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list: TaskView }) {
-  const [cursor, setCursor] = useState<string | null>(null);
+export function TasksView({
+  data,
+  run,
+  list,
+  notify,
+}: {
+  data: Snapshot;
+  run: Run;
+  list: TaskView;
+  notify: (message: string) => void;
+}) {
+  const [cursors, setCursors] = useState<Partial<Record<TaskView, string>>>({});
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<'title' | 'notes' | null>(null);
   const [popover, setPopover] = useState<Popover>(null);
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
   const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
+  const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
-  const current = order.find((task) => task.id === cursor) || order[0];
+  const current = order.find((task) => task.id === cursors[list]) || order[0];
+  const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
   const open = data.tasks.find((task) => task.id === openId);
+  const closeDetail = () => {
+    setOpenId(null);
+    window.requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus(),
+    );
+  };
   useEffect(() => {
     setPopover(null);
+    setOpenId(null);
   }, [list]);
+  useEffect(() => {
+    if (openId && !order.some((task) => task.id === openId)) setOpenId(null);
+  }, [openId, order]);
+  useEffect(() => {
+    if (!editTarget || !openId) return;
+    const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      editTarget === 'title'
+        ? '.ws-task-detail [aria-label="Task title"]'
+        : '.ws-task-detail [aria-label="Task notes"]',
+    );
+    field?.focus();
+    if (editTarget === 'title' && field instanceof HTMLInputElement) field.select();
+    setEditTarget(null);
+  }, [editTarget, openId]);
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey || popover) return;
-      const index = current ? order.indexOf(current) : -1;
-      const move = (delta: number) => {
-        const next = order[Math.min(order.length - 1, Math.max(0, index + delta))];
-        if (next) {
-          setCursor(next.id);
-          if (openId) setOpenId(next.id);
+      if (event.defaultPrevented || isTyping(event) || popover) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.metaKey && event.key.toLowerCase() === 'v' && current &&
+        !event.altKey && !event.ctrlKey &&
+        !target?.closest('.ws-sidebar, .ws-task-detail')
+      ) {
+        event.preventDefault();
+        void run(async () => {
+          const url = normalizeTaskLink(await api.readClipboardText());
+          if (!url) {
+            notify('Clipboard has no link to attach');
+            return;
+          }
+          await api.addTaskLink(current.id, url);
+          notify('Link added · ⌘Z to undo');
+        });
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (target?.closest('.ws-sidebar, .ws-task-detail')) {
+        if (event.key === 'Escape' && openId) {
+          closeDetail();
+          event.preventDefault();
         }
-      };
+        return;
+      }
       const key = event.key;
-      if (key === 'j' || key === 'ArrowDown') move(1);
-      else if (key === 'k' || key === 'ArrowUp') move(-1);
-      else if (key === 'n') quickAdd.current?.focus();
-      else if (key === 'Escape') setOpenId(null);
+      if (key === 'Escape') closeDetail();
       else if (!current) return;
-      else if (key === 'Enter') setOpenId(current.id);
-      else if (key === 'x')
+      else if (key === 'Enter') {
+        setOpenId(current.id);
+        setEditTarget('title');
+      } else if (key === 'n') {
+        setOpenId(current.id);
+        setEditTarget('notes');
+      }
+      else if (key === ' ')
         void update(current, { status: current.status === 'done' ? 'ready' : 'done' });
-      else if (key === 'h' && current.status !== 'running')
+      else if (key === 'a' && current.status !== 'running' && current.status !== 'done')
         setPopover({ kind: 'handoff', taskId: current.id });
-      else if (key === 'l') setPopover({ kind: 'label', taskId: current.id });
+      else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
+      else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
+      else if (key === 'D') void update(current, { dueAt: null });
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
       else if ((key === 'Backspace' || key === 'Delete') && current.status === 'proposed')
@@ -130,30 +190,33 @@ export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list:
             </p>
           </div>
         </header>
-        <form
-          className="ws-quick-add"
-          onSubmit={(event) => {
-            event.preventDefault();
-            add();
-          }}
-        >
-          <Plus size={15} aria-hidden="true" />
-          <input
-            ref={quickAdd}
-            aria-label="New task"
-            placeholder="New task — try: Summarise calls #customers fri"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setDraft('');
-                event.currentTarget.blur();
-              }
+        {list !== 'completed' && (
+          <form
+            className="ws-quick-add"
+            onSubmit={(event) => {
+              event.preventDefault();
+              add();
             }}
-          />
-          <Kbd>N</Kbd>
-        </form>
-        <div className="ws-rows" role="list">
+          >
+            <Plus size={15} aria-hidden="true" />
+            <input
+              ref={quickAdd}
+              data-quick-add
+              aria-label="New task"
+              placeholder="New task — try: Summarise calls #customers fri"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setDraft('');
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <Kbd>⌘N</Kbd>
+          </form>
+        )}
+        <div className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
           {groups.map(([name, tasks]) => (
             <div key={name} className="ws-row-group">
               <div className="ws-group-label">
@@ -166,11 +229,16 @@ export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list:
                   task={task}
                   data={data}
                   showLabel={list === 'needs'}
+                  hasAttachedLink={linkedTaskIds.has(task.id)}
                   selected={task.id === current?.id}
                   opened={task.id === openId}
                   onClick={() => {
                     setCursor(task.id);
                     setOpenId(task.id);
+                  }}
+                  onFocus={() => {
+                    setCursor(task.id);
+                    if (openId) setOpenId(task.id);
                   }}
                   popover={popover?.taskId === task.id ? popover.kind : null}
                   onClosePopover={() => setPopover(null)}
@@ -186,20 +254,16 @@ export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list:
             <Kbd>J</Kbd>
             <Kbd>K</Kbd> move
           </span>
+          <span><Kbd>Space</Kbd> {list === 'completed' ? 'reopen' : 'done'}</span>
+          {list !== 'completed' && <span><Kbd>A</Kbd> hand off</span>}
           <span>
-            <Kbd>X</Kbd> done
+            <Kbd>B</Kbd> label
           </span>
           <span>
-            <Kbd>H</Kbd> hand off
+            <Kbd>D</Kbd> due · <Kbd>⇧D</Kbd> clear
           </span>
           <span>
-            <Kbd>L</Kbd> label
-          </span>
-          <span>
-            <Kbd>D</Kbd> due
-          </span>
-          <span>
-            <Kbd>↵</Kbd> open
+            <Kbd>↵</Kbd> edit title
           </span>
           {list === 'needs' && (
             <span>
@@ -207,9 +271,10 @@ export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list:
             </span>
           )}
           <span className="grow" />
-          <span>
-            <Kbd>N</Kbd> new
-          </span>
+          <span><Kbd>N</Kbd> note</span>
+          <span><Kbd>⌘V</Kbd> link</span>
+          <span><Kbd>⌘N</Kbd> new</span>
+          <span><Kbd>⌘Z</Kbd> undo</span>
         </footer>
       </section>
       {open && (
@@ -218,7 +283,11 @@ export function TasksView({ data, run, list }: { data: Snapshot; run: Run; list:
           task={open}
           data={data}
           run={run}
-          onClose={() => setOpenId(null)}
+          notify={notify}
+          onClose={closeDetail}
+          onReturnToList={() =>
+            document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
+          }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
         />
       )}
@@ -230,8 +299,9 @@ function Empty({ list }: { list: TaskView }) {
   const text = {
     today: 'Nothing due today. Add a task above.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
-    team: 'Nothing handed off. Press H on a task to give it to the agent team.',
+    team: 'Nothing handed off. Press A on a task to give it to the agent team.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
+    completed: 'No completed tasks yet.',
   }[list];
   return <p className="ws-empty-line">{text}</p>;
 }
@@ -240,9 +310,11 @@ function TaskRow({
   task,
   data,
   showLabel,
+  hasAttachedLink,
   selected,
   opened,
   onClick,
+  onFocus,
   popover,
   onClosePopover,
   run,
@@ -250,9 +322,11 @@ function TaskRow({
   task: Task;
   data: Snapshot;
   showLabel: boolean;
+  hasAttachedLink: boolean;
   selected: boolean;
   opened: boolean;
   onClick: () => void;
+  onFocus: () => void;
   popover: 'handoff' | 'label' | 'due' | null;
   onClosePopover: () => void;
   run: Run;
@@ -276,13 +350,22 @@ function TaskRow({
       className={`ws-task-row ${selected ? 'selected' : ''} ${opened ? 'opened' : ''}`}
       ref={ref}
       role="listitem"
+      tabIndex={selected ? 0 : -1}
+      data-keyboard-item
+      data-keyboard-current={selected ? '' : undefined}
+      data-task-row
       aria-current={selected ? 'true' : undefined}
       onClick={onClick}
+      onFocus={onFocus}
     >
       <TaskGlyph task={task} />
       <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</span>
-      {task.sourceUrl && (
-        <ExternalLink size={12} className="ws-muted-icon" aria-label="From a source" />
+      {(task.sourceUrl || hasAttachedLink) && (
+        <ExternalLink
+          size={12}
+          className="ws-muted-icon"
+          aria-label={task.sourceUrl ? 'From a source' : 'Has attached links'}
+        />
       )}
       {showLabel && task.label && <span className="ws-label">#{task.label}</span>}
       {authors.length > 0 && (
@@ -319,20 +402,23 @@ function TaskPopover({
   );
   const [error, setError] = useState('');
   const cancelled = useRef(false);
+  const submitted = useRef(false);
   const submit = () => {
-    if (cancelled.current) return;
-    if (kind === 'handoff') void run(() => api.handOff(task.id, value));
-    if (kind === 'label')
-      void run(() =>
-        api.updateTask(task.id, { label: value.replace(/^#/, '').trim().toLowerCase() || null }),
-      );
+    if (cancelled.current || submitted.current) return;
     if (kind === 'due') {
       const dueAt = value.trim() ? parseDue(value.trim(), new Date()) : null;
       if (value.trim() && !dueAt) {
         setError('Try “today”, “fri”, or YYYY-MM-DD.');
         return;
       }
+      submitted.current = true;
       void run(() => api.updateTask(task.id, { dueAt }));
+    } else if (kind === 'label') {
+      submitted.current = true;
+      void run(() => api.updateTask(task.id, { label: value.replace(/^#/, '').trim().toLowerCase() || null }));
+    } else {
+      submitted.current = true;
+      void run(() => api.handOff(task.id, value));
     }
     onClose();
   };
@@ -420,13 +506,17 @@ function TaskDetail({
   task,
   data,
   run,
+  notify,
   onClose,
+  onReturnToList,
   onHandOff,
 }: {
   task: Task;
   data: Snapshot;
   run: Run;
+  notify: (message: string) => void;
   onClose: () => void;
+  onReturnToList: () => void;
   onHandOff: () => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
@@ -434,8 +524,11 @@ function TaskDetail({
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const [label, setLabel] = useState(task.label || '');
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const cancelledTitle = useRef(false);
+  const cancelledNotes = useRef(false);
+  const links = data.taskLinks.filter(link => link.taskId === task.id);
   const saveTitle = () => {
+    if (cancelledTitle.current) { cancelledTitle.current = false; setTitle(task.title); return; }
     const next = title.trim();
     if (!next) {
       setTitle(task.title);
@@ -469,23 +562,19 @@ function TaskDetail({
           </button>
         )}
         <button
-          className={`ws-btn ${confirmDelete ? 'danger' : 'ghost'}`}
+          className="ws-btn ghost"
           disabled={task.status === 'running'}
-          aria-label={confirmDelete ? 'Confirm delete task' : 'Delete task'}
+          aria-label="Delete task"
           title={task.status === 'running' ? 'Stop this task before deleting it' : undefined}
-          onBlur={() => setConfirmDelete(false)}
           onClick={() => {
-            if (!confirmDelete) {
-              setConfirmDelete(true);
-              return;
-            }
             void run(async () => {
               await api.deleteTask(task.id);
               onClose();
+              notify('Task deleted · ⌘Z to undo');
             });
           }}
         >
-          {confirmDelete ? 'Delete task?' : <Trash2 size={13} />}
+          <Trash2 size={13} />
         </button>
         <button className="ws-icon-btn" aria-label="Close task" onClick={onClose}>
           <X size={15} />
@@ -498,10 +587,12 @@ function TaskDetail({
         onChange={(event) => setTitle(event.target.value)}
         onBlur={saveTitle}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Enter') { event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
           if (event.key === 'Escape') {
+            cancelledTitle.current = true;
             setTitle(task.title);
             event.currentTarget.blur();
+            window.requestAnimationFrame(onReturnToList);
           }
         }}
       />
@@ -518,6 +609,14 @@ function TaskDetail({
             Source <ExternalLink size={11} />
           </a>
         )}
+        {links.map(link => (
+          <span className="ws-task-link" key={link.id}>
+            <a href={link.url} title={link.url} onClick={event => { event.preventDefault(); void run(() => api.openExternal(link.url)); }}>
+              {new URL(link.url).hostname || new URL(link.url).protocol.replace(':', '')} <ExternalLink size={11} />
+            </a>
+            <button type="button" aria-label={`Remove link ${link.url}`} title="Remove link" onClick={() => void run(() => api.removeTaskLink(link.id))}><X size={11} /></button>
+          </span>
+        ))}
       </div>
       <div className="ws-task-properties">
         <label>
@@ -578,11 +677,18 @@ function TaskDetail({
       <label className="ws-field">
         <span>Notes</span>
         <textarea
+          aria-label="Task notes"
           rows={3}
           placeholder="Add context for this task"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
-          onBlur={() => notes !== task.notes && void run(() => api.updateTask(task.id, { notes }))}
+          onBlur={() => {
+            if (cancelledNotes.current) { cancelledNotes.current = false; setNotes(task.notes); return; }
+            if (notes !== task.notes) void run(() => api.updateTask(task.id, { notes }));
+          }}
+          onKeyDown={event => {
+            if (event.key === 'Escape') { cancelledNotes.current = true; setNotes(task.notes); event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
+          }}
         />
       </label>
       {task.status === 'review' && (
@@ -599,7 +705,7 @@ function TaskDetail({
     </header>
   );
   return (
-    <aside className="ws-task-detail" aria-label="Task detail">
+    <aside className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1}>
       {thread && group ? (
         <ThreadView
           key={thread.id}
@@ -631,9 +737,11 @@ function TaskDetail({
               </>
             ) : (
               <>
-                <button className="ws-btn primary" onClick={onHandOff}>
-                  <Users size={13} /> Hand off to the team <Kbd>H</Kbd>
-                </button>
+                {task.status !== 'done' && (
+                  <button className="ws-btn primary" onClick={onHandOff}>
+                    <Users size={13} /> Hand off to the team <Kbd>A</Kbd>
+                  </button>
+                )}
                 <button
                   className="ws-btn"
                   onClick={() =>
@@ -644,7 +752,7 @@ function TaskDetail({
                     )
                   }
                 >
-                  {task.status === 'done' ? 'Reopen' : 'Mark done'} <Kbd>X</Kbd>
+                  {task.status === 'done' ? 'Reopen' : 'Mark done'} <Kbd>Space</Kbd>
                 </button>
               </>
             )}

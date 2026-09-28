@@ -31,6 +31,8 @@ export function ThreadView({
   return (
     <section
       className={`ws-thread ${compact ? 'compact' : ''}`}
+      data-keyboard-pane="detail"
+      tabIndex={-1}
       aria-label={`Thread: ${thread.title}`}
     >
       {header}
