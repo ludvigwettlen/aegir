@@ -16,6 +16,7 @@ import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
+import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
 import { SkillRegistry, type SkillSession } from './skills.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
 import {
@@ -50,6 +51,10 @@ export class Runtime {
   private runningRoutines = new Set<string>();
   private handingOffTasks = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
+  private startupTimer: NodeJS.Timeout | null = null;
+  private stopped = false;
+
+  private get available() { return !this.stopped && this.store.isOpen; }
   constructor(
     private store: Store,
     private codex: ModelProvider,
@@ -69,6 +74,7 @@ export class Runtime {
 
   // ---- Chat -------------------------------------------------------------
   async startThread(groupId: string, content: string): Promise<Thread> {
+    if (!this.available) throw new Error('Runtime is stopped');
     const text = content.trim();
     if (!text) throw new Error('Write a first message');
     const thread = this.store.createThread(groupId, text.split('\n')[0].slice(0, 80));
@@ -77,6 +83,7 @@ export class Runtime {
     return thread;
   }
   async sendMessage(threadId: string, content: string) {
+    if (!this.available) throw new Error('Runtime is stopped');
     const text = content.trim();
     if (!text) return;
     const thread = this.thread(threadId);
@@ -96,7 +103,7 @@ export class Runtime {
       const kind: RunKind = thread.kind === 'task' ? 'task' : 'chat';
       ok = true;
       for (const agent of mentionedAgents(text, this.store.list('agents'), group)) {
-        if (execution.cancelled) {
+        if (!this.available || execution.cancelled) {
           ok = false;
           break;
         }
@@ -107,11 +114,11 @@ export class Runtime {
       throw error;
     } finally {
       this.runningThreads.delete(threadId);
-      if (thread.taskId && this.store.get('tasks', thread.taskId)?.status === 'running')
+      if (this.available && thread.taskId && this.store.get('tasks', thread.taskId)?.status === 'running')
         this.store.updateTask(thread.taskId, {
           status: ok && !execution.cancelled ? 'review' : 'blocked',
         });
-      this.refresh();
+      if (this.available) this.refresh();
     }
   }
   async stopThread(threadId: string) {
@@ -124,6 +131,7 @@ export class Runtime {
   // ---- Tasks ------------------------------------------------------------
   // A hand-off is one instruction. Atlas-style routing picks the group; the group lead starts in a fresh task thread.
   async handOff(taskId: string, instruction: string) {
+    if (!this.available) throw new Error('Runtime is stopped');
     const task = this.store.get('tasks', taskId);
     if (!task) throw new Error('Task not found');
     if (task.status === 'running' || this.handingOffTasks.has(taskId))
@@ -134,6 +142,7 @@ export class Runtime {
     try {
       const brief = instruction.trim() || task.notes || task.title;
       const group = await this.routeTask(task, brief);
+      if (!this.available) return;
       const outputDir =
         task.outputDir || join(this.paths.outputRoot, `${slug(task.title)}-${task.id.slice(0, 6)}`);
       mkdirSync(outputDir, { recursive: true });
@@ -154,12 +163,13 @@ export class Runtime {
       this.refresh();
       const lead = this.store.get('agents', group.leadAgentId)!;
       const ok = await this.runAgent(thread, group, lead, brief, 'task');
+      if (!this.available) return;
       const latest = this.store.get('tasks', taskId);
       if (latest?.status === 'running')
         this.store.updateTask(taskId, { status: ok ? 'review' : 'blocked' });
       this.refresh();
     } catch (error) {
-      if (started && this.store.get('tasks', taskId)?.status === 'running') {
+      if (this.available && started && this.store.get('tasks', taskId)?.status === 'running') {
         this.store.updateTask(taskId, { status: 'blocked' });
         this.refresh();
       }
@@ -219,6 +229,7 @@ export class Runtime {
     kind: RunKind,
     depth = 0,
   ): Promise<boolean> {
+    if (!this.available) return false;
     const message = this.store.addMessage(thread.id, agent.id, 'agent', '', 'streaming');
     this.refresh();
     let streamed = '';
@@ -230,6 +241,7 @@ export class Runtime {
         .messages.map((x) => `${this.speaker(x, agents)}: ${x.content}`)
         .join('\n');
       const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
+      if (!this.available) return false;
       const routines = kind === 'chat' ? mentionedRoutines(userText, this.store.routines()) : [];
       const task = thread.taskId ? this.store.get('tasks', thread.taskId) : undefined;
       const tools: Tool[] = [
@@ -263,15 +275,18 @@ export class Runtime {
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) => {
+          if (!this.available) return;
           activeId = codexThreadId;
           this.active.set(codexThreadId, { kind, threadId: thread.id, skills: skillContext.session });
         },
         onDelta: (delta) => {
+          if (!this.available) return;
           streamed += delta;
           this.store.updateMessage(message.id, streamed, 'streaming');
         },
       });
       this.active.delete(result.threadId);
+      if (!this.available) return false;
       const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
       this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
       this.refresh();
@@ -302,6 +317,7 @@ export class Runtime {
       }
       return ok;
     } catch (error) {
+      if (!this.available) return false;
       this.store.updateMessage(
         message.id,
         streamed ? `${streamed}\n\n${String(error)}` : String(error),
@@ -314,16 +330,16 @@ export class Runtime {
     }
   }
   private instructionsFor(kind: RunKind, agent: Agent, group: Group) {
-    const memoryGuidance = `Search prior facts, preferences, and decisions with your memory recall tool whenever more context is needed. Save durable facts with your memory remember tool. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}`;
+    const memoryGuidance = memoryInstructions(this.store.getSetting('memoryInstructions') || '');
     const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
     if (kind === 'task')
-      return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
+      return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
 Never write to, post in or send through external systems (Slack, Notion, email or anything else). Connected tools are read-only; use them to research.
 If another agent in the group should do part of the work, mention them as @Name in your final reply.
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
-    return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Ägir.${purpose}
+    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Ägir.${purpose}
 Address the user directly. If another agent should contribute, mention them as @Name in your final reply. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}`;
@@ -351,6 +367,7 @@ ${memoryGuidance}`;
     args: Record<string, unknown>,
     codexThreadId: string,
   ): Promise<unknown> {
+    if (!this.available) throw new Error('Runtime is stopped');
     const context = this.active.get(codexThreadId);
     if (provider === 'skills') {
       if (!context?.skills) throw new Error('No active skill session');
@@ -379,7 +396,7 @@ ${memoryGuidance}`;
           : null,
       );
       if (context?.counts) context.counts.memories++;
-      this.refresh();
+      if (this.available) this.refresh();
       return { id: result?.id, saved: true };
     }
     if (provider === 'tasks' && tool === 'suggest') {
@@ -461,13 +478,21 @@ ${memoryGuidance}`;
 
   // ---- Routines ------------------------------------------------------------
   start() {
+    if (!this.available || this.timer) return;
     this.timer = setInterval(() => this.tick(), 60_000);
-    setTimeout(() => this.tick(), 5_000);
+    this.startupTimer = setTimeout(() => this.tick(), 5_000);
   }
   stop() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.timer = null;
+    this.startupTimer = null;
+    for (const execution of this.runningThreads.values()) execution.cancelled = true;
+    this.active.clear();
   }
   tick() {
+    if (!this.available) return;
     const now = new Date();
     for (const routine of this.store.routines())
       if (
@@ -478,6 +503,7 @@ ${memoryGuidance}`;
         void this.runRoutine(routine.id, 'schedule');
   }
   async runRoutine(routineId: string, trigger: RoutineRun['trigger']) {
+    if (!this.available) throw new Error('Runtime is stopped');
     const routine = this.store.routine(routineId);
     if (!routine) throw new Error('Routine not found');
     if (this.runningRoutines.has(routineId)) throw new Error('This routine is already running');
@@ -502,6 +528,7 @@ ${memoryGuidance}`;
         `${routine.name} ${routine.instructions}`.slice(0, 160),
         agent.id,
       );
+      if (!this.available) return;
       this.log(run.id, 'call', 'memory.recall');
       this.log(run.id, 'result', recalled ? logText(recalled, 300) : '(none)');
       const tools = [
@@ -516,8 +543,8 @@ ${memoryGuidance}`;
       const connected = Object.values(this.connectors.states)
         .filter((state) => state.status === 'connected')
         .map((state) => state.id);
-      const instructions = `${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background. No one is watching live; every step is logged for the user to audit.
-Connected tools are read-only. Use tasks__suggest to put items in front of the user and your memory remember tool for durable facts. Use your memory recall tool to search prior facts, preferences, and decisions whenever more context is needed. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}
+      const instructions = `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background. No one is watching live; every step is logged for the user to audit.
+Connected tools are read-only. Never send messages or write to external systems. Use tasks__suggest for actionable findings with source links. If blocked by missing access or required user input, record the blocker and finish; never wait for an unattended approval. Distinguish an empty search from a failed search; do not report 'Nothing new' when a source could not be checked.\n${memoryInstructions(this.store.getSetting('memoryInstructions') || '')}
 Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
       const prompt = `Now: ${new Date().toString()}\nPrevious run: ${previous ? `${previous.startedAt} (${previous.status}) — ${previous.summary}` : 'none'}\nConnected sources: ${connected.join(', ') || 'none'}\n\nRelevant memory:\n${recalled || '(none)'}`;
       const result = await this.codex.run({
@@ -527,12 +554,14 @@ Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
         prompt,
         tools,
         modelTier: modelTierForRole(agent.role),
-        onThreadStarted: (codexThreadId) =>
-          this.active.set(codexThreadId, { kind: 'routine', runId: run.id, counts, skills: skillContext.session }),
+        onThreadStarted: (codexThreadId) => {
+          if (this.available) this.active.set(codexThreadId, { kind: 'routine', runId: run.id, counts, skills: skillContext.session });
+        },
         onDelta: () => {},
         onItem: (item) => this.logItem(run.id, item),
       });
       this.active.delete(result.threadId);
+      if (!this.available) return;
       if (result.text) this.log(run.id, 'agent', result.text);
       status = result.status === 'completed' ? 'ok' : 'failed';
       const outcome = [
@@ -556,11 +585,13 @@ Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
         'run',
         `finished · status=${status} · ${Math.round((Date.now() - started) / 1000)}s`,
       );
-      this.store.finishRun(run.id, status, summary);
+      if (this.available) this.store.finishRun(run.id, status, summary);
       for (const [id, context] of this.active) if (context.runId === run.id) this.active.delete(id);
       this.runningRoutines.delete(routineId);
-      this.store.pruneRuns();
-      this.refresh();
+      if (this.available) {
+        this.store.pruneRuns();
+        this.refresh();
+      }
     }
   }
   private logItem(runId: string, item: Record<string, unknown>) {
@@ -570,7 +601,7 @@ Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
     this.log(runId, 'call', `${type} ${logText(item, 400)}`);
   }
   private log(runId: string, kind: Parameters<Store['addRunEvent']>[1], text: string) {
-    this.emit({ type: 'run-event', value: this.store.addRunEvent(runId, kind, text) });
+    if (this.available) this.emit({ type: 'run-event', value: this.store.addRunEvent(runId, kind, text) });
   }
 
   private thread(id: string) {

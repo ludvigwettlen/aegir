@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Archive, Lock, Plus } from 'lucide-react';
 import type { Group, Snapshot } from '../../../shared/types';
-import { api, Avatar, Kbd, relative, taskStatusText, type Run } from './common';
+import { api, Avatar, relative, taskStatusText, type Run } from './common';
 import { ThreadView } from './ThreadView';
 
 type Filter = 'active' | 'tasks' | 'closed';
@@ -99,7 +99,6 @@ export function GroupView({
               value={first}
               onChange={(event) => setFirst(event.target.value)}
             />
-            <Kbd>↵</Kbd>
           </form>
           <div className="ws-filters" role="group" aria-label="Filter threads">
             {(['active', 'tasks', 'closed'] as Filter[]).map((value) => (

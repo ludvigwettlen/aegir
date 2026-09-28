@@ -58,8 +58,8 @@ A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall
 
 - **Glyphs** (`TaskGlyph`): an empty circle for your open task, a spinning partial lime ring while the team works, a lemon "!" for review or blocked, a spark for a suggestion, and a filled check for done. Each has an accessible label.
 - **Cursor and panes**: the selected row uses the lime-soft selection style and scrolls into view. `J/K` or Up/Down moves it. `H` or Left moves into the sidebar; `L` or Right opens the detail pane. The same pane motions work in group and routine lists. Selection is retained per task list.
-- **Shortcuts** are listed in the footer bar and must stay in sync with the handler: `Space` completes or reopens, `Enter` edits the selected title, `N` edits notes, `A` hands off, `B` sets a label, `Shift+B` clears it, `D` sets a due date, `Shift+D` clears it, `Cmd+N` creates a task, `Cmd+V` attaches a copied link, `Cmd+Z` undoes the last local task action, `Y` accepts, and Backspace dismisses a suggestion. `G` then `T/U/W/N/C` jumps to a task list. Shortcuts are ignored while typing in a field; text editors retain native undo.
-- **Quick add** is one line above open task lists with `Cmd+N` shown; it parses `#label` and date words. The completed list has no quick add field. Successful creation clears the field and focuses the selected task row once the updated list arrives; if the new task belongs to another list, focus returns to the current row or empty list pane. Failed creation retains the draft.
+- **Shortcuts** appear in the hold-§ overlay and must stay in sync with the handler: `Space` completes or reopens, `Enter` edits the selected title, `N` edits notes, `A` hands off, `B` sets a label, `Shift+B` clears it, `D` sets a due date, `Shift+D` clears it, `Cmd+N` creates a task, `Cmd+V` attaches a copied link, `Cmd+Z` undoes the last local task action, `Y` accepts, and Backspace dismisses a suggestion. `G` then `T/U/W/N/C` jumps to a task list. Shortcuts are ignored while typing in a field; text editors retain native undo.
+- **Quick add** is one line above open task lists without a persistent keyboard hint; it parses `#label` and date words. The completed list has no quick add field. Successful creation clears the field and focuses the selected task row once the updated list arrives; if the new task belongs to another list, focus returns to the current row or empty list pane. Failed creation retains the draft.
 
 ### Task popovers
 
@@ -73,11 +73,11 @@ The right-hand pane (440 px). Its header is the single editing surface for task 
 
 A group view lists its threads (title, status chip for task threads, last message snippet, participating agents, count and time) with Active / Tasks / Closed filters and a "Start a thread" field. Private groups show the agent's avatar and "Private · just you and <agent>".
 
-Messages are Slack-style, not bubbles: avatar, name, role chip, time, then text. Failures and streaming are shown in words and a typing indicator. System events are a single muted line with an arrow. Routine changes render as a card listing the before → after values, with Apply / Discard while pending and the outcome afterwards.
+Messages render Markdown headings, emphasis, lists, code, quotes, and GFM tables using `ChatMarkdown`; raw HTML is not executed. External links use the app’s link-opening API. Code blocks and tables scroll within the message, including in the compact task detail pane. Messages are Slack-style, not bubbles: avatar, name, role chip, time, then text. Failures and streaming are shown in words and a typing indicator. System events are a single muted line with an arrow. Routine changes render as a card listing the before → after values, with Apply / Discard while pending and the outcome afterwards.
 
 ### Composer
 
-A two-line textarea that grows with content, with a hint bar and a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. Stop appears while an agent in the thread is running.
+A two-line textarea that grows with content, with a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. Stop appears while an agent in the thread is running.
 
 ### Routine view
 
@@ -101,8 +101,12 @@ Settings → Manage skills opens a two-column workspace: a 300 px library list (
 
 The editor uses Fragments buttons and badges, semantic glass/surface/line tokens, labeled native selectors and a monospace package-file editor. Agent availability and customization are collapsible. New files and package edits stay local until Save revision; a reason accompanies every edit. Conflicting revisions preserve the user's draft and offer Reload latest. History restores create a new revision, and archive exposes Restore immediately. Proposal comparison labels Before and Proposed for each changed file, stacking at compact widths.
 
-Agent settings link to inherited and owned skills. The composer’s + Skill selector inserts a stable explicit reference. Routine headers offer required-skill checkboxes with a clear explanation that disabled dependencies stop execution. These controls retain native keyboard behavior and visible focus; no new animation is introduced.
+Agent settings link to inherited and owned skills. The composer has no skill dropdown; /-commands for skill discovery and invocation are planned. Routine headers offer required-skill checkboxes with a clear explanation that disabled dependencies stop execution. These controls retain native keyboard behavior and visible focus; no new animation is introduced.
 
 ## Settings
 
 Settings uses one content column, capped at 960 px, with actionable sections for Skills, Startup, Connections, and Agent personalities. Manage skills opens the full library; each agent retains its scoped skills link. Startup preserves the start-at-login toggle with an accessible pressed state. Runtime and output explanations are not separate cards. Use the existing Card and Button primitives, with visible keyboard focus and text for connection states.
+
+## Contextual keyboard hints
+
+Hold `§` to show `ShortcutHints` for the current page or focused editor/dialog; release it to dismiss. Losing window focus or hiding the app also dismisses it. The overlay preserves focus and does not capture Tab navigation. The unmodified section key is reserved for hints even in text fields; literal section symbols can be pasted. No persistent shortcut footer or inline key badges appear in normal content. Native menu accelerators and transient undo notices remain. The overlay uses surface, ink, muted, and line tokens, fits compact windows with internal scrolling, and has no motion.

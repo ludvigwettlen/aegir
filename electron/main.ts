@@ -32,6 +32,7 @@ let codex: CodexProvider;
 let connectors: ConnectorManager;
 let memory: MemoryService;
 let runtime: Runtime;
+let shuttingDown = false;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
@@ -70,9 +71,11 @@ function snapshot(): Snapshot {
   };
 }
 function emit(event: AppEvent) {
-  if (window && !window.isDestroyed()) window.webContents.send('app-event', event);
+  if (!shuttingDown && window && !window.isDestroyed() && !window.webContents.isDestroyed())
+    window.webContents.send('app-event', event);
 }
 function refresh() {
+  if (shuttingDown || !store?.isOpen) return;
   emit({ type: 'snapshot', value: snapshot() });
 }
 function approvalForExternal(detail: string, threadId: string | undefined): Promise<boolean> {
@@ -374,6 +377,7 @@ if (app.requestSingleInstanceLock()) {
     });
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
+      if (shuttingDown || !store.isOpen) return;
       const context = approval.threadId ? runtime.contextFor(approval.threadId) : undefined;
       // Routines run unattended; anything that needs approval is declined and left in the run log.
       if (context?.kind === 'routine') {
@@ -397,6 +401,7 @@ if (app.requestSingleInstanceLock()) {
       refresh();
     });
     codex.setToolHandler(async (provider, tool, args, readOnly, codexThreadId) => {
+      if (shuttingDown || !store.isOpen) throw new Error('App is shutting down');
       runtime.logToolCall(codexThreadId, `${provider}.${tool}`, args);
       try {
         const internal = await runtime.handleInternalTool(provider, tool, args, codexThreadId);
@@ -417,6 +422,7 @@ if (app.requestSingleInstanceLock()) {
           ))
         )
           throw new Error('External write declined');
+        if (shuttingDown || !store.isOpen) throw new Error('App is shutting down');
         const result = await connectors.call(provider, tool, args);
         runtime.logToolResult(codexThreadId, result);
         return result;
@@ -454,6 +460,9 @@ if (app.requestSingleInstanceLock()) {
     });
   });
   app.on('before-quit', () => {
+    shuttingDown = true;
+    for (const resolve of externalApprovalResolvers.values()) resolve(false);
+    externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
     runtime?.stop();
     connectors?.close();

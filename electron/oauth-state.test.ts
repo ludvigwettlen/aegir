@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createOAuthState, matchesOAuthState } from './oauth-state.js';
 
 describe('OAuth callback state', () => {
-  it('generates an unpredictable state for each authorization attempt', () => {
+  it('generates distinct callback states for separate authorization attempts', () => {
     const first = createOAuthState();
     const second = createOAuthState();
     expect(first).toMatch(/^[0-9a-f]{64}$/);

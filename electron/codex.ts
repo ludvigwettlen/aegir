@@ -72,8 +72,8 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
       const id = randomUUID(); this.toolCalls.set(id, { rpcId: message.id!, threadId: params.threadId });
       try {
         const value = await this.toolHandler?.(provider, tool, params.arguments || {}, this.toolReadOnly.get(String(params.tool)) === true, String(params.threadId || ''));
-        this.send({ id: message.id, result: { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? null) }] } });
-      } catch (error) { this.send({ id: message.id, result: { success: false, contentItems: [{ type: 'inputText', text: String(error) }] } }); }
+        if (this.child) this.send({ id: message.id, result: { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? null) }] } });
+      } catch (error) { if (this.child) this.send({ id: message.id, result: { success: false, contentItems: [{ type: 'inputText', text: String(error) }] } }); }
       this.toolCalls.delete(id); return;
     }
     if (method === 'item/tool/requestUserInput') { this.send({ id: message.id, result: { answers: {} } }); return; }

@@ -23,13 +23,13 @@ describe('task lists', () => {
   const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
   const tasks: Task[] = [
     { ...base, id: 'undated' }, { ...base, id: 'later', dueAt: '2026-10-02' }, { ...base, id: 'overdue', dueAt: '2026-09-20' },
-    { ...base, id: 'suggested', status: 'proposed' }, { ...base, id: 'blocked', status: 'blocked', threadId: 't' }, { ...base, id: 'done', status: 'done', completedAt: '2026-09-25' }
+    { ...base, id: 'suggested', status: 'proposed' }, { ...base, id: 'blocked', status: 'blocked', threadId: 't' }, { ...base, id: 'done', status: 'done', completedAt: '2026-09-25' }, { ...base, id: 'recently-done', status: 'done', completedAt: '2026-09-26' }
   ];
   it('splits today, upcoming, team and needs-you', () => {
     expect(tasksFor('today', tasks, saturday).map(x => x.id)).toEqual(['undated', 'overdue', 'blocked']);
     expect(tasksFor('upcoming', tasks, saturday).map(x => x.id)).toEqual(['later']);
     expect(tasksFor('team', tasks, saturday).map(x => x.id)).toEqual(['blocked']);
     expect(tasksFor('needs', tasks, saturday).map(x => x.id)).toEqual(['suggested', 'blocked']);
-    expect(tasksFor('completed', tasks, saturday).map(x => x.id)).toEqual(['done']);
+    expect(tasksFor('completed', tasks, saturday).map(x => x.id)).toEqual(['recently-done', 'done']);
   });
 });

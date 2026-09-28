@@ -38,10 +38,6 @@ export function YouAvatar({ size = 26 }: { size?: number }) {
 }
 export function Kbd({ children }: { children: ReactNode }) { return <kbd className="ws-kbd">{children}</kbd>; }
 
-export function linkedText(value: string) {
-  return value.split(/(https?:\/\/[^\s<>)]+)/g).map((part, index) => /^https?:\/\//.test(part) ? <a key={index} href={part} onClick={event => { event.preventDefault(); void api.openExternal(part); }}>{part}</a> : part);
-}
-
 export const taskStatusText: Record<Task['status'], string> = { proposed: 'Suggested', ready: 'Open', running: 'Working', review: 'Ready for review', blocked: 'Needs you', done: 'Done', dismissed: 'Dismissed' };
 
 export function TaskGlyph({ task }: { task: Task }) {

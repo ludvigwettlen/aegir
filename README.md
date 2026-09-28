@@ -22,7 +22,7 @@ OAuth tokens and the Slack secret are encrypted with Electron `safeStorage` on m
 
 ## Product notes
 
-**Tasks.** Today, Upcoming and With the team are lists of the same tasks; Needs you collects suggestions, work ready for review and blocked work. Tasks are grouped by label. Quick add understands `#label` and date words (`today`, `fri`, `2026-10-02`). Keyboard: `J`/`K` move, `X` done, `H` hand off, `L` label, `D` due, `↵` open, `N` new task, `Y` accept a suggestion, `⌫` dismiss it, and `g` then `t`/`u`/`w`/`n` switches list.
+**Tasks.** Today, Upcoming and With the team are lists of the same tasks; Needs you collects suggestions, work ready for review and blocked work. Tasks are grouped by label. Quick add understands `#label` and date words (`today`, `fri`, `2026-10-02`). Hold `§` to see shortcuts for the current page or editor; release it to dismiss.
 
 **Handing off.** `H` takes one instruction. The task always goes to the agent team: a lightweight model picks the best group, and the group's lead starts in a new task thread (other agents join when mentioned). Handed-off work only writes files, into `~/Documents/Ägir/<task>` (Codex `workspace-write` sandbox with that folder as its working directory). It receives read-only Slack and Notion tools and cannot post or write to external systems. When the run ends the task moves to Needs you for review; replying in its thread continues the work.
 
@@ -35,15 +35,17 @@ Codex runs chat and routines in a read-only sandbox. Commands that need broader 
 Upgrading keeps existing data: rooms become groups, each room's history becomes a closed "Earlier conversation" thread, and goal output becomes a task thread. The old tables stay in the database. No Slack, Notion, or Mnemosyne account was connected during local development, so live OAuth, retrieval and full agent runs need an end-to-end check with your accounts.
 
 The UI is documented in [the design system](docs/design-system.md).
-Current follow-up work is tracked in [TODO.md](TODO.md).
+Current follow-up work is tracked in [TODO.md](TODO.md). Shared agent behavior and the Hermes comparison are documented in [the instruction review](docs/agent-instructions-review.md).
 
 ## Verification
 
 `pnpm check` runs TypeScript validation. `pnpm test` covers the store migration, hand-off and routine runs against a fake Codex, the read-only tool policy, routine schedules and change validation, quick-add parsing and task lists. `pnpm build` compiles and packages the macOS app.
 
+Tests should protect observable outcomes, permission boundaries, data preservation, and distinct failure paths. Avoid locking prompt wording or seed counts. Assertions for asynchronous failures must run outside error-catching application callbacks so a swallowed assertion cannot produce a passing test.
+
 ## Skills
 
-Open **Settings** with `Cmd+,` or the Ägir menu, then **Manage skills** to manage shared skills, agent-owned skills, proposed changes, and archives. Shared skills are inherited by default and can be disabled per agent. Create or import a `SKILL.md` file or complete skill folder; supporting references and binary assets are preserved. Use the composer’s **+ Skill** control to select a skill explicitly, or bind required skills in a routine’s Skills section.
+Open **Settings** with `Cmd+,` or the Ägir menu, then **Manage skills** to manage shared skills, agent-owned skills, proposed changes, and archives. Shared skills are inherited by default and can be disabled per agent. Create or import a `SKILL.md` file or complete skill folder; supporting references and binary assets are preserved. Bind required skills in a routine’s Skills section. Composer /-commands for skills are planned.
 
 Chats, tasks, and routines share on-demand discovery and loading. Each run reads a frozen package revision. Agents may create and refine their own learned skills; shared, imported, and user-authored changes are proposed for review. You can protect a skill from agent changes, compare proposals, restore revisions, customize shared skills for one agent, or promote an owned skill to a shared copy. Skill instructions never grant additional tool permissions.
 

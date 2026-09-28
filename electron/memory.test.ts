@@ -86,7 +86,7 @@ describe('Mnemosyne-only memory', () => {
     expect(mnemosyne.banks.size).toBe(0);
   });
 
-  it('never returns a local result when Mnemosyne recall fails', async () => {
+  it('propagates recall failure when there is no legacy migration work', async () => {
     const { memory } = fixture();
     mnemosyne.available = false;
     await expect(memory.recall('planning')).rejects.toThrow('Mnemosyne is unavailable');

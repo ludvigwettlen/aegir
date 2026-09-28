@@ -6,11 +6,18 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 
 ## Next
 
-- [ ] Prevent late runtime status events from reading the database after app shutdown.
+- [ ] Make team collaboration the default for handed-off tasks: the lead should involve suitable teammates unless the task is clearly simple enough to handle alone.
+- [ ] Add /-commands in the chat composer to discover and invoke skills.
+- [ ] Add an in-app Markdown viewer and editor for reviewing, editing, and collaborating on files with the agent team.
 - [ ] Exercise Slack, Notion, and full agent runs end to end with real accounts.
-- [ ] Review the remaining agent base/system instructions against Hermes’s system prompt; skill discovery, authoring, review, and reflection guidance are now implemented.
 
 ## Recently completed
+
+- [x] Replace persistent keyboard hints with a contextual hold-§ overlay.
+- [x] Render Markdown in chat and remove the composer’s skill dropdown.
+
+- [x] Prevent late runtime status events from reading the database after app shutdown.
+- [x] Review the remaining agent base/system instructions against Hermes’s system prompt; skill discovery, authoring, review, and reflection guidance are now implemented.
 
 - [x] Exit editing mode after creating a new task so keyboard navigation works immediately, without pressing Escape first.
 - [x] Move “Needs you” into the Tasks section of the sidebar instead of keeping it as a separate top-level section.

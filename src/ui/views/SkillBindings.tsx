@@ -1,4 +1,4 @@
-import type { Routine, Snapshot } from '../../../shared/types';
+import type { Routine } from '../../../shared/types';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
 import { api, type Run } from './common';
 export function RoutineSkillBindings({ routine, run }: { routine: Routine; run: Run }) {
@@ -12,9 +12,4 @@ export function AgentSkillsSummary({ agentId, onOpen }: { agentId: string; onOpe
   const owned = library?.skills.filter(s => !s.archived && s.ownerAgentId === agentId).length || 0;
   const shared = library?.skills.filter(s => !s.archived && !s.ownerAgentId && s.enabled && !s.disabledAgentIds.includes(agentId) && (s.enabledAgentIds === null || s.enabledAgentIds.includes(agentId))).length || 0;
   return <button className="ws-btn" onClick={() => onOpen(agentId)}>Skills · {shared} shared · {owned} owned</button>;
-}
-export function ComposerSkills({ data, agentIds, value, onSelect }: { data: Snapshot; agentIds: string[]; value: string; onSelect: (reference: string) => void }) {
-  const { library, error } = useSkillLibrary();
-  const eligible = library?.skills.filter(s => !s.archived && s.enabled && !s.error && agentIds.every(id => (!s.ownerAgentId || s.ownerAgentId === id) && !s.disabledAgentIds.includes(id) && (s.enabledAgentIds === null || s.enabledAgentIds.includes(id)))) || [];
-  return <select className="skill-composer-select" aria-label="Add skill to message" value="" disabled={!!error} title={error || 'Load a skill explicitly for this message'} onChange={e => { if (e.target.value) onSelect(`$skill:${e.target.value} `); }}><option value="">+ Skill</option>{eligible.map(s => <option key={s.id} value={s.id} disabled={value.includes(`$skill:${s.id}`)}>{s.name} · {s.ownerAgentId ? data.agents.find(a => a.id === s.ownerAgentId)?.name : 'Shared'}</option>)}</select>;
 }

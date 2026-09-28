@@ -10,6 +10,7 @@ import { NewGroupModal } from './views/NewGroupModal';
 import { RoutineView } from './views/RoutineView';
 import { SkillsView } from './views/SkillsView';
 import { SettingsView } from './views/SettingsView';
+import { ShortcutHints } from './views/ShortcutHints';
 import { Sidebar } from './views/Sidebar';
 import { TasksView } from './views/TasksView';
 
@@ -58,6 +59,7 @@ export function App() {
   };
   return (
     <div className="ws-shell">
+      <ShortcutHints route={route} />
       <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} />
       <div className="ws-main">
         {route.view === 'tasks' && (

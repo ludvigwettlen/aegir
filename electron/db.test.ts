@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -119,7 +119,11 @@ describe('store', () => {
   it('deletes a task and its task-thread conversation but keeps output files external', () => {
     const store = new Store(path());
     const group = store.groups()[0];
+    const outputDir = mkdtempSync(join(tmpdir(), 'aegir-output-'));
+    const deliverable = join(outputDir, 'report.md');
+    writeFileSync(deliverable, 'Keep this deliverable');
     const task = store.createTask({ title: 'Remove me' });
+    store.updateTask(task.id, { outputDir });
     const thread = store.createThread(group.id, task.title, 'task', task.id);
     store.addMessage(thread.id, null, 'user', 'Task context');
     store.updateTask(task.id, { threadId: thread.id });
@@ -127,6 +131,8 @@ describe('store', () => {
     expect(store.get('tasks', task.id)).toBeUndefined();
     expect(store.get('threads', thread.id)).toBeUndefined();
     expect(store.messagesForThread(thread.id)).toEqual([]);
+    expect(readFileSync(deliverable, 'utf8')).toBe('Keep this deliverable');
+    rmSync(outputDir, { recursive: true, force: true });
     store.close();
   });
 

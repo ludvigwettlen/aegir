@@ -15,7 +15,6 @@ import {
   dueLabel,
   isOverdue,
   isTyping,
-  Kbd,
   TaskGlyph,
   taskStatusText,
   type Run,
@@ -239,7 +238,6 @@ export function TasksView({
                 }
               }}
             />
-            <Kbd>⌘N</Kbd>
           </form>
         )}
         <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
@@ -275,33 +273,6 @@ export function TasksView({
           ))}
           {!order.length && <Empty list={list} />}
         </div>
-        <footer className="ws-shortcuts" aria-label="Keyboard shortcuts">
-          <span>
-            <Kbd>J</Kbd>
-            <Kbd>K</Kbd> move
-          </span>
-          <span><Kbd>Space</Kbd> {list === 'completed' ? 'reopen' : 'done'}</span>
-          {list !== 'completed' && <span><Kbd>A</Kbd> hand off</span>}
-          <span>
-            <Kbd>B</Kbd> label
-          </span>
-          <span>
-            <Kbd>D</Kbd> due · <Kbd>⇧D</Kbd> clear
-          </span>
-          <span>
-            <Kbd>↵</Kbd> edit title
-          </span>
-          {list === 'needs' && (
-            <span>
-              <Kbd>Y</Kbd> accept
-            </span>
-          )}
-          <span className="grow" />
-          <span><Kbd>N</Kbd> note</span>
-          <span><Kbd>⌘V</Kbd> link</span>
-          <span><Kbd>⌘N</Kbd> new</span>
-          <span><Kbd>⌘Z</Kbd> undo</span>
-        </footer>
       </section>
       {open && (
         <TaskDetail
@@ -489,13 +460,8 @@ function TaskPopover({
             onKeyDown={onKeyDown}
           />
           <div className="ws-popover-foot">
-            <span className="grow">Atlas routes it · results saved as files</span>
-            <span>
-              <Kbd>Esc</Kbd> cancel
-            </span>
-            <strong>
-              <Kbd>↵</Kbd> hand off
-            </strong>
+            <span className="grow">The team routes it · results saved as files</span>
+            <button type="button" className="ws-btn primary" onClick={submit}>Hand off</button>
           </div>
         </>
       ) : (
@@ -765,7 +731,7 @@ function TaskDetail({
               <>
                 {task.status !== 'done' && (
                   <button className="ws-btn primary" onClick={onHandOff}>
-                    <Users size={13} /> Hand off to the team <Kbd>A</Kbd>
+                    <Users size={13} /> Hand off to the team
                   </button>
                 )}
                 <button
@@ -778,7 +744,7 @@ function TaskDetail({
                     )
                   }
                 >
-                  {task.status === 'done' ? 'Reopen' : 'Mark done'} <Kbd>Space</Kbd>
+                  {task.status === 'done' ? 'Reopen' : 'Mark done'}
                 </button>
               </>
             )}

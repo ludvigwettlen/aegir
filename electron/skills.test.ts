@@ -21,9 +21,11 @@ describe('skills', () => {
   it('seeds once and preserves edits, disabled state and archives across restarts', () => {
     const { registry, root, db } = setup(); const research = registry.list().find(s => s.name === 'research')!;
     registry.update(research.id, research.revision, files('research', 'My method'), 'Edited');
-    registry.configure(research.id, { archived: true });
+    const originalIds = registry.list().map(skill => skill.id).sort();
+    registry.configure(research.id, { enabled: false, archived: true });
     const restarted = new SkillRegistry(db, join(root, 'skills'), () => true, () => 'a');
-    expect(restarted.list()).toHaveLength(4); expect(restarted.get(research.id).archived).toBe(true);
+    expect(restarted.list().map(skill => skill.id).sort()).toEqual(originalIds);
+    expect(restarted.get(research.id)).toMatchObject({ enabled: false, archived: true });
     restarted.configure(research.id, { archived: false });
     expect(restarted.detail(research.id).files[0].content).toContain('My method');
   });
@@ -59,6 +61,12 @@ describe('skills', () => {
     registry.resolveProposal(proposal.id, true); expect(registry.detail(shared.id).files[0].content).toContain('Proposed');
     expect(registry.proposals()[0].state).toBe('applied');
     expect(() => registry.resolveProposal(proposal.id, true)).toThrow('no longer');
+    const current = registry.get(shared.id);
+    const stale = registry.propose(shared.id, current.revision, files('example', 'Stale proposal'), 'Old revision', { agentId: 'a' });
+    registry.update(shared.id, current.revision, files('example', 'User correction'), 'User edit');
+    expect(() => registry.resolveProposal(stale.id, true)).toThrow('changed since');
+    expect(registry.detail(shared.id).files[0].content).toContain('User correction');
+    expect(registry.proposals().find(item => item.id === stale.id)?.state).toBe('pending');
     registry.configure(own.id, { pinned: true });
     expect(() => registry.propose(own.id, registry.get(own.id).revision, files('learned'), 'oops', { agentId: 'a' })).toThrow('pinned');
   });
@@ -75,6 +83,7 @@ describe('skills', () => {
     const { registry } = setup(); const pkg = files(); pkg[0].content = pkg[0].content.replace('description:', 'metadata:\n  aegir:\n    requiresTools: [slack__post]\n    runKinds: [chat]\ndescription:');
     const skill = registry.create({ ownerAgentId: null, files: pkg });
     expect(() => registry.session('a', 'r', 'task', ['slack__search'], `$skill:${skill.id}`)).toThrow('Missing tools');
+    expect(() => registry.session('a', 'r', 'task', ['slack__post'], `$skill:${skill.id}`)).toThrow('Not available in task runs');
     expect(registry.session('a', 'r', 'chat', ['slack__post'], `$skill:${skill.id}`).session.loaded.size).toBe(1);
   });
   it('records disk edits and exposes broken packages for repair', () => {
@@ -114,7 +123,7 @@ describe('skills', () => {
     expect(readFileSync(join(root, 'skills', 'shared', skill.id, 'SKILL.md'), 'utf8')).toContain('Recovered content');
     expect(db.prepare('SELECT * FROM skill_journal').all()).toHaveLength(0);
   });
-  it('creates thread-local host-skill overrides without mutating user config', () => {
+  it('normalizes host skill paths and fails closed on discovery errors', () => {
     expect(disabledHostSkills({ data: [{ skills: [{ path: '/tmp/one/SKILL.md' }, { path: '/tmp/two' }], errors: [] }] })).toEqual([{ path: '/tmp/one', enabled: false }, { path: '/tmp/two', enabled: false }]);
     expect(() => disabledHostSkills({})).toThrow('catalog');
     expect(() => disabledHostSkills({ data: [{ skills: [], errors: ['failed'] }] })).toThrow('discovery failed');

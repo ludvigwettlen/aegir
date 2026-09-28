@@ -1,15 +1,17 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from './db.js';
 import { Runtime } from './runtime.js';
 import type { CodexProvider, RunInput } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
-import type { Task } from '../shared/types.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
+
+const cleanup: (() => void)[] = [];
+afterEach(() => { for (const clean of cleanup.splice(0)) clean(); });
 
 // A fake Codex that calls one tool (if given) and then answers.
 function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime) => Promise<string> = async () => 'Done') {
@@ -22,6 +24,7 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
   const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
   runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir });
+  cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
   return { store, runtime, runs, memory };
 }
 
@@ -37,9 +40,6 @@ describe('runtime', () => {
       const result = await rt.handleInternalTool('memory', tool.name.slice('memory__'.length), { query: '  prior project decisions  ' }, id);
       expect(memory.recall).toHaveBeenLastCalledWith('prior project decisions', agentId);
       expect(result).toEqual({ memories: '[shared] Use weekly reports', found: true });
-      for (const query of ['', '   ', 42, 'x'.repeat(2001)]) {
-        await expect(rt.handleInternalTool('memory', tool.name.slice('memory__'.length), { query }, id)).rejects.toThrow('Memory query');
-      }
       checked = true;
       return 'Done';
     });
@@ -77,6 +77,26 @@ describe('runtime', () => {
     await expect(runtime.handleInternalTool('skills', 'list', {}, 'expired')).rejects.toThrow('No active skill session');
   });
 
+  it.each(['chat', 'task', 'routine'] as const)('preserves user instructions and permission boundaries in %s', async kind => {
+    const { store, runtime, runs } = setup();
+    const group = store.groups()[0];
+    const agent = store.get('agents', group.leadAgentId)!;
+    store.updateAgent({ ...agent, instructions: 'Custom personality: use Swedish.' });
+    store.setSetting('memoryInstructions', 'Keep project decisions with their dates.');
+    if (kind === 'routine') {
+      const routine = store.routines()[0];
+      store.updateRoutine(routine.id, { agentId: agent.id });
+      await runtime.runRoutine(routine.id, 'manual');
+    } else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Review' }).id, 'Review the evidence');
+    else await runtime.sendMessage(store.createThread(group.id, 'Review').id, 'Review the evidence');
+    const run = runs.at(-1)!;
+    expect(run.instructions).toContain('Keep project decisions with their dates.');
+    expect(run.instructions).toContain('Custom personality: use Swedish.');
+    expect(run.instructions).toContain('Skill catalog');
+    expect(run.sandbox).toBe(kind === 'task' ? 'workspace-write' : 'read-only');
+    expect(run.tools.some(tool => tool.name === 'slack__post')).toBe(kind === 'chat');
+  });
+
   it('blocks a routine before execution when its required skill is disabled', async () => {
     const { store, runtime, runs } = setup(); const routine = store.routines()[0];
     const skill = runtime.skills.list()[0]; runtime.skills.bindRoutine(routine.id, [skill.id]);
@@ -87,9 +107,12 @@ describe('runtime', () => {
     expect(store.lastRun(routine.id)?.summary).toContain('missing or disabled');
   });
 
-  it('returns an explicit empty result for an unmatched memory query', async () => {
+  it('validates memory queries and distinguishes no matches from invalid requests', async () => {
     const { store, runtime } = setup();
     const agentId = store.groups()[0].leadAgentId;
+    for (const query of ['', '   ', 42, 'x'.repeat(2001)]) {
+      await expect(runtime.handleInternalTool('memory', `recall_${agentId.replace(/-/g, '_')}`, { query }, 'test')).rejects.toThrow('Memory query');
+    }
     await expect(runtime.handleInternalTool('memory', `recall_${agentId.replace(/-/g, '_')}`, { query: 'unknown fact' }, 'test'))
       .resolves.toEqual({ memories: '', found: false });
     await expect(runtime.handleInternalTool('memory', 'recall_deadbeef', { query: 'fact' }, 'test')).rejects.toThrow('Unknown agent');
@@ -163,5 +186,75 @@ describe('runtime', () => {
     expect(store.routines()[0].schedule).toEqual({ every: 'hour', weekdaysOnly: true });
     expect(store.message(proposal.id)!.meta!.state).toBe('applied');
     expect(() => runtime.resolveRoutineChange(proposal.id, true)).toThrow('no longer pending');
+  });
+});
+
+describe('runtime shutdown', () => {
+  it('cancels both scheduler timers and ignores wake ticks after shutdown', () => {
+    vi.useFakeTimers();
+    const { store, runtime } = setup();
+    try {
+      runtime.start();
+      runtime.stop();
+      store.close();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(() => { vi.advanceTimersByTime(120_000); runtime.tick(); }).not.toThrow();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['chat', 'task', 'routine'] as const)('ignores late %s callbacks and completion after the database closes', async kind => {
+    let started!: (input: RunInput) => void;
+    const ready = new Promise<RunInput>(resolve => { started = resolve; });
+    let finish!: (text: string) => void;
+    const pending = new Promise<string>(resolve => { finish = resolve; });
+    const { store, runtime } = setup(async input => { started(input); return pending; });
+    const run = kind === 'routine' ? runtime.runRoutine(store.routines()[0].id, 'manual')
+      : kind === 'task' ? runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work')
+      : runtime.sendMessage(store.createThread(store.groups()[0].id, 'Shutdown').id, 'Work');
+    const input = await ready;
+    runtime.stop();
+    store.close();
+    // Observe attempted access too: routines catch errors, so a resolved Promise
+    // alone cannot prove that a closed database was never touched.
+    const databaseAccess = vi.spyOn(store.db, 'prepare');
+    try {
+      expect(() => input.onDelta('Late text')).not.toThrow();
+      expect(() => input.onItem?.({ type: 'commandExecution' })).not.toThrow();
+      input.onThreadStarted?.('late-thread');
+      expect(runtime.contextFor('late-thread')).toBeUndefined();
+      await expect(runtime.handleInternalTool('tasks', 'suggest', { title: 'Late', sourceUrl: 'https://example.com' }, 'late-thread')).rejects.toThrow('Runtime is stopped');
+    } finally { finish('Done'); }
+    await run;
+    expect(databaseAccess).not.toHaveBeenCalled();
+  });
+
+  it.each(['chat', 'task', 'routine'] as const)('does not start a %s model run when memory resolves after shutdown', async kind => {
+    const { store, runtime, memory, runs } = setup();
+    const databaseAccess = vi.spyOn(store.db, 'prepare');
+    vi.spyOn(memory, 'recall').mockImplementation(async () => {
+      runtime.stop(); store.close(); databaseAccess.mockClear(); return 'Late memory';
+    });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Shutdown').id, 'Work');
+    expect(runs).toHaveLength(0);
+    expect(databaseAccess).not.toHaveBeenCalled();
+  });
+
+  it.each(['chat', 'task', 'routine'] as const)('settles a rejected %s run after shutdown without touching SQLite', async kind => {
+    const { store, runtime } = setup(async () => {
+      runtime.stop(); store.close(); databaseAccess.mockClear(); throw new Error('Provider stopped');
+    });
+    const databaseAccess = vi.spyOn(store.db, 'prepare');
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Shutdown').id, 'Work');
+    expect(databaseAccess).not.toHaveBeenCalled();
+  });
+
+  it('does not create a task thread when routing resolves after shutdown', async () => {
+    const { store, runtime } = setup(async () => { runtime.stop(); store.close(); return '{}'; });
+    store.createGroup('Second team', [store.groups()[0].leadAgentId]);
+    await expect(runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work')).resolves.toBeUndefined();
   });
 });
