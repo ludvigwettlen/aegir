@@ -79,6 +79,20 @@ Messages render Markdown headings, emphasis, lists, code, quotes, and GFM tables
 
 A two-line textarea that grows with content, with a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. Stop appears while an agent in the thread is running.
 
+### Document workspace
+
+`ThreadView` opens local Markdown links and a Files picker in both group conversations and task details. Opening a document collapses the sidebar into an accessible icon rail, hides the thread/task list, and places the conversation beside `DocumentEditor`. While editing, a compact single-row header retains the group and task title; task fields return when the document closes. Files sits beside the document filename while editing and beside the conversation header otherwise, with no separate toolbar row. Closing restores the existing navigation, conversation, and composer without remounting them. The separator supports pointer dragging and arrow-key resizing from 25–55% conversation width. At widths up to 1000 px, Conversation / Document controls switch surfaces.
+
+The document is always formatted and directly editable. There is no source toggle, draft/byline header, or suggestions card. The header contains the filename, save state, and close action. Surface/canvas, ink/muted, and line tokens define the editor; lime-soft highlights text selection and referenced passages. Editing uses native undo, Markdown input shortcuts, and Cmd+B / Cmd+I. Headings, lists, code, quotes, tables, images, and checklists serialize back to Markdown; formatting syntax can normalize on edit. HTML, frontmatter, and footnotes are currently read only to avoid dropping unsupported content.
+
+Selecting text automatically attaches a removable, labeled passage to the composer without moving focus. The next sent message includes the file path and quoted passage. Clearing a selection in the editor or sending the message clears the reference. Unsaved document changes are flushed before sending so the team receives current file contents.
+
+Edits autosave after a short pause, with explicit Saving / Saved / Not saved states. The main process restricts reads and writes to the agent's working folder, rejects symlinks and oversized files, checks a content revision before replacing the file, and writes through a temporary file. Local recovery drafts survive navigation and restarts. External file edits refresh a clean editor; when local changes exist, the editor preserves them and presents Retry save / Reload file. Reload requires an explicit discard action. This is file-based collaboration, not simultaneous live cursor editing.
+
+Esc saves and closes the document, except while a mention picker consumes Escape. A failed save keeps the document open. F6 switches focus between the document and conversation; Cmd+S saves. H/Left from the conversation closes the document, and L/Right enters its pane outside text fields. Hold § to discover the document shortcuts. Icon rail items retain names and tooltips, and the resize separator exposes its current value.
+
+The document pane and editable prose have no focus outline. Buttons, links, and the resize separator retain their visible keyboard focus indicators.
+
 ### Routine view
 
 A run list (grouped by day, with All / Failed / Did something filters) beside a monospace run log. The header has Discuss, Run now and Pause/Resume, plus collapsible instructions. Log lines are raw text: time with seconds, kind (run, system, call, result, agent, error), then the text. Colour only reinforces the kind column, and errors are red in both columns. The log is for debugging, so it has no chips or summaries beyond the run header.

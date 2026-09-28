@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  listDocuments: threadId => ipcRenderer.invoke('document-list', threadId),
+  readDocument: (threadId, path) => ipcRenderer.invoke('document-read', threadId, path),
+  saveDocument: (threadId, path, expected, content) => ipcRenderer.invoke('document-save', threadId, path, expected, content),
   skillLibrary: () => ipcRenderer.invoke('skill-library'),
   skillDetail: id => ipcRenderer.invoke('skill-detail', id),
   createSkill: input => ipcRenderer.invoke('skill-create', input),

@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
+import { listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
@@ -102,6 +103,11 @@ function approvalForExternal(detail: string, threadId: string | undefined): Prom
   return new Promise((resolve) => externalApprovalResolvers.set(id, resolve));
 }
 function registerIpc() {
+  const documentRoot = (threadId: string) => {
+    const thread = store.get('threads', threadId);
+    if (!thread) throw new Error('This conversation no longer exists');
+    return (thread.taskId && store.get('tasks', thread.taskId)?.outputDir) || app.getPath('userData');
+  };
   const handle = (channel: string, fn: (...args: any[]) => unknown) =>
     ipcMain.handle(channel, async (_event, ...args) => {
       const result = await fn(...args);
@@ -109,6 +115,9 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('document-list', (id: string) => listDocuments(documentRoot(id)));
+  handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
+  handle('document-save', (id: string, path: string, expected: string, content: string) => saveDocument(documentRoot(id), path, expected, content));
   handle('skill-library', () => runtime.skills.library());
   handle('skill-detail', (id: string) => runtime.skills.detail(id));
   handle('skill-create', (input: SkillCreate) => runtime.skills.create(input));

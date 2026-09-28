@@ -8,6 +8,10 @@ function contextFor(route: Route): Context {
   const target = document.activeElement;
   const dialog = target?.closest('[role="dialog"]');
   const editor = target?.matches('input, textarea, select, [contenteditable="true"]');
+  if (document.querySelector('.document-open') && !dialog) return {
+    title: 'Document workspace', editing: true, dialog: false,
+    hints: [['Esc', 'Save and close document'], ['F6', 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['Tab / ⇧Tab', 'Move between controls']],
+  };
   if (dialog) return { title: dialog.getAttribute('aria-label') || 'Dialog', editing: true, dialog: true,
     hints: [['Tab / ⇧Tab', 'Move between controls'], ['Esc', 'Cancel'], ...(dialog.classList.contains('ws-popover') ? [['Enter', 'Save or hand off'] as Hint, ['⇧Enter', 'New line in instructions'] as Hint] : [])] };
   if (editor) {

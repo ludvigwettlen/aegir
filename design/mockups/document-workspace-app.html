@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ägir · Document workspace preview</title></head><body><div id="root"></div>
+<script>
+// Real application UI with an isolated in-memory desktop API. No user files or agents are accessed.
+const at = new Date().toISOString();
+const agents = [{id:'a',name:'Ägir',role:'Lead',color:'#a39ad6',instructions:'',createdAt:at}];
+const group = {id:'g',title:'General',kind:'group',agentIds:['a'],leadAgentId:'a',instructions:'',createdAt:at};
+const thread = {id:'preview-thread',groupId:'g',title:'Write me a PRD for Ägir',kind:'task',taskId:'task',status:'active',createdAt:at,updatedAt:at,messageCount:2,agentIds:['a'],busyAgentIds:[],snippet:'Created the first draft. Ready for your thoughts.'};
+const task = {id:'task',title:thread.title,notes:'',label:null,dueAt:at.slice(0,10),status:'review',agentId:'a',threadId:thread.id,outputDir:'/preview',sourceUrl:null,sourceKey:null,createdAt:at,updatedAt:at,completedAt:null};
+const snapshot = {agents,groups:[group],threads:[thread],tasks:[task],taskLinks:[],routines:[],routineRuns:[],connectors:[],approvals:[],legacyMemoryCount:0,memoryInstructions:'',codexStatus:'Preview',launchAtLogin:false,mcpSettings:{slackClientId:'',slackConfigured:false}};
+const messages = [
+{id:'1',threadId:thread.id,agentId:null,role:'user',content:'Write me a PRD for Ägir.',status:'complete',meta:null,createdAt:at},
+{id:'2',threadId:thread.id,agentId:'a',role:'agent',content:'Here’s a first draft covering the vision, core experience, and MVP scope.\n\n[Ägir PRD](agir-prd.md)\n\nLet’s shape it together.',status:'complete',meta:null,createdAt:at}
+];
+let doc = {path:'agir-prd.md',revision:'0',content:'# Ägir\n\nA workspace for you and your agent team.\n\n## Vision\n\nTurn a collection of agents into a team you can actually work with. Delegate meaningful work, stay close to the decisions, and shape the result together.\n\n## Who it’s for\n\nPeople running projects with a small team of AI agents who want one place to direct, review, and refine their work.\n\n## The core experience\n\n- Start with a task, not a configuration screen.\n- Let a lead agent coordinate the right specialists.\n- Review documents alongside the conversation.\n- Give feedback on a specific passage.\n\n## MVP scope\n\n| Feature | Priority |\n| --- | --- |\n| Shared conversations | Essential |\n| Markdown documents | Essential |\n\n## Success criteria\n\nA new user can delegate a task, review the team’s output, and approve a result in under 10 minutes.\n\n- [x] Define the vision\n- [ ] Validate the workflow\n'};
+const listeners = new Set();
+window.aegir = {
+snapshot:async()=>snapshot,onEvent:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},threadMessages:async()=>({messages,before:null}),
+listDocuments:async()=>[doc.path],readDocument:async()=>({...doc}),
+saveDocument:async(_id,path,revision,content)=>{if(revision!==doc.revision)throw Error('The file changed on disk. Your edits are kept here.');doc={path,content,revision:String(+doc.revision+1)};return {...doc}},
+sendMessage:async(_id,content)=>{const message={...messages[0],id:String(Date.now()),content,createdAt:new Date().toISOString()};messages.push(message);listeners.forEach(fn=>fn({type:'message',value:message}))},
+openExternal:async()=>{},openTaskOutput:async()=>{},stopThread:async()=>{},closeThread:async()=>{},undoTaskAction:async()=>null,
+updateTask:async(_id,change)=>{Object.assign(task,change);listeners.forEach(fn=>fn({type:'snapshot',value:{...snapshot}}))}
+};
+if (new URLSearchParams(location.search).has('test')) {
+  const control = document.createElement('button');
+  control.textContent = 'Simulate agent file edit';
+  control.style.cssText = 'position:fixed;bottom:4px;left:4px;z-index:9999;font-size:10px';
+  control.onclick = () => { doc = {...doc, revision:String(+doc.revision+1),content:doc.content+'\n\nAgent update from disk.'}; };
+  document.body.append(control);
+}
+</script><script type="module" src="/src/main.tsx"></script></body></html>

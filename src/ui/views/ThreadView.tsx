@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
+import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, Repeat2, Send, Square } from 'lucide-react';
+import { ArrowDownRight, FileText, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
@@ -26,17 +28,73 @@ export function ThreadView({
   compact?: boolean;
 }) {
   const { messages, hasOlder, loading, loadOlder } = useThreadMessages(thread.id, run);
+  const [document, setDocument] = useState<WorkspaceDocument | null>(null);
+  const [selection, setSelection] = useState<DocumentReference | null>(null);
+  const [files, setFiles] = useState<string[]>([]);
+  const [showFiles, setShowFiles] = useState(false);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [chatWidth, setChatWidth] = useState(36);
+  const [mobilePane, setMobilePane] = useState<'chat' | 'document'>('document');
+  const documentEditor = useRef<DocumentEditorHandle>(null);
+  const workspace = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const active = useRef(true);
+  const openingRef = useRef(false);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  const openDocument = (path: string) => {
+    if (openingRef.current) return;
+    opener.current = window.document.activeElement as HTMLElement;
+    openingRef.current = true; setOpening(true);
+    void run(async () => {
+      try {
+        if (documentEditor.current && !await documentEditor.current.save()) return;
+        const file = await api.readDocument(thread.id, path);
+        if (!active.current) return;
+        setDocument(file); setSelection(null); setShowFiles(false); setMobilePane('document');
+        requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]')?.focus());
+      } finally { openingRef.current = false; if (active.current) setOpening(false); }
+    });
+  };
+  const closeDocument = () => {
+    setDocument(null); setSelection(null);
+    requestAnimationFrame(() => {
+      if (opener.current?.isConnected && opener.current.getClientRects().length) opener.current.focus();
+      else workspace.current?.querySelector<HTMLElement>('[data-document-files]')?.focus();
+    });
+  };
+  const toggleFiles = () => {
+    if (showFiles) { setShowFiles(false); return; }
+    setShowFiles(true); setLoadingFiles(true);
+    void run(async () => {
+      try { const items = await api.listDocuments(thread.id); if (active.current) setFiles(items); }
+      finally { if (active.current) setLoadingFiles(false); }
+    });
+  };
   const busy =
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
+  const filePicker = <div className="ws-document-access">
+    <button className="ws-btn ghost" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} />{opening ? 'Opening…' : 'Files'}</button>
+    {showFiles && <div className="ws-document-files" aria-label="Workspace files">
+      <strong>Markdown files</strong>
+      {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <button key={path} className="ws-btn ghost" disabled={opening} onClick={() => openDocument(path)}><FileText size={14} />{path}</button>) : <p>No Markdown files in this workspace yet.</p>}
+    </div>}
+  </div>;
   return (
+    <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open' : ''}`} data-mobile-pane={mobilePane}>
+      {document ? <header className="ws-editing-head">
+        <div><span>{group.kind === 'private' ? group.title : `# ${group.title}`}</span><h2>{thread.title}</h2></div>
+        <div className="ws-document-tabs"><button className="ws-btn" aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>Conversation</button><button className="ws-btn" aria-pressed={mobilePane === 'document'} onClick={() => setMobilePane('document')}>Document</button></div>
+      </header> : <div className="ws-conversation-head">{header}{filePicker}</div>}
+      <div className="ws-thread-panes">
     <section
+      style={document ? { flex: `0 0 ${chatWidth}%` } : undefined}
       className={`ws-thread ${compact ? 'compact' : ''}`}
       data-keyboard-pane="detail"
       tabIndex={-1}
       aria-label={`Thread: ${thread.title}`}
     >
-      {header}
       <ConversationList
         key={thread.id}
         className="ws-messages"
@@ -49,7 +107,7 @@ export function ThreadView({
           </button>
         )}
         {messages.map((message) => (
-          <MessageRow key={message.id} message={message} data={data} run={run} />
+          <MessageRow key={message.id} message={message} data={data} run={run} onOpenDocument={openDocument} />
         ))}
       </ConversationList>
       <Composer
@@ -60,14 +118,31 @@ export function ThreadView({
         placeholder={
           thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'
         }
-        onSend={(text) => run(() => api.sendMessage(thread.id, text))}
+        reference={selection}
+        onClearReference={() => setSelection(null)}
+        onSend={async (text) => {
+          if (documentEditor.current && !await documentEditor.current.save()) { setMobilePane('document'); return false; }
+          await api.sendMessage(thread.id, withDocumentReference(text, selection));
+          setSelection(null);
+          return true;
+        }}
         onStop={() => run(() => api.stopThread(thread.id))}
       />
     </section>
+      {document && <>
+        <div className="ws-document-divider" role="separator" tabIndex={0} aria-label="Resize conversation" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={55} aria-valuenow={chatWidth}
+          onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
+          onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setChatWidth(Math.max(25, Math.min(55, (event.clientX - rect.left) / rect.width * 100))); } }}
+          onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)}
+          onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowRight' ? 2 : -2)))); } }} />
+        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} headerActions={filePicker} />
+      </>}
+      </div>
+    </div>
   );
 }
 
-function MessageRow({ message, data, run }: { message: Message; data: Snapshot; run: Run }) {
+function MessageRow({ message, data, run, onOpenDocument }: { message: Message; data: Snapshot; run: Run; onOpenDocument: (path: string) => void }) {
   if (message.meta?.type === 'routine-change')
     return <RoutineChangeCard message={message} data={data} run={run} />;
   if (message.role === 'system')
@@ -93,7 +168,7 @@ function MessageRow({ message, data, run }: { message: Message; data: Snapshot; 
         </div>
         <div className="ws-message-text">
           {message.content ? (
-            <ChatMarkdown content={message.content} onOpenLink={url => void run(() => api.openExternal(url))} />
+            <ChatMarkdown content={message.content} onOpenDocument={onOpenDocument} onOpenLink={url => void run(() => api.openExternal(url))} />
           ) : (
             <span className="ws-typing" aria-label="Working">
               <i />
@@ -181,15 +256,21 @@ export function Composer({
   placeholder,
   onSend,
   onStop,
+  reference,
+  onClearReference,
 }: {
   data: Snapshot;
   group: Group;
   busy: boolean;
   placeholder: string;
-  onSend: (text: string) => Promise<void> | void;
+  onSend: (text: string) => Promise<void | boolean> | void;
+  reference?: DocumentReference | null;
+  onClearReference?: () => void;
   onStop?: () => void;
 }) {
   const [value, setValue] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
   const [picker, setPicker] = useState<{ query: string; start: number } | null>(null);
   const [active, setActive] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -231,12 +312,15 @@ export function Composer({
       input.current?.focus();
     });
   };
-  const submit = () => {
+  const submit = async () => {
     const text = value.trim();
-    if (!text || busy) return;
-    setValue('');
-    setPicker(null);
-    void onSend(text);
+    if (!text || busy || sending) return;
+    setSending(true); setSendError('');
+    try {
+      const sent = await onSend(text);
+      if (sent !== false) { setValue(''); setPicker(null); }
+    } catch (cause) { setSendError(String(cause)); }
+    finally { setSending(false); }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (picker && options.length) {
@@ -317,8 +401,11 @@ export function Composer({
         </div>
       )}
       <div className="ws-composer">
+        {reference && <div className="ws-document-reference"><div><strong>{reference.path}</strong><blockquote>{reference.text}</blockquote></div><button className="ws-icon-btn" aria-label="Remove selected passage" onClick={onClearReference}><X size={13} /></button></div>}
+        {sendError && <p role="alert">{sendError}</p>}
         <textarea
           ref={input}
+          disabled={sending}
           aria-label="Message"
           rows={2}
           placeholder={placeholder}
@@ -335,7 +422,7 @@ export function Composer({
           <button
             className="ws-send"
             aria-label="Send"
-            disabled={busy || !value.trim()}
+            disabled={busy || sending || !value.trim()}
             onClick={submit}
           >
             <Send size={15} />

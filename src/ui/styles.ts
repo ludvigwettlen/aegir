@@ -6,3 +6,4 @@ import './light.scss'; // Supporting-page theme and Fragments configuration.
 import './design-system/tokens.scss';
 import './design-system/primitives.scss';
 import './workspace.scss'; // Workspace shell, tasks, groups, threads, and routines.
+import './document-workspace.scss';

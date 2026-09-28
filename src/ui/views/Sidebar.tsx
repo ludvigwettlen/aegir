@@ -24,6 +24,8 @@ function Item({
   return (
     <button
       data-nav-item
+      aria-label={label}
+      title={label}
       className={`ws-nav-item ${active ? 'active' : ''}`}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}

@@ -156,6 +156,9 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
 
 export interface DesktopApi extends SkillsApi {
+  listDocuments(threadId: string): Promise<string[]>;
+  readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
+  saveDocument(threadId: string, path: string, expected: string, content: string): Promise<import('./documents').WorkspaceDocument>;
   snapshot(): Promise<Snapshot>;
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
   onEvent(callback: (event: AppEvent) => void): () => void;

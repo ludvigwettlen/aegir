@@ -14,6 +14,41 @@ export function useWorkspaceKeyboard(
     let timer = 0;
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"]')) return;
+      const documentWorkspace = document.querySelector<HTMLElement>('.document-open');
+      const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
+      const keyTarget = event.target instanceof Element ? event.target : null;
+      if (documentPane && !event.isComposing) {
+        if (event.key === 'Escape' && !document.querySelector('.ws-picker')) {
+          event.preventDefault();
+          documentWorkspace?.querySelector<HTMLButtonElement>('[data-close-document]')?.click();
+          return;
+        }
+        if (event.key === 'F6') {
+          event.preventDefault();
+          const inDocument = !!keyTarget?.closest('[data-keyboard-pane="document"]');
+          const tab = documentWorkspace?.querySelector<HTMLButtonElement>(`.ws-document-tabs button:${inDocument ? 'first' : 'last'}-child`);
+          tab?.click();
+          documentWorkspace?.querySelector<HTMLElement>(inDocument ? 'textarea[aria-label="Message"]' : '.tiptap')?.focus();
+          return;
+        }
+        if (keyTarget?.getAttribute('role') === 'separator') return;
+        if (!isTyping(event) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          if (keyTarget?.closest('.ws-sidebar') && ['l', 'ArrowRight'].includes(event.key)) {
+            event.preventDefault();
+            documentWorkspace?.querySelector<HTMLButtonElement>('.ws-document-tabs button:first-child')?.click();
+            documentWorkspace?.querySelector<HTMLElement>('textarea[aria-label="Message"]')?.focus(); return;
+          }
+          if (keyTarget?.closest('[data-keyboard-pane="document"]') && ['h', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault(); documentWorkspace?.querySelector<HTMLElement>('textarea[aria-label="Message"]')?.focus(); return;
+          }
+          if (keyTarget?.closest('.ws-thread') && ['h', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault(); documentWorkspace?.querySelector<HTMLButtonElement>('[data-close-document]')?.click(); return;
+          }
+          if (keyTarget?.closest('.ws-thread') && ['l', 'ArrowRight'].includes(event.key)) {
+            event.preventDefault(); documentPane.focus(); return;
+          }
+        }
+      }
       if (event.metaKey && !event.ctrlKey && !event.altKey) {
         if (event.key.toLowerCase() === 'n') {
           event.preventDefault();
@@ -117,7 +152,7 @@ export function useWorkspaceKeyboard(
           : name === 'list'
             ? '[data-keyboard-item]'
             : 'button:not(:disabled), a[href], input, textarea';
-      const items = [...container.querySelectorAll<HTMLElement>(selector)];
+      const items = [...container.querySelectorAll<HTMLElement>(selector)].filter(item => item.getClientRects().length);
       if (!items.length) return;
       const current = target ? items.findIndex((item) => item === target || item.contains(target)) : -1;
       const down = event.key === 'j' || event.key === 'ArrowDown';

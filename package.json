@@ -13,6 +13,13 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@radix-ui/react-dialog": "^1.1.15",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-task-item": "^3.31.3",
+    "@tiptap/extension-task-list": "^3.31.3",
+    "@tiptap/markdown": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "@usefragments/ui": "^3.1.2",
     "better-sqlite3": "^12.2.0",
     "js-yaml": "4.3.2",
