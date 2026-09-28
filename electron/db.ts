@@ -19,6 +19,7 @@ import type {
   ThreadSummary,
   MessagePage,
 } from '../shared/types.js';
+import { defaultAgents, legacyAgents } from './default-agents.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 
 const now = () => new Date().toISOString();
@@ -74,27 +75,7 @@ export class Store {
     this.db.exec(`CREATE TABLE IF NOT EXISTS task_links(id TEXT PRIMARY KEY,taskId TEXT NOT NULL,url TEXT NOT NULL,createdAt TEXT NOT NULL,UNIQUE(taskId,url));
       CREATE INDEX IF NOT EXISTS task_links_task ON task_links(taskId);`);
     this.db.exec('CREATE INDEX IF NOT EXISTS messages_thread ON messages(threadId);');
-    if (!this.list('agents').length) {
-      this.createAgent({
-        name: 'Atlas',
-        role: 'Lead',
-        color: '#8f79dd',
-        instructions:
-          'You are a thoughtful generalist. Coordinate work clearly and keep handoffs visible.',
-      });
-      this.createAgent({
-        name: 'Scout',
-        role: 'Research',
-        color: '#54b8aa',
-        instructions: 'You investigate questions, find sources, and report evidence with links.',
-      });
-      this.createAgent({
-        name: 'Quill',
-        role: 'Writing',
-        color: '#e8a76c',
-        instructions: 'You turn complex input into concise, useful writing and action items.',
-      });
-    }
+    this.seedAgentTeam();
     const agents = this.list('agents');
     if (!this.groups().some((group) => group.kind === 'group'))
       this.createGroup(
@@ -104,11 +85,11 @@ export class Store {
       );
     for (const agent of agents) this.ensurePrivateGroup(agent);
     if (!this.getSetting('routinesSeeded')) {
-      const scout = agents.find((agent) => agent.name === 'Scout') || agents[0];
+      const researcher = agents.find((agent) => agent.role === 'Research') || agents[0];
       this.createRoutine({
         name: 'Hourly discovery',
         instructions: discoveryInstructions,
-        agentId: scout.id,
+        agentId: researcher.id,
         schedule: { every: 'hour' },
         enabled: true,
       });
@@ -128,6 +109,33 @@ export class Store {
       )
       .run(now());
     this.db.prepare("UPDATE messages SET status='failed' WHERE status='streaming'").run();
+  }
+  private seedAgentTeam() {
+    if (this.getSetting('nordicTeamSeeded')) return;
+    this.db.transaction(() => {
+      const existing = this.list('agents');
+      if (!existing.length) {
+        for (const agent of defaultAgents) this.createAgent(agent);
+      } else {
+        for (const [index, legacy] of legacyAgents.entries()) {
+          const replacement = defaultAgents[index];
+          for (const agent of existing.filter((item) => item.name === legacy.name && item.role === replacement.role)) {
+            this.updateAgent({
+              ...agent,
+              name: replacement.name,
+              instructions: agent.instructions === legacy.instructions ? replacement.instructions : agent.instructions,
+            });
+          }
+        }
+        const freja = existing.find((agent) => agent.name === 'Freja') || this.createAgent(defaultAgents[3]);
+        // Add the advisor to the default team; preserve membership of purpose-specific groups.
+        for (const group of this.groups().filter((item) => item.kind === 'group' && item.title === 'General')) {
+          if (!group.agentIds.includes(freja.id))
+            this.db.prepare('UPDATE groups SET agentIds=? WHERE id=?').run(JSON.stringify([...group.agentIds, freja.id]), group.id);
+        }
+      }
+      this.setSetting('nordicTeamSeeded', 'true');
+    })();
   }
   private columns(table: string) {
     return (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(

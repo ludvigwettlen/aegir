@@ -51,7 +51,7 @@ export function cleanRoutineChange(value: unknown, agents: Agent[], isNew: boole
   return change;
 }
 
-// Agents mentioned by name (@Scout), falling back to the group lead.
+// Agents mentioned by name (@Mimer), falling back to the group lead.
 export function mentionedAgents(text: string, agents: Agent[], group: Group): Agent[] {
   const mentioned = agents.filter(agent => new RegExp(`@${agent.name}\\b`, 'i').test(text));
   if (group.kind === 'private') return agents.filter(agent => agent.id === group.leadAgentId);

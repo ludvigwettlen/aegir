@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Store } from './db.js';
+import { defaultAgents, legacyAgents } from './default-agents.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
@@ -13,9 +14,51 @@ describe('store', () => {
     const store = new Store(path());
     const groups = store.groups();
     expect(groups.filter(group => group.kind === 'group').map(group => group.title)).toEqual(['General']);
-    expect(groups.filter(group => group.kind === 'private').map(group => group.title)).toEqual(['Atlas', 'Scout', 'Quill']);
+    expect(groups.filter(group => group.kind === 'private').map(group => group.title)).toEqual(['Ägir', 'Mimer', 'Saga', 'Freja']);
     expect(store.routines().map(routine => routine.name)).toEqual(['Hourly discovery']);
+    expect(store.get('agents', store.routines()[0].agentId)?.name).toBe('Mimer');
+    expect(groups.find(group => group.kind === 'group')?.agentIds).toHaveLength(4);
     store.close();
+  });
+
+  it('upgrades the old team in place, preserves custom instructions and history, and runs only once', () => {
+    const file = path();
+    const initial = new Store(file);
+    const agents = initial.list('agents');
+    const researcher = agents[1];
+    const privateGroup = initial.groups().find(group => group.kind === 'private' && group.leadAgentId === researcher.id)!;
+    const thread = initial.createThread(privateGroup.id, 'Research history');
+    initial.addMessage(thread.id, researcher.id, 'agent', 'Evidence collected');
+    const customGroup = initial.createGroup('Product', [agents[0].id], agents[0].id);
+    initial.close();
+    const old = new Database(file);
+    old.prepare("DELETE FROM settings WHERE key='nordicTeamSeeded'").run();
+    old.prepare('DELETE FROM agents WHERE id=?').run(agents[3].id);
+    old.prepare("DELETE FROM groups WHERE kind='private' AND leadAgentId=?").run(agents[3].id);
+    old.prepare("UPDATE groups SET agentIds=? WHERE title='General'").run(JSON.stringify(agents.slice(0, 3).map(agent => agent.id)));
+    for (const [index, legacy] of legacyAgents.entries()) {
+      old.prepare('UPDATE agents SET name=?,instructions=? WHERE id=?').run(legacy.name, index === 1 ? 'My custom research instructions' : legacy.instructions, agents[index].id);
+      old.prepare("UPDATE groups SET title=? WHERE kind='private' AND leadAgentId=?").run(legacy.name, agents[index].id);
+    }
+    old.close();
+
+    const upgraded = new Store(file);
+    expect(upgraded.list('agents').map(agent => agent.name)).toEqual(['Ägir', 'Mimer', 'Saga', 'Freja']);
+    expect(upgraded.get('agents', researcher.id)?.instructions).toBe('My custom research instructions');
+    expect(upgraded.get('agents', agents[0].id)?.instructions).toBe(defaultAgents[0].instructions);
+    expect(upgraded.group(privateGroup.id)?.title).toBe('Mimer');
+    expect(upgraded.messagesForThread(thread.id)[0]).toMatchObject({ agentId: researcher.id, content: 'Evidence collected' });
+    expect(upgraded.routines()[0].agentId).toBe(researcher.id);
+    expect(upgraded.group(customGroup.id)?.agentIds).toEqual([agents[0].id]);
+    const freja = upgraded.list('agents')[3];
+    expect(upgraded.groups().find(group => group.title === 'General')?.agentIds).toContain(freja.id);
+    upgraded.updateAgent({ ...freja, name: 'My advisor' });
+    upgraded.close();
+
+    const reopened = new Store(file);
+    expect(reopened.list('agents')).toHaveLength(4);
+    expect(reopened.get('agents', freja.id)?.name).toBe('My advisor');
+    reopened.close();
   });
 
   it('moves room history and goal output into threads without dropping the old tables', () => {

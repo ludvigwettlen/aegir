@@ -2,7 +2,9 @@
 
 Ägir is a local-first macOS workspace with two main surfaces: a keyboard-first task list whose tasks you can hand to an agent team, and Slack-style group chats with agents organised into threads. Scheduled routines, Slack and Notion connectors and durable memory support both. This is a new runtime; Hermes was used as product inspiration only.
 
-Agent model routing: the Lead role uses the Codex account default. Scout, Quill, and any other non-Lead agent use an available Luna model at low reasoning effort; routines use the tier of the agent that runs them, and choosing a group for a handed-off task uses the lightweight tier. The app checks `model/list` before these runs and reports an error if no supported Luna model is available, rather than silently using a larger model. Model choices are not yet individually editable.
+The default team is Ägir (lead and general assistant), Mimer (research and evidence), Saga (writing and communication), and Freja (product strategy and CPO advice). Freja advises on the products you build, challenging assumptions and weighing priorities, tradeoffs, and validation. Existing default agents are renamed in place on startup, preserving history, memory identities, and custom instructions.
+
+Agent model routing: the Lead role uses the Codex account default. Mimer, Saga, Freja, and any other non-Lead agent use an available Luna model at low reasoning effort; routines use the tier of the agent that runs them, and choosing a group for a handed-off task uses the lightweight tier. The app checks `model/list` before these runs and reports an error if no supported Luna model is available, rather than silently using a larger model. Model choices are not yet individually editable.
 
 ## Run
 
