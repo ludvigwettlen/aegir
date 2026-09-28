@@ -7,6 +7,9 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 ## Next
 
 - [ ] Exit editing mode after creating a new task so keyboard navigation works immediately, without pressing Escape first.
+- [ ] Move “Needs you” into the Tasks section of the sidebar instead of keeping it as a separate top-level section.
+- [ ] Make Settings available from the macOS menu bar and through `Cmd+,`. Remove the bottom-left sidebar footer, including the manual Memory entry and Sources indicator; preserve access to skill management through Settings.
+- [ ] Remove the Settings page’s Runtime / “Codex”, Background / “Always ready”, and Output / “Files, not posts” cards.
 - [ ] Prevent late runtime status events from reading the database after app shutdown.
 - [ ] Exercise Slack, Notion, and full agent runs end to end with real accounts.
 - [ ] Review the remaining agent base/system instructions against Hermes’s system prompt; skill discovery, authoring, review, and reflection guidance are now implemented.
