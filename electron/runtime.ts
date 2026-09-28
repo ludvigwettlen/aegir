@@ -8,7 +8,7 @@ import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
 import { skillsFor } from './skills.js';
-import { cleanRoutineChange, connectorToolsFor, jsonObject, logText, memoryTool, mentionedAgents, mentionedRoutines, proposeRoutineTool, slug, suggestTaskTool, taskSourceKey, type RunKind } from './agent-tools.js';
+import { cleanRoutineChange, connectorToolsFor, jsonObject, logText, memoryRecallTool, memoryTool, mentionedAgents, mentionedRoutines, proposeRoutineTool, slug, suggestTaskTool, taskSourceKey, type RunKind } from './agent-tools.js';
 
 type Context = { kind: RunKind; threadId?: string; runId?: string; counts?: { tasks: number; memories: number } };
 
@@ -102,7 +102,7 @@ export class Runtime {
     const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
     const routines = kind === 'chat' ? mentionedRoutines(userText, this.store.routines()) : [];
     const task = thread.taskId ? this.store.get<Task>('tasks', thread.taskId) : undefined;
-    const tools: Tool[] = [...connectorToolsFor(kind, this.connectors.listTools()), memoryTool(agent), ...(kind === 'chat' ? [proposeRoutineTool] : [])];
+    const tools: Tool[] = [...connectorToolsFor(kind, this.connectors.listTools()), memoryTool(agent), memoryRecallTool(agent), ...(kind === 'chat' ? [proposeRoutineTool] : [])];
     const prompt = [`Relevant memory:\n${recalled || '(none)'}`, routines.length ? `Tagged routines:\n${routines.map(routine => this.describeRoutine(routine, agents)).join('\n\n')}` : '', `Thread "${thread.title}" so far:\n${history || '(empty)'}`, `Current message:\n${userText}`].filter(Boolean).join('\n\n');
     let streamed = '';
     try {
@@ -133,7 +133,7 @@ export class Runtime {
     }
   }
   private instructionsFor(kind: RunKind, agent: Agent, group: Group, text: string) {
-    const memoryGuidance = `Save durable facts with your memory tool. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}`;
+    const memoryGuidance = `Search prior facts, preferences, and decisions with your memory recall tool whenever more context is needed. Save durable facts with your memory remember tool. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}`;
     const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
     if (kind === 'task') return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
@@ -157,8 +157,13 @@ ${memoryGuidance}\n${skillsFor(text)}`;
   async handleInternalTool(provider: string, tool: string, args: Record<string, unknown>, codexThreadId: string): Promise<unknown> {
     const context = this.active.get(codexThreadId);
     if (provider === 'memory') {
-      const match = tool.match(/^remember_([0-9a-f_]+)$/i); if (!match) throw new Error('Unknown memory tool');
-      const agentId = match[1].replace(/_/g, '-'); if (!this.store.get<Agent>('agents', agentId)) throw new Error('Unknown agent');
+      const match = tool.match(/^(remember|recall)_([0-9a-f_]+)$/i); if (!match) throw new Error('Unknown memory tool');
+      const agentId = match[2].replace(/_/g, '-'); if (!this.store.get<Agent>('agents', agentId)) throw new Error('Unknown agent');
+      if (match[1].toLowerCase() === 'recall') {
+        if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 2000) throw new Error('Memory query must be 1–2000 characters');
+        const result = await this.memory.recall(args.query.trim(), agentId);
+        return { memories: result, found: Boolean(result.trim()) };
+      }
       const scope = args.scope === 'private' ? `agent-${agentId}` : 'shared';
       const result = await this.memory.remember(scope, String(args.content || ''), typeof args.sourceUrl === 'string' && /^https?:\/\//.test(args.sourceUrl) ? args.sourceUrl : null);
       if (context?.counts) context.counts.memories++;
@@ -224,10 +229,10 @@ ${memoryGuidance}\n${skillsFor(text)}`;
     try {
       const recalled = await this.memory.recall(`${routine.name} ${routine.instructions}`.slice(0, 160), agent.id);
       this.log(run.id, 'call', 'memory.recall'); this.log(run.id, 'result', recalled ? logText(recalled, 300) : '(none)');
-      const tools = [...connectorToolsFor('routine', this.connectors.listTools()), memoryTool(agent), suggestTaskTool];
+      const tools = [...connectorToolsFor('routine', this.connectors.listTools()), memoryTool(agent), memoryRecallTool(agent), suggestTaskTool];
       const connected = Object.values(this.connectors.states).filter(state => state.status === 'connected').map(state => state.id);
       const instructions = `${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background. No one is watching live; every step is logged for the user to audit.
-Connected tools are read-only. Use tasks__suggest to put items in front of the user and your memory tool for durable facts. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}
+Connected tools are read-only. Use tasks__suggest to put items in front of the user and your memory remember tool for durable facts. Use your memory recall tool to search prior facts, preferences, and decisions whenever more context is needed. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}
 Routine instructions:\n${routine.instructions}`;
       const prompt = `Now: ${new Date().toString()}\nPrevious run: ${previous ? `${previous.startedAt} (${previous.status}) — ${previous.summary}` : 'none'}\nConnected sources: ${connected.join(', ') || 'none'}\n\nRelevant memory:\n${recalled || '(none)'}`;
       const result = await this.codex.run({

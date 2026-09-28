@@ -26,6 +26,42 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
 }
 
 describe('runtime', () => {
+  it.each(['chat', 'task', 'routine'] as const)('lets a %s agent retrieve memories during a run', async kind => {
+    let checked = false;
+    const { store, runtime, memory } = setup(async (input, id, rt) => {
+      if (!input.tools.length) return 'Done'; // Task routing does not use memory tools.
+      const tool = input.tools.find(tool => tool.name.startsWith('memory__recall_'))!;
+      expect(tool).toMatchObject({ readOnly: true });
+      expect(input.tools.some(tool => tool.name.startsWith('memory__remember_'))).toBe(true);
+      const agentId = tool.name.slice('memory__recall_'.length).replace(/_/g, '-');
+      const result = await rt.handleInternalTool('memory', tool.name.slice('memory__'.length), { query: '  prior project decisions  ' }, id);
+      expect(memory.recall).toHaveBeenLastCalledWith('prior project decisions', agentId);
+      expect(result).toEqual({ memories: '[shared] Use weekly reports', found: true });
+      for (const query of ['', '   ', 42, 'x'.repeat(2001)]) {
+        await expect(rt.handleInternalTool('memory', tool.name.slice('memory__'.length), { query }, id)).rejects.toThrow('Memory query');
+      }
+      checked = true;
+      return 'Done';
+    });
+    vi.spyOn(memory, 'recall').mockResolvedValue('[shared] Use weekly reports');
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Project decisions' }).id, 'Find prior decisions');
+    else {
+      const thread = store.createThread(store.groups()[0].id, 'Project decisions');
+      await runtime.sendMessage(thread.id, 'Find prior decisions');
+    }
+    expect(checked).toBe(true);
+    expect(memory.recall).toHaveBeenCalledWith('prior project decisions', expect.any(String));
+  });
+
+  it('returns an explicit empty result for an unmatched memory query', async () => {
+    const { store, runtime } = setup();
+    const agentId = store.groups()[0].leadAgentId;
+    await expect(runtime.handleInternalTool('memory', `recall_${agentId.replace(/-/g, '_')}`, { query: 'unknown fact' }, 'test'))
+      .resolves.toEqual({ memories: '', found: false });
+    await expect(runtime.handleInternalTool('memory', 'recall_deadbeef', { query: 'fact' }, 'test')).rejects.toThrow('Unknown agent');
+  });
+
   it('hands a task off into a task thread with a writable output folder and read-only connectors', async () => {
     const { store, runtime, runs } = setup();
     const task = store.createTask({ title: 'Competitor pricing' });

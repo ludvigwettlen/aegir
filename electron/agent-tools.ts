@@ -14,6 +14,10 @@ export function memoryTool(agent: Agent): Tool {
   return { name: `memory__remember_${agent.id.replace(/-/g, '_')}`, description: 'Save one durable user or project memory. Choose shared for facts useful to all agents, private for your own working context. Follow the workspace memory guidance and never store secrets or guesses.', inputSchema: { type: 'object', properties: { content: { type: 'string' }, scope: { type: 'string', enum: ['shared', 'private'] }, sourceUrl: { type: 'string' } }, required: ['content', 'scope'] }, readOnly: false };
 }
 
+export function memoryRecallTool(agent: Agent): Tool {
+  return { name: `memory__recall_${agent.id.replace(/-/g, '_')}`, description: 'Search and retrieve durable memories from the shared bank and your own private bank. Use a focused query when you need prior decisions, preferences, or project context; you can search again with different terms. Results may come from Mnemosyne or the local mirror.', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['query'], additionalProperties: false }, readOnly: true };
+}
+
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',
   description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires the source permalink the task came from.',

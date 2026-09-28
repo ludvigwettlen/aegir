@@ -1,14 +1,15 @@
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryService } from './memory.js';
 import type { Store } from './db.js';
 import type { Memory } from '../shared/types.js';
 
-const mnemosyne = vi.hoisted(() => ({ available: false, failPrivate: false }));
+const mnemosyne = vi.hoisted(() => ({ available: false, failPrivate: false, empty: false }));
 
 // Exercise both the local fallback and a partial Mnemosyne response without an installation.
 vi.mock('node:child_process', () => ({
-  spawn: (_binary: string, args: string[], options: { env: { MNEMOSYNE_BANK: string } }) => {
+  spawn: vi.fn((_binary: string, args: string[], options: { env: { MNEMOSYNE_BANK: string; MNEMOSYNE_DATA_DIR?: string } }) => {
     const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
@@ -16,15 +17,16 @@ vi.mock('node:child_process', () => ({
       if (!mnemosyne.available || (mnemosyne.failPrivate && options.env.MNEMOSYNE_BANK.includes('agent-'))) {
         child.emit('error', new Error('Mnemosyne unavailable'));
       } else {
-        if (args[0] === 'recall') child.stdout.emit('data', 'Remote planning result');
+        if (args[0] === 'recall') child.stdout.emit('data', JSON.stringify({ results: mnemosyne.empty ? [] : [{ content: 'Remote planning result' }] }));
+        if (args[0] === 'store') child.stdout.emit('data', 'Stored: f6110fa945e60c45');
         child.emit('close', 0);
       }
     });
     return child;
-  }
+  })
 }));
 
-afterEach(() => { mnemosyne.available = false; mnemosyne.failPrivate = false; });
+afterEach(() => { mnemosyne.available = false; mnemosyne.failPrivate = false; mnemosyne.empty = false; vi.clearAllMocks(); });
 
 function fixture() {
   const rows: Memory[] = [];
@@ -52,6 +54,37 @@ function fixture() {
 }
 
 describe('memory local fallback', () => {
+  it('searches the opted-in Hermes default bank while writes remain in Aegir banks', async () => {
+    const { memory, settings } = fixture();
+    settings.set('hermesMemoryDataDir', '/test/hermes/data');
+    settings.set('mnemosyneBinary', '/test/bin/mnemosyne');
+    mnemosyne.available = true;
+    const saved = await memory.remember('shared', 'Planning fact', null);
+    expect(settings.get(`memoryProviderId:${saved!.id}`)).toBe('f6110fa945e60c45');
+    expect(await memory.recall('planning', 'a1b2')).toContain('[hermes] Remote planning result');
+    await memory.forget(saved!.id);
+    const calls = vi.mocked(spawn).mock.calls;
+    const external = calls.filter(call => call[2]?.env?.MNEMOSYNE_DATA_DIR === '/test/hermes/data');
+    expect(external).toHaveLength(1);
+    expect(external[0]).toMatchObject(['/test/bin/mnemosyne', ['recall', 'planning', '5', '--json'], { env: { MNEMOSYNE_BANK: 'default' } }]);
+    expect(calls.filter(call => call[1]?.[0] !== 'recall').every(call => call[2]?.env?.MNEMOSYNE_BANK === 'aegir-shared')).toBe(true);
+  });
+
+  it('returns no memories for empty provider results', async () => {
+    const { memory, settings } = fixture();
+    settings.set('hermesMemoryDataDir', '/test/hermes/data');
+    mnemosyne.available = true;
+    mnemosyne.empty = true;
+    expect(await memory.recall('missing')).toBe('');
+  });
+
+  it('does not search Hermes without opting in', async () => {
+    const { memory } = fixture();
+    mnemosyne.available = true;
+    await memory.recall('planning', 'a1b2');
+    expect(vi.mocked(spawn).mock.calls.map(call => call[2]?.env?.MNEMOSYNE_BANK)).toEqual(['aegir-shared', 'aegir-agent-a1b2']);
+  });
+
   it('rejects invalid memories before storing them', async () => {
     const { memory, rows } = fixture();
     await expect(memory.remember('another-user', 'A fact', null)).rejects.toThrow('Invalid memory scope');
