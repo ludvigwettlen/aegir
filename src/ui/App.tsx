@@ -8,6 +8,7 @@ import { GroupView } from './views/GroupView';
 import { MemoryView } from './views/MemoryView';
 import { NewGroupModal } from './views/NewGroupModal';
 import { RoutineView } from './views/RoutineView';
+import { SkillsView } from './views/SkillsView';
 import { SettingsView } from './views/SettingsView';
 import { Sidebar } from './views/Sidebar';
 import { TasksView } from './views/TasksView';
@@ -83,9 +84,10 @@ export function App() {
             <MemoryView data={data} run={run} />
           </main>
         )}
+        {route.view === 'skills' && <SkillsView key={route.agentId || 'all'} initialAgent={route.agentId} data={data} run={run} />}
         {route.view === 'settings' && (
           <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
-            <SettingsView data={data} run={run} />
+            <SettingsView data={data} run={run} onSkills={agentId => setRoute({ view: 'skills', agentId })} />
           </main>
         )}
       </div>

@@ -9,6 +9,7 @@ export type Route =
   | { view: 'tasks'; list: TaskView }
   | { view: 'group'; groupId: string; threadId?: string; draft?: string }
   | { view: 'routine'; routineId: string }
+  | { view: 'skills'; agentId?: string }
   | { view: 'memory' } | { view: 'settings' };
 
 export const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

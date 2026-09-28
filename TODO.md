@@ -6,11 +6,14 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 
 ## Next
 
+- [ ] Exit editing mode after creating a new task so keyboard navigation works immediately, without pressing Escape first.
 - [ ] Prevent late runtime status events from reading the database after app shutdown.
 - [ ] Exercise Slack, Notion, and full agent runs end to end with real accounts.
-- [ ] Review the agent base/system instructions against Hermes agent's system prompt. Add a deliberate workflow for agents to review completed work and create or refine reusable skills after tasks, including how those skills are stored and reviewed.
+- [ ] Review the remaining agent base/system instructions against Hermes’s system prompt; skill discovery, authoring, review, and reflection guidance are now implemented.
 
 ## Recently completed
+
+- [x] Add shared and agent-owned skill libraries with on-demand loading across chats, tasks, and routines, authoring tools, proposed changes, revision history, and management UI.
 
 - [x] Add a completed-task view ordered by completion time, with reopen actions.
 - [x] Add session `Cmd+Z` undo for local task actions, including deletion with thread/message restoration; remove the second deletion click.

@@ -40,3 +40,11 @@ Current follow-up work is tracked in [TODO.md](TODO.md).
 ## Verification
 
 `pnpm check` runs TypeScript validation. `pnpm test` covers the store migration, hand-off and routine runs against a fake Codex, the read-only tool policy, routine schedules and change validation, quick-add parsing and task lists. `pnpm build` compiles and packages the macOS app.
+
+## Skills
+
+Open **Skills** from the sidebar footer to manage shared skills, agent-owned skills, proposed changes, and archives. Shared skills are inherited by default and can be disabled per agent. Create or import a `SKILL.md` file or complete skill folder; supporting references and binary assets are preserved. Use the composer’s **+ Skill** control to select a skill explicitly, or bind required skills in a routine’s Skills section.
+
+Chats, tasks, and routines share on-demand discovery and loading. Each run reads a frozen package revision. Agents may create and refine their own learned skills; shared, imported, and user-authored changes are proposed for review. You can protect a skill from agent changes, compare proposals, restore revisions, customize shared skills for one agent, or promote an owned skill to a shared copy. Skill instructions never grant additional tool permissions.
+
+Live packages are under `<Electron userData>/skills`; SQLite stores scope, bindings, full revision snapshots, change proposals, usage, and recovery journals. Direct disk changes are reconciled before runs and when opening the library. Agent scope controls discovery and tools, not OS-level confidentiality. Script execution helpers, remote skill marketplaces, and automated curation are not included in this release. See [the architecture](docs/skills-architecture.md) for details.

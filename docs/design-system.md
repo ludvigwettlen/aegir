@@ -94,3 +94,11 @@ A run list (grouped by day, with All / Failed / Did something filters) beside a 
 ## Migration rule
 
 When a new section adopts Lime Glass, compose it from existing Fragments primitives where possible, add section-specific components only for repeated product behavior, and replace legacy hard-coded colors with semantic tokens. Add its usage rules here before broadening the palette or introducing another component variant.
+
+## Skills library
+
+The Skills footer button opens a two-column workspace: a 300 px library list (250 px at compact widths) and a scrolling editor. The library offers Shared, per-agent inherited/owned, Proposed changes, and Archived filters plus text search. Rows use lime-soft selection, wrap long names, and participate in the existing J/K and pane-focus navigation. Empty, loading, and error states are explicit text.
+
+The editor uses Fragments buttons and badges, semantic glass/surface/line tokens, labeled native selectors and a monospace package-file editor. Agent availability and customization are collapsible. New files and package edits stay local until Save revision; a reason accompanies every edit. Conflicting revisions preserve the user's draft and offer Reload latest. History restores create a new revision, and archive exposes Restore immediately. Proposal comparison labels Before and Proposed for each changed file, stacking at compact widths.
+
+Agent settings link to inherited and owned skills. The composer’s + Skill selector inserts a stable explicit reference. Routine headers offer required-skill checkboxes with a clear explanation that disabled dependencies stop execution. These controls retain native keyboard behavior and visible focus; no new animation is introduced.

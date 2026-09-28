@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, FileText, Inbox, Plus, Repeat2, Settings2, Sun, Users } from 'lucide-react';
+import { BookOpen, CalendarDays, CheckCheck, FileText, Inbox, Plus, Repeat2, Settings2, Sun, Users } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -150,6 +150,7 @@ export function Sidebar({
         );
       })}
       <div className="ws-sidebar-foot">
+        <button data-nav-item aria-label="Skills" title="Skills" className={route.view === 'skills' ? 'active' : ''} onClick={() => go({ view: 'skills' })}><BookOpen size={15}/></button>
         <button
           data-nav-item
           aria-label="Memory"

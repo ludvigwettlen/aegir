@@ -282,3 +282,39 @@
   .ws-task-detail { width: 380px; }
   .ws-thread-list, .ws-run-list { width: 290px; }
 }
+
+/* Skills share the workspace's list/detail focus graph and semantic palette. */
+.skills-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; min-height: 0; color: var(--ds-color-ink); }
+.skills-list { display: flex; flex-direction: column; border-right: 1px solid var(--ds-color-line); min-height: 0; background: var(--ds-color-glass); }
+.skills-list h1 { display: flex; gap: 9px; align-items: center; }
+.skills-list p, .skills-editor p { color: var(--ds-color-muted); line-height: 1.6; }
+.skills-list header { display: grid; gap: 12px; }
+.skills-list input, .skills-list select, .skills-editor input:not([type=checkbox]), .skills-editor select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); color: var(--ds-color-ink); }
+.skills-list label, .skills-editor label { display: grid; gap: 6px; font-size: 12px; color: var(--ds-color-muted); }
+.skills-items { overflow-y: auto; min-height: 0; padding: 6px; }
+.skills-item { width: 100%; text-align: left; display: grid; gap: 5px; padding: 12px; border: 0; border-radius: var(--ds-radius-control); background: transparent; color: var(--ds-color-ink); overflow-wrap: anywhere; }
+.skills-item:hover, .skills-item.selected { background: var(--ds-color-lime-soft); }
+.skills-item.selected { box-shadow: inset 0 0 0 1px var(--ds-color-lime); }
+.skills-item span, .skills-item small { color: var(--ds-color-muted); font-size: 12px; line-height: 1.5; }
+.skills-detail { min-width: 0; overflow-y: auto; }
+.skills-editor { display: grid; gap: 16px; padding: 28px; max-width: 1100px; margin: 0 auto; }
+.skills-title, .skills-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skills-actions input, .skills-actions select { flex: 1; min-width: 120px; }
+.skills-editor h2, .skills-editor h3, .skills-editor h4, .skills-editor p { margin: 0; overflow-wrap: anywhere; }
+.skills-editor details { border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); padding: 12px; }
+.skills-editor summary { cursor: pointer; font-weight: 600; }
+.skills-editor details[open] summary { margin-bottom: 12px; }
+.skills-editor .skill-check, .skill-check { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.skill-check input { accent-color: var(--ds-color-lime-ink); }
+.skill-code { width: 100%; resize: vertical; font: 12px/1.65 ui-monospace, monospace; color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); padding: 14px; tab-size: 2; }
+.skills-meta { font-size: 11px; overflow-wrap: anywhere; }
+.skills-editor .skills-error { color: var(--ds-color-danger); }
+.skill-proposal, .skill-review { padding: 14px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); display: grid; gap: 10px; }
+.skill-proposal { background: var(--ds-color-lemon-soft); }
+.skill-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.skill-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, monospace; background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); padding: 10px; max-height: 400px; overflow: auto; }
+.skill-history { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--ds-color-line); }
+.skill-history small { display: block; color: var(--ds-color-muted); margin-top: 4px; }
+.skill-composer-select { max-width: 170px; background: transparent; border: 1px solid var(--ds-color-line); color: var(--ds-color-muted); border-radius: var(--ds-radius-control); padding: 4px; font-size: 11px; }
+.skills-layout :focus-visible { outline: 2px solid var(--ds-color-lime-ink); outline-offset: 2px; }
+@media (max-width: 1100px) { .skills-layout { grid-template-columns: 250px minmax(0, 1fr); } .skills-editor { padding: 20px; } .skill-diff { grid-template-columns: 1fr; } }

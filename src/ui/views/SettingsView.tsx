@@ -4,9 +4,10 @@ import { modelTierForRole } from '../../../shared/model-policy';
 import type { Agent, Snapshot } from '../../../shared/types';
 import { Badge, Button, Card } from '../design-system/primitives';
 import { api, Avatar, type Run } from './common';
+import { AgentSkillsSummary } from './SkillBindings';
 import { PageHeader } from './PageHeader';
 
-export function SettingsView({ data, run }: { data: Snapshot; run: Run }) {
+export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run; onSkills: (id: string) => void }) {
   const [clientId, setClientId] = useState(data.mcpSettings.slackClientId);
   const [clientSecret, setClientSecret] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -135,7 +136,7 @@ export function SettingsView({ data, run }: { data: Snapshot; run: Run }) {
             <div className="panel-heading">
               <div>
                 <h2>Agent personalities</h2>
-                <p>Each agent has a role and its own instructions.</p>
+                <p>Each agent has a role, its own instructions, and reusable skills.</p>
               </div>
               <Button
                 variant="ghost"
@@ -162,6 +163,7 @@ export function SettingsView({ data, run }: { data: Snapshot; run: Run }) {
                       : 'Lightweight model'}
                   </small>
                 </div>
+                <AgentSkillsSummary agentId={agent.id} onOpen={onSkills}/>
                 <Button
                   variant="outline"
                   size="sm"

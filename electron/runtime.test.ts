@@ -54,6 +54,39 @@ describe('runtime', () => {
     expect(memory.recall).toHaveBeenCalledWith('prior project decisions', expect.any(String));
   });
 
+  it.each(['chat', 'task', 'routine'] as const)('loads scoped skills and records revisions in a %s run', async kind => {
+    let checked = false;
+    const { store, runtime } = setup(async (input, id, rt) => {
+      if (!input.tools.length) return 'Done';
+      expect(input.tools.some(tool => tool.name === 'skills__read' && tool.readOnly)).toBe(true);
+      expect(input.tools.some(tool => tool.name === 'skills__create' && !tool.readOnly)).toBe(true);
+      const session = rt.contextFor(id)!.skills!;
+      const skill = [...session.entries.values()].find(item => item.skill.name === 'research')!.skill;
+      const result = await rt.handleInternalTool('skills', 'read', { id: skill.id, agentId: 'forged-owner' }, id) as { revision: string; content: string };
+      expect(result.revision).toBe(skill.revision);
+      expect(result.content).toContain('compare evidence');
+      expect(rt.skills.detail(skill.id).recentLoads[0].agentId).toBe(session.agentId);
+      expect(input.instructions).toContain('Skill catalog');
+      checked = true;
+      return 'Done';
+    });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Research' }).id, 'Compare evidence');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Research').id, 'Compare evidence');
+    expect(checked).toBe(true);
+    await expect(runtime.handleInternalTool('skills', 'list', {}, 'expired')).rejects.toThrow('No active skill session');
+  });
+
+  it('blocks a routine before execution when its required skill is disabled', async () => {
+    const { store, runtime, runs } = setup(); const routine = store.routines()[0];
+    const skill = runtime.skills.list()[0]; runtime.skills.bindRoutine(routine.id, [skill.id]);
+    runtime.skills.configure(skill.id, { enabled: false });
+    await runtime.runRoutine(routine.id, 'manual');
+    expect(runs).toHaveLength(0);
+    expect(store.lastRun(routine.id)?.status).toBe('failed');
+    expect(store.lastRun(routine.id)?.summary).toContain('missing or disabled');
+  });
+
   it('returns an explicit empty result for an unmatched memory query', async () => {
     const { store, runtime } = setup();
     const agentId = store.groups()[0].leadAgentId;

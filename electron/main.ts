@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -10,7 +11,7 @@ import {
   Tray,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
@@ -20,6 +21,8 @@ import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { Runtime } from './runtime.js';
+import { readPackage, fileBytes, parseSkill } from './skill-package.js';
+import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -97,8 +100,41 @@ function approvalForExternal(detail: string, threadId: string | undefined): Prom
 }
 function registerIpc() {
   const handle = (channel: string, fn: (...args: any[]) => unknown) =>
-    ipcMain.handle(channel, (_event, ...args) => fn(...args));
+    ipcMain.handle(channel, async (_event, ...args) => {
+      const result = await fn(...args);
+      if (channel.startsWith('skill-') && !['skill-library', 'skill-detail', 'skill-revision-files'].includes(channel)) emit({ type: 'skills-changed' });
+      return result;
+    });
   handle('snapshot', () => snapshot());
+  handle('skill-library', () => runtime.skills.library());
+  handle('skill-detail', (id: string) => runtime.skills.detail(id));
+  handle('skill-create', (input: SkillCreate) => runtime.skills.create(input));
+  handle('skill-update', (id: string, expected: string, files: SkillFile[], reason: string) => runtime.skills.update(id, expected, files, reason));
+  handle('skill-configure', (id: string, settings: SkillSettings) => runtime.skills.configure(id, settings));
+  handle('skill-copy', (id: string, owner: string | null) => runtime.skills.copy(id, owner));
+  handle('skill-restore', (id: string, expected: string, revision: string) => runtime.skills.restoreRevision(id, expected, revision));
+  handle('skill-revision-files', (id: string, revision: string) => runtime.skills.revisionFiles(id, revision));
+  handle('skill-resolve', (id: string, apply: boolean) => runtime.skills.resolveProposal(id, apply));
+  handle('skill-bind-routine', (id: string, skills: string[]) => runtime.skills.bindRoutine(id, skills));
+  handle('skill-import', async (owner: string | null) => {
+    const choice = await dialog.showOpenDialog({ title: 'Import a skill folder or SKILL.md', properties: ['openFile', 'openDirectory'] });
+    if (choice.canceled || !choice.filePaths[0]) return null;
+    const path = choice.filePaths[0]; const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) throw new Error('Choose the original folder or file, not a symlink');
+    if (stat.isFile() && stat.size > 1024 * 1024) throw new Error('Skill file is too large');
+    const files: SkillFile[] = stat.isDirectory() ? readPackage(path) : [{ path: 'SKILL.md', encoding: 'utf8', content: readFileSync(path, 'utf8') }];
+    parseSkill(files);
+    return runtime.skills.create({ ownerAgentId: owner, files }, {}, 'imported', path);
+  });
+  handle('skill-export', async (id: string) => {
+    const { skill, files } = runtime.skills.detail(id); parseSkill(files);
+    const choice = await dialog.showOpenDialog({ title: 'Choose a folder for the exported skill', properties: ['openDirectory', 'createDirectory'] });
+    if (choice.canceled || !choice.filePaths[0]) return;
+    const destination = join(choice.filePaths[0], skill.name);
+    if (existsSync(destination)) throw new Error('A folder with this skill name already exists. Choose another destination.');
+    mkdirSync(destination);
+    for (const file of files) { const path = join(destination, file.path); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, fileBytes(file)); }
+  });
   handle('thread-messages', (threadId: string, before?: string) =>
     store.messagePage(threadId, before),
   );

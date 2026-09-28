@@ -2,6 +2,18 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  skillLibrary: () => ipcRenderer.invoke('skill-library'),
+  skillDetail: id => ipcRenderer.invoke('skill-detail', id),
+  createSkill: input => ipcRenderer.invoke('skill-create', input),
+  updateSkill: (id, expected, files, reason) => ipcRenderer.invoke('skill-update', id, expected, files, reason),
+  configureSkill: (id, settings) => ipcRenderer.invoke('skill-configure', id, settings),
+  copySkill: (id, owner) => ipcRenderer.invoke('skill-copy', id, owner),
+  restoreSkillRevision: (id, expected, revision) => ipcRenderer.invoke('skill-restore', id, expected, revision),
+  skillRevisionFiles: (id, revision) => ipcRenderer.invoke('skill-revision-files', id, revision),
+  resolveSkillProposal: (id, apply) => ipcRenderer.invoke('skill-resolve', id, apply),
+  bindRoutineSkills: (id, skills) => ipcRenderer.invoke('skill-bind-routine', id, skills),
+  importSkill: owner => ipcRenderer.invoke('skill-import', owner),
+  exportSkill: id => ipcRenderer.invoke('skill-export', id),
   snapshot: () => ipcRenderer.invoke('snapshot'),
   threadMessages: (threadId, before) => ipcRenderer.invoke('thread-messages', threadId, before),
   onEvent: callback => { const handler = (_: unknown, event: AppEvent) => callback(event); ipcRenderer.on('app-event', handler); return () => ipcRenderer.removeListener('app-event', handler); },

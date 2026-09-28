@@ -1,3 +1,4 @@
+import type { SkillsApi } from './skills.js';
 export type Agent = {
   id: string;
   name: string;
@@ -147,12 +148,13 @@ export type Snapshot = {
   mcpSettings: { slackClientId: string; slackConfigured: boolean };
 };
 export type AppEvent =
+  | { type: 'skills-changed' }
   | { type: 'snapshot'; value: Snapshot }
   | { type: 'message'; value: Message }
   | { type: 'run-event'; value: RunEvent };
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
 
-export interface DesktopApi {
+export interface DesktopApi extends SkillsApi {
   snapshot(): Promise<Snapshot>;
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
   onEvent(callback: (event: AppEvent) => void): () => void;

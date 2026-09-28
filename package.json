@@ -15,6 +15,7 @@
     "@radix-ui/react-dialog": "^1.1.15",
     "@usefragments/ui": "^3.1.2",
     "better-sqlite3": "^12.2.0",
+    "js-yaml": "4.3.2",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

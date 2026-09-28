@@ -16,7 +16,8 @@ import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
-import { skillsFor } from './skills.js';
+import { SkillRegistry, type SkillSession } from './skills.js';
+import { handleSkillTool, skillTools } from './skill-tools.js';
 import {
   cleanRoutineChange,
   connectorToolsFor,
@@ -35,6 +36,7 @@ import {
 
 type Context = {
   kind: RunKind;
+  skills?: SkillSession;
   threadId?: string;
   runId?: string;
   counts?: { tasks: number; memories: number };
@@ -42,6 +44,7 @@ type Context = {
 
 // Runs agents in threads (chat and handed-off tasks) and routines, and keeps the mapping from Codex threads back to them.
 export class Runtime {
+  readonly skills: SkillRegistry;
   private active = new Map<string, Context>(); // Codex thread id → what it is running for
   private runningThreads = new Map<string, { cancelled: boolean }>();
   private runningRoutines = new Set<string>();
@@ -55,7 +58,7 @@ export class Runtime {
     private refresh: () => void,
     private emit: (event: AppEvent) => void,
     private paths: { outputRoot: string; routineCwd: string },
-  ) {}
+  ) { this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId); }
 
   contextFor(codexThreadId: string) {
     return this.active.get(codexThreadId);
@@ -233,8 +236,10 @@ export class Runtime {
         ...connectorToolsFor(kind, this.connectors.listTools()),
         memoryTool(agent),
         memoryRecallTool(agent),
+        ...skillTools,
         ...(kind === 'chat' ? [proposeRoutineTool] : []),
       ];
+      const skillContext = this.skills.session(agent.id, message.id, kind, tools.map(tool => tool.name), userText);
       const prompt = [
         `Relevant memory:\n${recalled || '(none)'}`,
         routines.length
@@ -253,13 +258,13 @@ export class Runtime {
       const result = await this.codex.run({
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
-        instructions: this.instructionsFor(kind, agent, group, userText),
+        instructions: `${this.instructionsFor(kind, agent, group)}\n${skillContext.instructions}`,
         prompt,
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) => {
           activeId = codexThreadId;
-          this.active.set(codexThreadId, { kind, threadId: thread.id });
+          this.active.set(codexThreadId, { kind, threadId: thread.id, skills: skillContext.session });
         },
         onDelta: (delta) => {
           streamed += delta;
@@ -308,7 +313,7 @@ export class Runtime {
       if (activeId) this.active.delete(activeId);
     }
   }
-  private instructionsFor(kind: RunKind, agent: Agent, group: Group, text: string) {
+  private instructionsFor(kind: RunKind, agent: Agent, group: Group) {
     const memoryGuidance = `Search prior facts, preferences, and decisions with your memory recall tool whenever more context is needed. Save durable facts with your memory remember tool. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}`;
     const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
     if (kind === 'task')
@@ -317,11 +322,11 @@ Your working directory is the task's output folder. Put every deliverable there 
 Never write to, post in or send through external systems (Slack, Notion, email or anything else). Connected tools are read-only; use them to research.
 If another agent in the group should do part of the work, mention them as @Name in your final reply.
 Finish with a short summary: the files you produced and anything that needs the user.
-${memoryGuidance}\n${skillsFor(text)}`;
+${memoryGuidance}`;
     return `${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Ägir.${purpose}
 Address the user directly. If another agent should contribute, mention them as @Name in your final reply. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
-${memoryGuidance}\n${skillsFor(text)}`;
+${memoryGuidance}`;
   }
   private describeRoutine(routine: Routine, agents: Agent[]) {
     const runs = this.store
@@ -347,6 +352,13 @@ ${memoryGuidance}\n${skillsFor(text)}`;
     codexThreadId: string,
   ): Promise<unknown> {
     const context = this.active.get(codexThreadId);
+    if (provider === 'skills') {
+      if (!context?.skills) throw new Error('No active skill session');
+      const result = handleSkillTool(this.skills, context.skills, tool, args);
+      this.emit({ type: 'skills-changed' });
+      this.refresh();
+      return result;
+    }
     if (provider === 'memory') {
       const match = tool.match(/^(remember|recall)_([0-9a-f_]+)$/i);
       if (!match) throw new Error('Unknown memory tool');
@@ -496,14 +508,17 @@ ${memoryGuidance}\n${skillsFor(text)}`;
         ...connectorToolsFor('routine', this.connectors.listTools()),
         memoryTool(agent),
         memoryRecallTool(agent),
+        ...skillTools,
         suggestTaskTool,
       ];
+      const skillContext = this.skills.session(agent.id, run.id, 'routine', tools.map(tool => tool.name), routine.instructions, routine.id);
+      for (const loaded of skillContext.session.loaded) this.log(run.id, 'system', `Skill loaded: ${loaded} · revision=${skillContext.session.entries.get(loaded.split(':')[0])?.skill.revision}`);
       const connected = Object.values(this.connectors.states)
         .filter((state) => state.status === 'connected')
         .map((state) => state.id);
       const instructions = `${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background. No one is watching live; every step is logged for the user to audit.
 Connected tools are read-only. Use tasks__suggest to put items in front of the user and your memory remember tool for durable facts. Use your memory recall tool to search prior facts, preferences, and decisions whenever more context is needed. Memory guidance: ${this.store.getSetting('memoryInstructions') || ''}
-Routine instructions:\n${routine.instructions}`;
+Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
       const prompt = `Now: ${new Date().toString()}\nPrevious run: ${previous ? `${previous.startedAt} (${previous.status}) — ${previous.summary}` : 'none'}\nConnected sources: ${connected.join(', ') || 'none'}\n\nRelevant memory:\n${recalled || '(none)'}`;
       const result = await this.codex.run({
         cwd: this.paths.routineCwd,
@@ -513,7 +528,7 @@ Routine instructions:\n${routine.instructions}`;
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) =>
-          this.active.set(codexThreadId, { kind: 'routine', runId: run.id, counts }),
+          this.active.set(codexThreadId, { kind: 'routine', runId: run.id, counts, skills: skillContext.session }),
         onDelta: () => {},
         onItem: (item) => this.logItem(run.id, item),
       });

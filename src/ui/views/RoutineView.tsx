@@ -1,3 +1,4 @@
+import { RoutineSkillBindings } from './SkillBindings';
 import { useEffect, useState } from 'react';
 import { Check, Copy, MessageSquare, Pause, Play, Repeat2, X } from 'lucide-react';
 import type { AppEvent, Routine, RunEvent, Snapshot } from '../../../shared/types';
@@ -37,6 +38,7 @@ export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot;
           <button className="ws-btn" onClick={() => void run(() => api.setRoutineEnabled(routine.id, !routine.enabled))}>{routine.enabled ? <><Pause size={12}/> Pause</> : <><Play size={12}/> Resume</>}</button>
         </div>
         <details className="ws-instructions"><summary>Instructions</summary><p>{routine.instructions}</p></details>
+        <RoutineSkillBindings routine={routine} run={run}/>
         <div className="ws-filters" role="group" aria-label="Filter runs">
           <button aria-pressed={filter === 'all'} className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>All · {runs.length}</button>
           <button aria-pressed={filter === 'failed'} className={filter === 'failed' ? 'on' : ''} onClick={() => setFilter('failed')}>Failed · {runs.filter(item => item.status === 'failed').length}</button>

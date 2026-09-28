@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ComposerSkills } from './SkillBindings';
 import { ConversationList } from '@usefragments/ui';
 import { ArrowDownRight, Repeat2, Send, Square } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
@@ -329,6 +330,7 @@ export function Composer({
           <span className="ws-hint">
             <Kbd>@</Kbd> agent or routine
           </span>
+          <ComposerSkills data={data} agentIds={group.kind === 'private' ? [group.leadAgentId] : data.agents.filter(a => value.includes(`@${a.name}`)).map(a => a.id).length ? data.agents.filter(a => value.includes(`@${a.name}`)).map(a => a.id) : [group.leadAgentId]} value={value} onSelect={reference => { setValue(current => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${reference}`); input.current?.focus(); }}/>
           {busy && onStop && (
             <button className="ws-btn ghost" onClick={onStop}>
               <Square size={12} /> Stop

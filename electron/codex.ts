@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Approval } from '../shared/types.js';
+import { disabledHostSkills } from './skill-provider.js';
 import { chooseLightweightModel, type AvailableModel, type ModelTier } from '../shared/model-policy.js';
 
 type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { message: string } };
@@ -113,10 +114,11 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     const route = input.modelTier === 'lightweight' ? await this.resolveLightweightModel() : null;
     for (const tool of input.tools) this.toolReadOnly.set(tool.name, tool.readOnly);
     const dynamicTools = input.tools.map(tool => ({ type: 'function', name: tool.name, description: /^(slack|notion)__/.test(tool.name) ? `${tool.description}${tool.readOnly ? ' (read only)' : ' (requires approval to write)'}` : tool.description, inputSchema: tool.inputSchema }));
+    const skillConfig = disabledHostSkills(await this.request('skills/list', { cwds: [input.cwd], forceReload: true }));
     let threadId = input.threadId;
-    if (threadId) { try { await this.request('thread/resume', { threadId }); } catch { threadId = undefined; } }
+    if (threadId) { try { await this.request('thread/resume', { threadId, baseInstructions: input.instructions, config: { 'skills.config': skillConfig } }); } catch { threadId = undefined; } }
     if (!threadId) {
-      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: input.sandbox || 'read-only', baseInstructions: input.instructions, dynamicTools, ...(route || {}) });
+      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: input.sandbox || 'read-only', baseInstructions: input.instructions, config: { 'skills.config': skillConfig }, dynamicTools, ...(route || {}) });
       threadId = started.thread.id;
     }
     const id = threadId!;
