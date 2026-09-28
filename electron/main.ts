@@ -22,6 +22,8 @@ import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { Runtime } from './runtime.js';
+import { BrowserManager } from './browser.js';
+import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
 import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
 
@@ -33,6 +35,7 @@ let codex: CodexProvider;
 let connectors: ConnectorManager;
 let memory: MemoryService;
 let runtime: Runtime;
+let browser: BrowserManager;
 let shuttingDown = false;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
@@ -65,6 +68,7 @@ function snapshot(): Snapshot {
     memoryInstructions: store.getSetting('memoryInstructions') || '',
     codexStatus: codex.status,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    browser: browser.state,
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
       slackConfigured: connectors.slackConfigured(),
@@ -79,12 +83,13 @@ function refresh() {
   if (shuttingDown || !store?.isOpen) return;
   emit({ type: 'snapshot', value: snapshot() });
 }
-function approvalForExternal(detail: string, threadId: string | undefined): Promise<boolean> {
+function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal }): Promise<boolean> {
+  if (options?.signal.aborted) return Promise.resolve(false);
   const id = randomUUID();
   approvals.set(id, {
     id,
-    method: 'external-write',
-    title: 'External write',
+    method: options ? 'browser-control' : 'external-write',
+    title: options?.title || 'External write',
     detail,
     agentId: null,
     threadId,
@@ -95,12 +100,25 @@ function approvalForExternal(detail: string, threadId: string | undefined): Prom
       threadId,
       null,
       'system',
-      'An agent wants to write to an external system. Review the approval.',
+      options ? `${options.title} requested. Review the approval.` : 'An agent wants to write to an external system. Review the approval.',
     );
     approvalThreads.set(id, threadId);
   }
-  refresh();
-  return new Promise((resolve) => externalApprovalResolvers.set(id, resolve));
+  return new Promise((resolve) => {
+    const cancel = () => {
+      externalApprovalResolvers.delete(id);
+      approvals.delete(id);
+      approvalThreads.delete(id);
+      resolve(false);
+      refresh();
+    };
+    externalApprovalResolvers.set(id, approved => {
+      options?.signal.removeEventListener('abort', cancel);
+      resolve(approved);
+    });
+    options?.signal.addEventListener('abort', cancel, { once: true });
+    refresh();
+  });
 }
 function registerIpc() {
   const documentRoot = (threadId: string) => {
@@ -115,6 +133,13 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('browser-enabled', async (enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new Error('Invalid browser setting');
+    store.setSetting('browserEnabled', String(enabled));
+    await browser.setEnabled(enabled);
+  });
+  handle('browser-open', () => browser.open());
+  handle('browser-stop', () => browser.stop());
   handle('document-list', (id: string) => listDocuments(documentRoot(id)));
   handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
   handle('document-save', (id: string, path: string, expected: string, content: string) => saveDocument(documentRoot(id), path, expected, content));
@@ -391,11 +416,14 @@ if (app.requestSingleInstanceLock()) {
     codex = new CodexProvider();
     connectors = new ConnectorManager(store);
     memory = new MemoryService(store);
+    browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
+      () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
+      (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
     const outputRoot = join(app.getPath('documents'), 'Ägir');
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
       routineCwd: app.getPath('userData'),
-    });
+    }, browser);
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
       if (shuttingDown || !store.isOpen) return;
@@ -480,15 +508,19 @@ if (app.requestSingleInstanceLock()) {
       refresh();
     });
   });
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    if (shuttingDown) return;
+    event?.preventDefault();
     shuttingDown = true;
     for (const resolve of externalApprovalResolvers.values()) resolve(false);
     externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
     runtime?.stop();
+    const browserClosed = browser?.close();
     connectors?.close();
     codex?.close();
     store?.close();
+    if (event) void browserClosed?.finally(() => app.quit());
   });
   app.on('activate', () => window?.show());
 } else app.quit();

@@ -12,7 +12,7 @@ export function ApprovalDock({ approvals, run }: { approvals: Approval[]; run: R
       <div>
         <small>AGENT NEEDS YOUR APPROVAL</small>
         <strong>{item.title}</strong>
-        <p>{item.detail.slice(0, 220)}</p>
+        <p className="approval-detail">{item.detail}</p>
       </div>
       <button
         className="small-button"

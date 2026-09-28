@@ -5,7 +5,8 @@ import { validSchedule } from '../shared/routines.js';
 
 export type RunKind = 'chat' | 'task' | 'routine';
 
-// Handed-off tasks and routines never write to external systems, so they only see read-only connector tools.
+// Tasks and routines only see read-only connector tools. Browser grants are
+// separate and enforced by BrowserManager for attended chat/task responses.
 export function connectorToolsFor(kind: RunKind, tools: Tool[]): Tool[] {
   return kind === 'chat' ? tools : tools.filter(tool => tool.readOnly);
 }

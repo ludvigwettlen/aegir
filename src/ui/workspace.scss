@@ -345,3 +345,17 @@
   outline-offset: -1px;
 }
 .ws-shell [data-keyboard-pane="document"]:focus-visible { outline: none; }
+
+.browser-settings {
+  .panel-heading { flex-wrap: wrap; gap: 12px; }
+  .panel-heading > div { flex: 1; min-width: 220px; }
+  .browser-settings-body { padding: 14px 19px 19px; }
+  .browser-status { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; color: var(--ds-color-ink); }
+  .browser-status > span:last-child { overflow-wrap: anywhere; }
+  p { color: var(--ds-color-muted); font-size: 12px; line-height: 1.6; }
+  .browser-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+}
+.ws-shell .approval-dock .approval-detail {
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto;
+  max-height: min(220px, 35vh); color: var(--ds-color-ink); line-height: 1.5;
+}

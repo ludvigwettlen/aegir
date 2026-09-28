@@ -17,6 +17,7 @@ import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
 import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
+import { BrowserManager, browserInstructions } from './browser.js';
 import { SkillRegistry, type SkillSession } from './skills.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
 import {
@@ -38,6 +39,7 @@ import {
 type Context = {
   kind: RunKind;
   skills?: SkillSession;
+  browser?: boolean;
   threadId?: string;
   runId?: string;
   counts?: { tasks: number; memories: number };
@@ -63,6 +65,7 @@ export class Runtime {
     private refresh: () => void,
     private emit: (event: AppEvent) => void,
     private paths: { outputRoot: string; routineCwd: string },
+    private browser?: BrowserManager,
   ) { this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId); }
 
   contextFor(codexThreadId: string) {
@@ -125,7 +128,10 @@ export class Runtime {
     const execution = this.runningThreads.get(threadId);
     if (execution) execution.cancelled = true;
     for (const [codexThreadId, context] of this.active)
-      if (context.threadId === threadId) await this.codex.stop(codexThreadId);
+      if (context.threadId === threadId) {
+        await this.browser?.finish(codexThreadId);
+        await this.codex.stop(codexThreadId);
+      }
   }
 
   // ---- Tasks ------------------------------------------------------------
@@ -246,6 +252,7 @@ export class Runtime {
       const task = thread.taskId ? this.store.get('tasks', thread.taskId) : undefined;
       const tools: Tool[] = [
         ...connectorToolsFor(kind, this.connectors.listTools()),
+        ...(await this.browser?.tools(kind) || []),
         memoryTool(agent),
         memoryRecallTool(agent),
         ...skillTools,
@@ -270,14 +277,14 @@ export class Runtime {
       const result = await this.codex.run({
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
-        instructions: `${this.instructionsFor(kind, agent, group)}\n${skillContext.instructions}`,
+        instructions: `${this.instructionsFor(kind, agent, group)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}`,
         prompt,
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) => {
           if (!this.available) return;
           activeId = codexThreadId;
-          this.active.set(codexThreadId, { kind, threadId: thread.id, skills: skillContext.session });
+          this.active.set(codexThreadId, { kind, threadId: thread.id, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')) });
         },
         onDelta: (delta) => {
           if (!this.available) return;
@@ -286,6 +293,7 @@ export class Runtime {
         },
       });
       this.active.delete(result.threadId);
+      await this.browser?.finish(result.threadId);
       if (!this.available) return false;
       const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
       this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
@@ -326,7 +334,10 @@ export class Runtime {
       this.refresh();
       throw error;
     } finally {
-      if (activeId) this.active.delete(activeId);
+      if (activeId) {
+        this.active.delete(activeId);
+        await this.browser?.finish(activeId);
+      }
     }
   }
   private instructionsFor(kind: RunKind, agent: Agent, group: Group) {
@@ -335,7 +346,7 @@ export class Runtime {
     if (kind === 'task')
       return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
-Never write to, post in or send through external systems (Slack, Notion, email or anything else). Connected tools are read-only; use them to research.
+Slack and Notion tools are read-only; use them to research. Do not write to external systems through commands or connectors. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
 If another agent in the group should do part of the work, mention them as @Name in your final reply.
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
@@ -369,6 +380,11 @@ ${memoryGuidance}`;
   ): Promise<unknown> {
     if (!this.available) throw new Error('Runtime is stopped');
     const context = this.active.get(codexThreadId);
+    if (provider === 'browser') {
+      if (!this.browser || !context?.browser || !context.threadId || this.runningThreads.get(context.threadId)?.cancelled)
+        throw new Error('Browser tools are unavailable in this run');
+      return this.browser.call(codexThreadId, context.threadId, context.kind, tool, args);
+    }
     if (provider === 'skills') {
       if (!context?.skills) throw new Error('No active skill session');
       const result = handleSkillTool(this.skills, context.skills, tool, args);

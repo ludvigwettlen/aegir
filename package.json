@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
+    "@playwright/mcp": "0.0.82",
     "@radix-ui/react-dialog": "^1.1.15",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-table": "^3.31.3",
@@ -24,6 +25,7 @@
     "better-sqlite3": "^12.2.0",
     "js-yaml": "4.3.2",
     "lucide-react": "^0.468.0",
+    "playwright": "1.64.0-alpha-1789764292000",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

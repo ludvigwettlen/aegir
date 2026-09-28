@@ -1,4 +1,5 @@
 import type { SkillsApi } from './skills.js';
+import type { BrowserState } from './browser.js';
 export type Agent = {
   id: string;
   name: string;
@@ -145,6 +146,7 @@ export type Snapshot = {
   memoryInstructions: string;
   codexStatus: string;
   launchAtLogin: boolean;
+  browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean };
 };
 export type AppEvent =
@@ -201,5 +203,8 @@ export interface DesktopApi extends SkillsApi {
   forgetMemory(id: string, scope: string): Promise<void>;
   correctMemory(id: string, scope: string, content: string): Promise<void>;
   setLaunchAtLogin(enabled: boolean): Promise<void>;
+  setBrowserEnabled(enabled: boolean): Promise<void>;
+  openBrowser(): Promise<void>;
+  stopBrowser(): Promise<void>;
   openExternal(url: string): Promise<void>;
 }

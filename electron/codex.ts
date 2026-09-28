@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Approval } from '../shared/types.js';
 import { disabledHostSkills } from './skill-provider.js';
 import { chooseLightweightModel, type AvailableModel, type ModelTier } from '../shared/model-policy.js';
+import { toolResponse } from './tool-result.js';
 
 type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { message: string } };
 export type Tool = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
@@ -72,7 +73,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
       const id = randomUUID(); this.toolCalls.set(id, { rpcId: message.id!, threadId: params.threadId });
       try {
         const value = await this.toolHandler?.(provider, tool, params.arguments || {}, this.toolReadOnly.get(String(params.tool)) === true, String(params.threadId || ''));
-        if (this.child) this.send({ id: message.id, result: { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(value ?? null) }] } });
+        if (this.child) this.send({ id: message.id, result: toolResponse(value) });
       } catch (error) { if (this.child) this.send({ id: message.id, result: { success: false, contentItems: [{ type: 'inputText', text: String(error) }] } }); }
       this.toolCalls.delete(id); return;
     }

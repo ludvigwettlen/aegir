@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  setBrowserEnabled: enabled => ipcRenderer.invoke('browser-enabled', enabled),
+  openBrowser: () => ipcRenderer.invoke('browser-open'),
+  stopBrowser: () => ipcRenderer.invoke('browser-stop'),
   listDocuments: threadId => ipcRenderer.invoke('document-list', threadId),
   readDocument: (threadId, path) => ipcRenderer.invoke('document-read', threadId, path),
   saveDocument: (threadId, path, expected, content) => ipcRenderer.invoke('document-save', threadId, path, expected, content),

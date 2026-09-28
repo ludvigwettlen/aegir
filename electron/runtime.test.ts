@@ -7,6 +7,7 @@ import { Runtime } from './runtime.js';
 import type { CodexProvider, RunInput } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
+import { BrowserManager } from './browser.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 
@@ -14,7 +15,7 @@ const cleanup: (() => void)[] = [];
 afterEach(() => { for (const clean of cleanup.splice(0)) clean(); });
 
 // A fake Codex that calls one tool (if given) and then answers.
-function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime) => Promise<string> = async () => 'Done') {
+function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime) => Promise<string> = async () => 'Done', browser?: BrowserManager) {
   const dir = mkdtempSync(join(tmpdir(), 'aegir-'));
   const store = new Store(join(dir, 'db.sqlite'));
   const runs: RunInput[] = [];
@@ -23,12 +24,46 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   const codex = { run: async (input: RunInput) => { runs.push(input); const id = `codex-${++n}`; input.onThreadStarted?.(id); const text = await script(input, id, runtime); return { threadId: id, text, status: 'completed' }; }, stop: async () => {} } as unknown as CodexProvider;
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
   const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
-  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir });
+  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, browser);
   cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
   return { store, runtime, runs, memory };
 }
 
 describe('runtime', () => {
+  it.each(['chat', 'task', 'routine'] as const)('enforces browser access and releases the session in a %s run', async kind => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'Browser result' }] }));
+    const close = vi.fn(async () => {});
+    const approve = vi.fn(async () => true);
+    const browser = new BrowserManager(true, async () => ({
+      listTools: async () => ({ tools: [{ name: 'browser_snapshot', inputSchema: { type: 'object', properties: {} } }] }),
+      callTool: execute, close,
+    }), approve, () => {});
+    let toolAvailable = false;
+    let result: unknown;
+    let denied = '';
+    const { store, runtime } = setup(async (input, id, rt) => {
+      if (!input.tools.length) return 'Done';
+      toolAvailable = input.tools.some(tool => tool.name === 'browser__browser_snapshot');
+      try { result = await rt.handleInternalTool('browser', 'browser_snapshot', {}, id); }
+      catch (error) { denied = String(error); }
+      return 'Done';
+    }, browser);
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Research in browser' }).id, 'Research');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Browser').id, 'Research');
+    expect(toolAvailable).toBe(kind !== 'routine');
+    if (kind === 'routine') {
+      expect(denied).toContain('unavailable');
+      expect(execute).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ success: true });
+      expect(approve).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+      expect(browser.state.threadId).toBeNull();
+    }
+    await expect(runtime.handleInternalTool('browser', 'browser_snapshot', {}, 'ended-run')).rejects.toThrow('unavailable');
+    await browser.close();
+  });
   it.each(['chat', 'task', 'routine'] as const)('lets a %s agent retrieve memories during a run', async kind => {
     let checked = false;
     const { store, runtime, memory } = setup(async (input, id, rt) => {

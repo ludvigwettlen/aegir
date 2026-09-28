@@ -122,7 +122,11 @@ Agent settings link to inherited and owned skills. The composer has no skill dro
 
 ## Settings
 
-Settings uses one content column, capped at 960 px, with actionable sections for Skills, Startup, Connections, and Agent personalities. Manage skills opens the full library; each agent retains its scoped skills link. Startup preserves the start-at-login toggle with an accessible pressed state. Runtime and output explanations are not separate cards. Use the existing Card and Button primitives, with visible keyboard focus and text for connection states.
+Settings uses one content column, capped at 960 px, with actionable sections for Browser, Skills, Startup, Connections, and Agent personalities. Manage skills opens the full library; each agent retains its scoped skills link. Startup preserves the start-at-login toggle with an accessible pressed state. Runtime and output explanations are not separate cards. Use the existing Card and Button primitives, with visible keyboard focus and text for connection states.
+
+The Browser card contains an accessible pressed enable/disable control, a text status with Badge, an explanation of the separate login profile and per-response approval, and Open browser / Stop browser actions. Off, ready, opening, waiting for approval, working, and error states are explicit. Status detail wraps even for long errors and is announced through a status region. Setup actions disable while pending; Stop remains available to cancel opening or active work. Controls wrap at narrow widths, using existing surface, ink, muted and line tokens without animation.
+
+The approval dock displays the complete permission scope and requested action, with wrapped text and a bounded scroll area. Never truncate away the scope of a browser-control grant. Native keyboard focus and Approve / Deny buttons remain available while the details scroll.
 
 ## Contextual keyboard hints
 

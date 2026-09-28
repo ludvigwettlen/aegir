@@ -14,6 +14,11 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
   const [draft, setDraft] = useState<Agent | null>(null);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('');
+  const [browserPending, setBrowserPending] = useState(false);
+  const browserAction = (action: () => Promise<unknown>) => void run(async () => {
+    setBrowserPending(true);
+    try { await action(); } finally { setBrowserPending(false); }
+  });
   const slack = data.connectors.find((x) => x.id === 'slack')!;
   const notion = data.connectors.find((x) => x.id === 'notion')!;
   return (
@@ -25,6 +30,35 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
       />
       <div className="settings-grid settings-controls">
         <div className="settings-main">
+          <Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">
+            <div className="panel-heading">
+              <div>
+                <h2>Browser</h2>
+                <p>Let agents browse and work on websites in a separate Chrome profile.</p>
+              </div>
+              <Button variant="outline" size="sm" aria-pressed={data.browser.enabled}
+                disabled={browserPending}
+                onClick={() => browserAction(() => api.setBrowserEnabled(!data.browser.enabled))}>
+                {data.browser.enabled ? 'Disable browser' : 'Enable browser'}
+              </Button>
+            </div>
+            <div className="browser-settings-body">
+              <div className="browser-status" role="status">
+                <Badge size="sm" dot tone={data.browser.status === 'error' ? 'danger' : data.browser.enabled ? 'success' : 'neutral'}>
+                  {data.browser.status}
+                </Badge>
+                <span>{data.browser.detail}</span>
+              </div>
+              <p>Open the browser to sign in to your websites. Logins stay on this Mac, separately from your personal Chrome profile. Google Chrome must be installed.</p>
+              <p>Chats and tasks ask once per response for permission to read pages and take actions, including form submissions. One agent controls the browser at a time. Routines do not have browser access.</p>
+              <div className="browser-actions">
+                <Button variant="outline" size="sm" disabled={!data.browser.enabled || browserPending || !!data.browser.threadId}
+                  onClick={() => browserAction(() => api.openBrowser())}>Open browser to sign in</Button>
+                <Button variant="outline" size="sm" disabled={!data.browser.enabled}
+                  onClick={() => void run(() => api.stopBrowser())}>Stop browser</Button>
+              </div>
+            </div>
+          </Card>
           <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
             <div className="panel-heading">
               <div>
