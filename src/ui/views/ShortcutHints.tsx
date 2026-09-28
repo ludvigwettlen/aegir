@@ -17,22 +17,23 @@ function contextFor(route: Route): Context {
   if (editor) {
     const label = target?.getAttribute('aria-label');
     const hints: Hint[] = [['⌘Z', 'Undo text edit'], ['Tab / ⇧Tab', 'Move between controls']];
-    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['↑ / ↓', 'Choose a mention'], ['Enter / Tab', 'Insert selected mention'], ['Esc', 'Dismiss mention picker']);
+    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['↑ / ↓', 'Choose a mention'], ['Enter / Tab', 'Insert selected mention'], ['Esc', route.view === 'tasks' ? 'Dismiss mention picker or return to task list' : 'Dismiss mention picker']);
     else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['Esc', 'Clear and leave quick add']);
     else if (label === 'Start a thread') hints.unshift(['Enter', 'Start thread']);
-    else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit']);
+    else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit and return to list']);
+    if (target?.closest('.ws-task-detail')) { hints.push(['⌘O', 'Open task output or attachment']); if (label === 'Task notes') hints.push(['Esc', 'Cancel notes edit and return to list']); }
     return { title: label || 'Editing', hints, editing: true, dialog: false };
   }
   const titles = { tasks: 'Tasks', group: 'Chat', routine: 'Routine', skills: 'Skills', settings: 'Settings', memory: 'Memory' };
-  const hints: Hint[] = [['J / K · ↓ / ↑', 'Move through items'], ['H / ←', 'Move to the previous pane'], ['L / →', 'Move to the next pane'], ['Tab / ⇧Tab', 'Move between controls']];
+  const hints: Hint[] = [['J / K · ↓ / ↑', 'Move through items'], ...(route.view === 'tasks' && !target?.closest('.ws-sidebar') ? [['H / ←', 'Move to the previous pane'] as Hint] : [['H / ←', 'Move to the previous pane'] as Hint, ['L / →', 'Move to the next pane'] as Hint]), ['Tab / ⇧Tab', 'Move between controls']];
   if (target?.closest('.ws-sidebar')) hints.push(['Enter', 'Open selected page']);
-  else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Close task detail']);
+  else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['N', 'Edit notes'], ['B / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
-    ['⌘V', 'Attach copied link'], ['Esc', 'Close task detail'],
-    ...(route.list === 'completed' ? [] : [['A', 'Hand off selected task'] as Hint]),
-    ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint, ['⌫', 'Dismiss suggestion'] as Hint] : []),
+    ['N', 'Edit notes'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
+    ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
+    ['A', 'Hand off task or focus its chat'],
+    ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
   );
   else if (route.view === 'group') hints.push(['Enter', 'Start thread from the new-thread field'], ['Enter / ⇧Enter', 'Send / new line in the composer'], ['@', 'Mention an agent or routine in the composer']);
   return { title: target?.closest('.ws-sidebar') ? 'Sidebar' : titles[route.view], hints, editing: false, dialog: false };

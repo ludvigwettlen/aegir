@@ -31,6 +31,7 @@ const api: DesktopApi = {
   updateTask: (taskId, change) => ipcRenderer.invoke('update-task', taskId, change),
   deleteTask: taskId => ipcRenderer.invoke('delete-task', taskId),
   addTaskLink: (taskId, url) => ipcRenderer.invoke('add-task-link', taskId, url),
+  openTaskLink: linkId => ipcRenderer.invoke('open-task-link', linkId),
   readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
   removeTaskLink: linkId => ipcRenderer.invoke('remove-task-link', linkId),
   undoTaskAction: () => ipcRenderer.invoke('undo-task-action'),

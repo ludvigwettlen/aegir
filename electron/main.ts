@@ -199,6 +199,18 @@ function registerIpc() {
     return link;
   });
   handle('read-clipboard-text', () => clipboard.readText());
+  handle('open-task-link', async (linkId: string) => {
+    const link = store.taskLinks().find(item => item.id === linkId);
+    if (!link) throw new Error('This attachment no longer exists');
+    if (link.url.startsWith('file:')) {
+      const error = await shell.openPath(fileURLToPath(link.url));
+      if (error) throw new Error(error);
+    } else {
+      const safe = normalizeTaskLink(link.url);
+      if (!safe) throw new Error('Invalid attachment URL');
+      await shell.openExternal(safe);
+    }
+  });
   handle('remove-task-link', (linkId: string) => {
     store.removeTaskLink(linkId);
     refresh();

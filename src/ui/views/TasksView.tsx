@@ -5,9 +5,9 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, FolderOpen, Plus, Square, Trash2, Users, X } from 'lucide-react';
+import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
-import { normalizeTaskLink } from '../../../shared/task-links';
+import { taskLinkLabel } from '../../../shared/task-links';
 import { parseDue, parseQuickAdd, tasksFor, type TaskView } from '../../../shared/tasks';
 import {
   api,
@@ -70,8 +70,7 @@ export function TasksView({
   notify: (message: string) => void;
 }) {
   const [cursors, setCursors] = useState<Partial<Record<TaskView, string>>>({});
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [editTarget, setEditTarget] = useState<'title' | 'notes' | null>(null);
+  const [editTarget, setEditTarget] = useState<'title' | 'notes' | 'chat' | null>(null);
   const [popover, setPopover] = useState<Popover>(null);
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
@@ -83,24 +82,22 @@ export function TasksView({
   const order = groups.flatMap(([, tasks]) => tasks);
   const current = order.find((task) => task.id === cursors[list]) || order[0];
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
-  const open = data.tasks.find((task) => task.id === openId);
-  const closeDetail = () => {
-    setOpenId(null);
+  const open = current;
+  const openId = open?.id;
+  const returnToList = () => {
     window.requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus(),
     );
   };
   useEffect(() => {
     setPopover(null);
-    setOpenId(null);
   }, [list]);
-  useEffect(() => {
-    if (openId && !order.some((task) => task.id === openId)) setOpenId(null);
-  }, [openId, order]);
   useEffect(() => {
     if (!editTarget || !openId) return;
     const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-      editTarget === 'title'
+      editTarget === 'chat'
+        ? '.ws-task-detail [aria-label="Message"]'
+        : editTarget === 'title'
         ? '.ws-task-detail [aria-label="Task title"]'
         : '.ws-task-detail [aria-label="Task notes"]',
     );
@@ -128,8 +125,29 @@ export function TasksView({
     run(() => api.updateTask(task.id, change));
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isTyping(event) || popover) return;
+      if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"]')) return;
       const target = event.target instanceof Element ? event.target : null;
+      if (event.key === 'Escape' && openId) {
+        event.preventDefault(); returnToList(); return;
+      }
+      if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !target?.closest('.ws-sidebar')) {
+        if (event.key.toLowerCase() === 'o') {
+          const task = target?.closest('.ws-task-detail') ? open : current;
+          if (!task) return;
+          event.preventDefault();
+          if (task.outputDir) void run(() => api.openTaskOutput(task.id));
+          else {
+            const link = data.taskLinks.find(item => item.taskId === task.id);
+            if (link) void run(() => api.openTaskLink(link.id));
+            else notify('This task has no output or attachment yet');
+          }
+          return;
+        }
+        if (event.key.toLowerCase() === 'l' && !isTyping(event) && current && !target?.closest('.ws-task-detail')) {
+          event.preventDefault(); setPopover({ kind: 'label', taskId: current.id }); return;
+        }
+      }
+      if (isTyping(event)) return;
       if (
         event.metaKey && event.key.toLowerCase() === 'v' && current &&
         !event.altKey && !event.ctrlKey &&
@@ -137,46 +155,47 @@ export function TasksView({
       ) {
         event.preventDefault();
         void run(async () => {
-          const url = normalizeTaskLink(await api.readClipboardText());
-          if (!url) {
-            notify('Clipboard has no link to attach');
+          const value = await api.readClipboardText();
+          if (!value.trim()) {
+            notify('Clipboard has no link or file path to attach');
             return;
           }
-          await api.addTaskLink(current.id, url);
-          notify('Link added · ⌘Z to undo');
+          await api.addTaskLink(current.id, value);
+          notify('Attachment updated · ⌘Z to undo');
         });
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (target?.closest('.ws-sidebar, .ws-task-detail')) {
-        if (event.key === 'Escape' && openId) {
-          closeDetail();
-          event.preventDefault();
-        }
-        return;
-      }
+      if (target?.closest('.ws-sidebar, .ws-task-detail')) return;
       const key = event.key;
-      if (key === 'Escape') closeDetail();
+      if (key === 'Escape') returnToList();
       else if (!current) return;
       else if (key === 'Enter') {
-        setOpenId(current.id);
         setEditTarget('title');
       } else if (key === 'n') {
-        setOpenId(current.id);
         setEditTarget('notes');
       }
       else if (key === ' ')
         void update(current, { status: current.status === 'done' ? 'ready' : 'done' });
-      else if (key === 'a' && current.status !== 'running' && current.status !== 'done')
-        setPopover({ kind: 'handoff', taskId: current.id });
+      else if (key === 'a') {
+        if (current.threadId) setEditTarget('chat');
+        else if (current.status !== 'running' && current.status !== 'done') setPopover({ kind: 'handoff', taskId: current.id });
+      }
       else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
       else if (key === 'D') void update(current, { dueAt: null });
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
-      else if ((key === 'Backspace' || key === 'Delete') && current.status === 'proposed')
-        void update(current, { status: 'dismissed' });
+      else if (key === 'Backspace' || key === 'Delete') {
+        if (current.status === 'proposed') void update(current, { status: 'dismissed' });
+        else if (current.status === 'running') notify('Stop this task before deleting it');
+        else void run(async () => {
+          await api.deleteTask(current.id);
+          if (openId === current.id) returnToList();
+          notify('Task deleted · ⌘Z to undo');
+        });
+      }
       else return;
       event.preventDefault();
     };
@@ -192,7 +211,6 @@ export function TasksView({
       try {
         const task = await api.createTask(parsed);
         setDraft('');
-        setOpenId(null);
         setEditTarget(null);
         setCursor(task.id);
         setCreatedTask({ id: task.id, list });
@@ -258,11 +276,9 @@ export function TasksView({
                   opened={task.id === openId}
                   onClick={() => {
                     setCursor(task.id);
-                    setOpenId(task.id);
                   }}
                   onFocus={() => {
                     setCursor(task.id);
-                    if (openId) setOpenId(task.id);
                   }}
                   popover={popover?.taskId === task.id ? popover.kind : null}
                   onClosePopover={() => setPopover(null)}
@@ -280,8 +296,6 @@ export function TasksView({
           task={open}
           data={data}
           run={run}
-          notify={notify}
-          onClose={closeDetail}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
@@ -498,16 +512,12 @@ function TaskDetail({
   task,
   data,
   run,
-  notify,
-  onClose,
   onReturnToList,
   onHandOff,
 }: {
   task: Task;
   data: Snapshot;
   run: Run;
-  notify: (message: string) => void;
-  onClose: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
 }) {
@@ -515,7 +525,6 @@ function TaskDetail({
   const group = thread && data.groups.find((item) => item.id === thread.groupId);
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
-  const [label, setLabel] = useState(task.label || '');
   const cancelledTitle = useRef(false);
   const cancelledNotes = useRef(false);
   const links = data.taskLinks.filter(link => link.taskId === task.id);
@@ -528,50 +537,22 @@ function TaskDetail({
     }
     if (next !== task.title) void run(() => api.updateTask(task.id, { title: next }));
   };
-  const saveLabel = () => {
-    const next = label.replace(/^#/, '').trim().toLowerCase() || null;
-    setLabel(next || '');
-    if (next !== task.label) void run(() => api.updateTask(task.id, { label: next }));
-  };
   const header = (
     <header className="ws-detail-head">
-      <div className="ws-detail-top">
-        <span className="ws-crumb">
+      {(group || task.sourceUrl || task.status === 'running') && <div className="ws-detail-top">
+        {(group || task.sourceUrl) && <span className="ws-crumb">
           {group
             ? `Thread in ${group.kind === 'private' ? group.title : `#${group.title}`}`
             : task.sourceUrl
               ? 'From a source'
-              : 'Your task'}
-        </span>
-        {task.outputDir && (
-          <button className="ws-btn" onClick={() => void run(() => api.openTaskOutput(task.id))}>
-            <FolderOpen size={13} /> Output
-          </button>
-        )}
+              : ''}
+        </span>}
         {task.status === 'running' && (
           <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
             <Square size={12} /> Stop
           </button>
         )}
-        <button
-          className="ws-btn ghost"
-          disabled={task.status === 'running'}
-          aria-label="Delete task"
-          title={task.status === 'running' ? 'Stop this task before deleting it' : undefined}
-          onClick={() => {
-            void run(async () => {
-              await api.deleteTask(task.id);
-              onClose();
-              notify('Task deleted · ⌘Z to undo');
-            });
-          }}
-        >
-          <Trash2 size={13} />
-        </button>
-        <button className="ws-icon-btn" aria-label="Close task" onClick={onClose}>
-          <X size={15} />
-        </button>
-      </div>
+      </div>}
       <input
         className="ws-task-title-input"
         aria-label="Task title"
@@ -581,10 +562,11 @@ function TaskDetail({
         onKeyDown={(event) => {
           if (event.key === 'Enter') { event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
           if (event.key === 'Escape') {
+            event.preventDefault();
             cancelledTitle.current = true;
             setTitle(task.title);
             event.currentTarget.blur();
-            window.requestAnimationFrame(onReturnToList);
+            onReturnToList();
           }
         }}
       />
@@ -603,68 +585,12 @@ function TaskDetail({
         )}
         {links.map(link => (
           <span className="ws-task-link" key={link.id}>
-            <a href={link.url} title={link.url} onClick={event => { event.preventDefault(); void run(() => api.openExternal(link.url)); }}>
-              {new URL(link.url).hostname || new URL(link.url).protocol.replace(':', '')} <ExternalLink size={11} />
+            <a href={link.url} title={link.url} onClick={event => { event.preventDefault(); void run(() => api.openTaskLink(link.id)); }}>
+              {taskLinkLabel(link.url)} <ExternalLink size={11} />
             </a>
             <button type="button" aria-label={`Remove link ${link.url}`} title="Remove link" onClick={() => void run(() => api.removeTaskLink(link.id))}><X size={11} /></button>
           </span>
         ))}
-      </div>
-      <div className="ws-task-properties">
-        <label>
-          <span>Label</span>
-          <span className="ws-input-with-clear">
-            <input
-              aria-label="Task label"
-              placeholder="No label"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              onBlur={saveLabel}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.currentTarget.blur();
-                if (event.key === 'Escape') {
-                  setLabel(task.label || '');
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-            {label && (
-              <button
-                type="button"
-                aria-label="Remove label"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  setLabel('');
-                  void run(() => api.updateTask(task.id, { label: null }));
-                }}
-              >
-                <X size={12} />
-              </button>
-            )}
-          </span>
-        </label>
-        <label>
-          <span>Due date</span>
-          <span className="ws-input-with-clear">
-            <input
-              type="date"
-              aria-label="Task due date"
-              value={task.dueAt || ''}
-              onChange={(event) =>
-                void run(() => api.updateTask(task.id, { dueAt: event.target.value || null }))
-              }
-            />
-            {task.dueAt && (
-              <button
-                type="button"
-                aria-label="Remove due date"
-                onClick={() => void run(() => api.updateTask(task.id, { dueAt: null }))}
-              >
-                <X size={12} />
-              </button>
-            )}
-          </span>
-        </label>
       </div>
       <label className="ws-field">
         <span>Notes</span>
@@ -679,21 +605,10 @@ function TaskDetail({
             if (notes !== task.notes) void run(() => api.updateTask(task.id, { notes }));
           }}
           onKeyDown={event => {
-            if (event.key === 'Escape') { cancelledNotes.current = true; setNotes(task.notes); event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
+            if (event.key === 'Escape') { event.preventDefault(); cancelledNotes.current = true; setNotes(task.notes); event.currentTarget.blur(); onReturnToList(); }
           }}
         />
       </label>
-      {task.status === 'review' && (
-        <div className="ws-row-actions">
-          <button
-            className="ws-btn primary"
-            onClick={() => void run(() => api.updateTask(task.id, { status: 'done' }))}
-          >
-            Mark done
-          </button>
-          <span className="ws-hint">or reply below to ask for changes</span>
-        </div>
-      )}
     </header>
   );
   return (
@@ -734,18 +649,7 @@ function TaskDetail({
                     <Users size={13} /> Hand off to the team
                   </button>
                 )}
-                <button
-                  className="ws-btn"
-                  onClick={() =>
-                    void run(() =>
-                      api.updateTask(task.id, {
-                        status: task.status === 'done' ? 'ready' : 'done',
-                      }),
-                    )
-                  }
-                >
-                  {task.status === 'done' ? 'Reopen' : 'Mark done'}
-                </button>
+
               </>
             )}
           </div>

@@ -178,6 +178,7 @@ export interface DesktopApi extends SkillsApi {
   updateTask(taskId: string, change: TaskChange): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;
+  openTaskLink(linkId: string): Promise<void>;
   readClipboardText(): Promise<string>;
   removeTaskLink(linkId: string): Promise<void>;
   undoTaskAction(): Promise<{ taskId: string; action: string } | null>;

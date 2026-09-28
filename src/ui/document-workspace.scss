@@ -60,6 +60,11 @@
   > header { flex: 1; min-width: 0; border-bottom: 0; }
   > .ws-document-access { margin: 30px 16px 0 0; }
 }
+.ws-conversation-head:has(> .ws-thread-head) {
+  align-items: center; gap: 12px; padding: 30px 16px 10px 22px;
+  > .ws-thread-head { padding: 0; min-height: 0; }
+  > .ws-document-access { margin: 0; }
+}
 .ws-editing-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding: 8px 20px; border-bottom: 1px solid var(--ds-color-line); -webkit-app-region: drag;
   > div:first-child { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
   span { font-size: 11px; color: var(--ds-color-muted); flex: none; }

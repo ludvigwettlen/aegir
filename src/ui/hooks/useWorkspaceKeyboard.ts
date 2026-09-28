@@ -110,6 +110,9 @@ export function useWorkspaceKeyboard(
           container?.querySelector<HTMLElement>(selector);
         (item || container)?.focus();
       };
+      if (name === 'list' && list?.closest('.ws-tasks')) {
+        if (event.key === 'l' || event.key === 'ArrowRight') { event.preventDefault(); return; }
+      }
       if (event.key === 'h' || event.key === 'ArrowLeft') {
         if (name === 'list' || name === 'page') focusCurrent(sidebar, '[aria-current="page"]');
         else if (name === 'detail') focusCurrent(list, '[data-keyboard-item]');
@@ -135,9 +138,11 @@ export function useWorkspaceKeyboard(
             list?.querySelector<HTMLElement>('[data-keyboard-item]');
           if (!current) return;
           if (current.hasAttribute('data-task-row')) current.click();
-          window.requestAnimationFrame(() =>
-            document.querySelector<HTMLElement>('[data-keyboard-pane="detail"]')?.focus(),
-          );
+          window.requestAnimationFrame(() => {
+            const detail = document.querySelector<HTMLElement>('[data-keyboard-pane="detail"]');
+            const chat = detail?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]:not(:disabled)');
+            (chat || detail?.querySelector<HTMLElement>('[aria-label="Task notes"]') || detail)?.focus();
+          });
         } else return;
         event.preventDefault();
         return;

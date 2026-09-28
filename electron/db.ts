@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { app } from 'electron';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type {
   Agent,
   Group,
@@ -20,7 +21,7 @@ import type {
   MessagePage,
 } from '../shared/types.js';
 import { defaultAgents, legacyAgents } from './default-agents.js';
-import { normalizeTaskLink } from '../shared/task-links.js';
+import { normalizeTaskAttachment } from '../shared/task-links.js';
 
 const now = () => new Date().toISOString();
 type Tables = { agents: Agent; tasks: Task; threads: Thread };
@@ -32,7 +33,8 @@ type TaskUndo =
   | { kind: 'created'; taskId: string }
   | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[] }
   | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[] }
-  | { kind: 'link-added' | 'link-removed'; link: TaskLink };
+  | { kind: 'link-added'; link: TaskLink; previous?: TaskLink }
+  | { kind: 'link-removed'; link: TaskLink };
 const toGroup = (row: GroupRow): Group => ({
   ...row,
   agentIds: JSON.parse(row.agentIds) as string[],
@@ -74,6 +76,12 @@ export class Store {
     this.migrate();
     this.db.exec(`CREATE TABLE IF NOT EXISTS task_links(id TEXT PRIMARY KEY,taskId TEXT NOT NULL,url TEXT NOT NULL,createdAt TEXT NOT NULL,UNIQUE(taskId,url));
       CREATE INDEX IF NOT EXISTS task_links_task ON task_links(taskId);`);
+    this.db.transaction(() => {
+      // Existing tasks keep their latest attachment; rowid resolves equal timestamps.
+      this.db.exec(`DELETE FROM task_links WHERE rowid NOT IN (
+        SELECT rowid FROM (SELECT rowid, ROW_NUMBER() OVER (PARTITION BY taskId ORDER BY createdAt DESC, rowid DESC) AS position FROM task_links) WHERE position=1
+      ); CREATE UNIQUE INDEX IF NOT EXISTS task_links_single_task ON task_links(taskId);`);
+    })();
     this.db.exec('CREATE INDEX IF NOT EXISTS messages_thread ON messages(threadId);');
     this.seedAgentTeam();
     const agents = this.list('agents');
@@ -540,13 +548,17 @@ export class Store {
   }
   addTaskLink(taskId: string, value: string): TaskLink {
     if (!this.get('tasks', taskId)) throw new Error('Task not found');
-    const url = normalizeTaskLink(value);
-    if (!url) throw new Error('Paste a supported URL or app deep link');
-    if (this.db.prepare('SELECT 1 FROM task_links WHERE taskId=? AND url=?').get(taskId, url))
-      throw new Error('Link already attached');
+    const latest = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) || '';
+    const url = normalizeTaskAttachment(latest, homedir());
+    if (!url) throw new Error('Paste an absolute file path, ~/ path, URL, or app deep link');
+    const previous = this.taskLinks(taskId)[0];
+    if (previous?.url === url) return previous;
     const link = { id: randomUUID(), taskId, url, createdAt: now() };
-    this.insertTaskLink(link);
-    this.rememberTaskAction({ kind: 'link-added', link });
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM task_links WHERE taskId=?').run(taskId);
+      this.insertTaskLink(link);
+    })();
+    this.rememberTaskAction({ kind: 'link-added', link, previous });
     return link;
   }
   private insertTaskLink(link: TaskLink) {
@@ -597,7 +609,10 @@ export class Store {
       taskId = action.task.id;
       label = 'task deletion';
     } else if (action.kind === 'link-added') {
-      this.db.prepare('DELETE FROM task_links WHERE id=?').run(action.link.id);
+      this.db.transaction(() => {
+        this.db.prepare('DELETE FROM task_links WHERE id=?').run(action.link.id);
+        if (action.previous) this.insertTaskLink(action.previous);
+      })();
       taskId = action.link.taskId;
       label = 'link attachment';
     } else {

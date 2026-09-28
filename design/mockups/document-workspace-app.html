@@ -7,7 +7,10 @@ const agents = [{id:'a',name:'Ägir',role:'Lead',color:'#a39ad6',instructions:''
 const group = {id:'g',title:'General',kind:'group',agentIds:['a'],leadAgentId:'a',instructions:'',createdAt:at};
 const thread = {id:'preview-thread',groupId:'g',title:'Write me a PRD for Ägir',kind:'task',taskId:'task',status:'active',createdAt:at,updatedAt:at,messageCount:2,agentIds:['a'],busyAgentIds:[],snippet:'Created the first draft. Ready for your thoughts.'};
 const task = {id:'task',title:thread.title,notes:'',label:null,dueAt:at.slice(0,10),status:'review',agentId:'a',threadId:thread.id,outputDir:'/preview',sourceUrl:null,sourceKey:null,createdAt:at,updatedAt:at,completedAt:null};
-const snapshot = {agents,groups:[group],threads:[thread],tasks:[task],taskLinks:[],routines:[],routineRuns:[],connectors:[],approvals:[],legacyMemoryCount:0,memoryInstructions:'',codexStatus:'Preview',launchAtLogin:false,mcpSettings:{slackClientId:'',slackConfigured:false}};
+const previewOptions = new URLSearchParams(location.search);
+if(previewOptions.has('plain')) task.threadId=null;
+if(previewOptions.has('plain') || previewOptions.has('linked')) task.outputDir=null;
+const snapshot = {agents,groups:[group],threads:[thread],tasks:[task],taskLinks:[{id:'preview-link',taskId:task.id,url:'file:///tmp/My%20report.md',createdAt:at}],routines:[],routineRuns:[],connectors:[],approvals:[],legacyMemoryCount:0,memoryInstructions:'',codexStatus:'Preview',launchAtLogin:false,mcpSettings:{slackClientId:'',slackConfigured:false}};
 const messages = [
 {id:'1',threadId:thread.id,agentId:null,role:'user',content:'Write me a PRD for Ägir.',status:'complete',meta:null,createdAt:at},
 {id:'2',threadId:thread.id,agentId:'a',role:'agent',content:'Here’s a first draft covering the vision, core experience, and MVP scope.\n\n[Ägir PRD](agir-prd.md)\n\nLet’s shape it together.',status:'complete',meta:null,createdAt:at}
@@ -18,9 +21,10 @@ window.aegir = {
 snapshot:async()=>snapshot,onEvent:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},threadMessages:async()=>({messages,before:null}),
 listDocuments:async()=>[doc.path],readDocument:async()=>({...doc}),
 saveDocument:async(_id,path,revision,content)=>{if(revision!==doc.revision)throw Error('The file changed on disk. Your edits are kept here.');doc={path,content,revision:String(+doc.revision+1)};return {...doc}},
+openTaskLink:async()=>{let notice=document.createElement('div');notice.setAttribute('role','status');notice.style.cssText='position:fixed;bottom:10px;left:50%;background:white;padding:10px;z-index:999';notice.textContent='Preview: linked file opened';document.body.append(notice)},
 sendMessage:async(_id,content)=>{const message={...messages[0],id:String(Date.now()),content,createdAt:new Date().toISOString()};messages.push(message);listeners.forEach(fn=>fn({type:'message',value:message}))},
-openExternal:async()=>{},openTaskOutput:async()=>{},stopThread:async()=>{},closeThread:async()=>{},undoTaskAction:async()=>null,
-updateTask:async(_id,change)=>{Object.assign(task,change);listeners.forEach(fn=>fn({type:'snapshot',value:{...snapshot}}))}
+openExternal:async()=>{},openTaskOutput:async()=>{let notice=document.getElementById('preview-output');if(!notice){notice=document.createElement('div');notice.id='preview-output';notice.setAttribute('role','status');notice.style.cssText='position:fixed;bottom:10px;left:50%;background:white;padding:10px;z-index:999';document.body.append(notice)}notice.textContent='Preview: task output folder opened';},stopThread:async()=>{},closeThread:async()=>{},undoTaskAction:async()=>null,
+updateTask:async(_id,change)=>{Object.assign(task,change);listeners.forEach(fn=>fn({type:'snapshot',value:{...snapshot,tasks:snapshot.tasks.map(item=>({...item}))}}))}
 };
 if (new URLSearchParams(location.search).has('test')) {
   const control = document.createElement('button');

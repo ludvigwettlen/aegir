@@ -166,6 +166,53 @@ describe('store', () => {
     store.close();
   });
 
+  it('stores local file attachments canonically and supports undo and deduplication', () => {
+    const store = new Store(path());
+    const task = store.createTask({ title: 'Review local file' }, true);
+    const link = store.addTaskLink(task.id, '/tmp/My report.md');
+    expect(link.url).toBe('file:///tmp/My%20report.md');
+    expect(store.addTaskLink(task.id, 'file:///tmp/My%20report.md')).toEqual(link);
+    store.removeTaskLink(link.id);
+    store.undoTaskAction();
+    expect(store.taskLinks(task.id)).toEqual([link]);
+    store.undoTaskAction();
+    expect(store.taskLinks(task.id)).toEqual([]);
+    store.close();
+  });
+
+  it('replaces attachments atomically and restores the previous attachment with undo', () => {
+    const store = new Store(path());
+    const task = store.createTask({ title: 'One attachment' });
+    const original = store.addTaskLink(task.id, '/tmp/first.md');
+    const latest = store.addTaskLink(task.id, '/tmp/second.md\n/tmp/latest.md');
+    expect(store.taskLinks(task.id)).toEqual([latest]);
+    expect(latest.url).toBe('file:///tmp/latest.md');
+    expect(() => store.addTaskLink(task.id, 'not a link')).toThrow();
+    expect(store.taskLinks(task.id)).toEqual([latest]);
+    store.undoTaskAction();
+    expect(store.taskLinks(task.id)).toEqual([original]);
+    store.undoTaskAction();
+    expect(store.taskLinks(task.id)).toEqual([]);
+    store.close();
+  });
+
+  it('migrates existing multi-attachment tasks to their newest attachment', () => {
+    const file = path();
+    const first = new Store(file);
+    const task = first.createTask({ title: 'Older attachments' });
+    first.close();
+    const db = new Database(file);
+    db.exec('DROP INDEX task_links_single_task');
+    const insert = db.prepare('INSERT INTO task_links(id,taskId,url,createdAt) VALUES (?,?,?,?)');
+    insert.run('old', task.id, 'https://example.com/old', '2026-09-01');
+    insert.run('latest', task.id, 'https://example.com/latest', '2026-09-02');
+    insert.run('tie', task.id, 'https://example.com/tie', '2026-09-02');
+    db.close();
+    const upgraded = new Store(file);
+    expect(upgraded.taskLinks(task.id).map(link => link.id)).toEqual(['tie']);
+    upgraded.close();
+  });
+
   it('undoes completion, edits, links, and creation in reverse order', () => {
     const store = new Store(path());
     const task = store.createTask({ title: 'Draft' }, true);
