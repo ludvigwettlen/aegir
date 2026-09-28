@@ -3,6 +3,7 @@ import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
   snapshot: () => ipcRenderer.invoke('snapshot'),
+  threadMessages: (threadId, before) => ipcRenderer.invoke('thread-messages', threadId, before),
   onEvent: callback => { const handler = (_: unknown, event: AppEvent) => callback(event); ipcRenderer.on('app-event', handler); return () => ipcRenderer.removeListener('app-event', handler); },
   createGroup: (title, agentIds) => ipcRenderer.invoke('create-group', title, agentIds),
   createAgent: input => ipcRenderer.invoke('create-agent', input),
@@ -25,8 +26,9 @@ const api: DesktopApi = {
   connect: (provider, clientId, clientSecret) => ipcRenderer.invoke('connect', provider, clientId, clientSecret),
   disconnect: provider => ipcRenderer.invoke('disconnect', provider),
   setMemoryInstructions: value => ipcRenderer.invoke('memory-instructions', value),
-  forgetMemory: id => ipcRenderer.invoke('forget-memory', id),
-  correctMemory: (id, content) => ipcRenderer.invoke('correct-memory', id, content),
+  searchMemories: query => ipcRenderer.invoke('search-memories', query),
+  forgetMemory: (id, scope) => ipcRenderer.invoke('forget-memory', id, scope),
+  correctMemory: (id, scope, content) => ipcRenderer.invoke('correct-memory', id, scope, content),
   setLaunchAtLogin: enabled => ipcRenderer.invoke('launch-at-login', enabled),
   openExternal: url => ipcRenderer.invoke('open-external', url)
 };

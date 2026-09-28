@@ -24,7 +24,7 @@ class KeychainState {
     if (!safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain encryption is unavailable');
     this.store.setSetting(`secret:${this.prefix}:${key}`, safeStorage.encryptString(JSON.stringify(value)).toString('base64'));
   }
-  clear(key: string) { this.store.db.prepare('DELETE FROM settings WHERE key=?').run(`secret:${this.prefix}:${key}`); }
+  clear(key: string) { this.store.deleteSetting(`secret:${this.prefix}:${key}`); }
 }
 
 export class DesktopOAuthProvider implements OAuthClientProvider {

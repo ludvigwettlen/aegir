@@ -5,141 +5,143 @@ import { MemoryService } from './memory.js';
 import type { Store } from './db.js';
 import type { Memory } from '../shared/types.js';
 
-const mnemosyne = vi.hoisted(() => ({ available: false, failPrivate: false, empty: false }));
+const mnemosyne = vi.hoisted(() => ({
+  available: true,
+  failPrivate: false,
+  nextId: 0,
+  banks: new Map<string, { id: string; content: string; source: string; timestamp: string }[]>()
+}));
 
-// Exercise both the local fallback and a partial Mnemosyne response without an installation.
 vi.mock('node:child_process', () => ({
   spawn: vi.fn((_binary: string, args: string[], options: { env: { MNEMOSYNE_BANK: string; MNEMOSYNE_DATA_DIR?: string } }) => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
+    child.kill = () => {};
     queueMicrotask(() => {
-      if (!mnemosyne.available || (mnemosyne.failPrivate && options.env.MNEMOSYNE_BANK.includes('agent-'))) {
-        child.emit('error', new Error('Mnemosyne unavailable'));
-      } else {
-        if (args[0] === 'recall') child.stdout.emit('data', JSON.stringify({ results: mnemosyne.empty ? [] : [{ content: 'Remote planning result' }] }));
-        if (args[0] === 'store') child.stdout.emit('data', 'Stored: f6110fa945e60c45');
-        child.emit('close', 0);
+      const bank = options.env.MNEMOSYNE_DATA_DIR ? 'hermes' : options.env.MNEMOSYNE_BANK;
+      if (!mnemosyne.available || (mnemosyne.failPrivate && bank.includes('agent-'))) {
+        child.emit('error', new Error('missing executable'));
+        return;
       }
+      const rows = mnemosyne.banks.get(bank) || [];
+      if (args[0] === 'store') {
+        const id = (++mnemosyne.nextId).toString(16).padStart(16, '0');
+        rows.push({ id, content: args[1], source: args[2], timestamp: '2026-01-01T00:00:00Z' });
+        mnemosyne.banks.set(bank, rows);
+        child.stdout.emit('data', `Stored: ${id}`);
+      } else if (args[0] === 'recall') {
+        child.stdout.emit('data', JSON.stringify({ results: rows.filter(row => row.content.toLowerCase().includes(args[1].toLowerCase())) }));
+      } else if (args[0] === 'update') {
+        const row = rows.find(item => item.id === args[1]);
+        if (!row) { child.stderr.emit('data', 'Memory not found'); child.emit('close', 1); return; }
+        row.content = args[2];
+      } else if (args[0] === 'delete') {
+        const index = rows.findIndex(item => item.id === args[1]);
+        if (index < 0) { child.stderr.emit('data', 'Memory not found'); child.emit('close', 1); return; }
+        rows.splice(index, 1);
+      }
+      child.emit('close', 0);
     });
     return child;
   })
 }));
 
-afterEach(() => { mnemosyne.available = false; mnemosyne.failPrivate = false; mnemosyne.empty = false; vi.clearAllMocks(); });
+afterEach(() => {
+  mnemosyne.available = true;
+  mnemosyne.failPrivate = false;
+  mnemosyne.nextId = 0;
+  mnemosyne.banks.clear();
+  vi.clearAllMocks();
+});
 
-function fixture() {
-  const rows: Memory[] = [];
-  const settings = new Map<string, string>();
-  let nextId = 0;
+function fixture(legacy: Memory[] = []) {
+  const rows = [...legacy];
+  const settings = new Map<string, string>([['mnemosyneBinary', '/test/bin/mnemosyne']]);
   const store = {
-    db: { prepare(sql: string) {
-      if (sql.startsWith('SELECT id FROM memories')) return { get: (scope: string, content: string) => rows.find(row => row.scope === scope && row.content === content) };
-      if (sql.startsWith('SELECT scope,sourceUrl,content FROM memories')) return { get: (id: string) => rows.find(row => row.id === id) };
-      if (sql.startsWith('SELECT scope FROM memories')) return { get: (id: string) => rows.find(row => row.id === id) };
-      if (sql.startsWith('DELETE FROM settings')) return { run: (first: string, second: string) => { settings.delete(first); settings.delete(second); } };
-      throw new Error(`Unexpected query: ${sql}`);
-    } },
-    list: () => [...rows],
-    remember: (scope: string, content: string, sourceUrl: string | null) => {
-      const row: Memory = { id: `memory-${++nextId}`, scope, content, sourceUrl, createdAt: '2026-01-01T00:00:00Z' };
-      rows.push(row);
-      return row;
-    },
-    forgetMemory: (id: string) => { const index = rows.findIndex(row => row.id === id); if (index >= 0) rows.splice(index, 1); },
-    getSetting: (key: string) => settings.get(key),
-    setSetting: (key: string, value: string) => { settings.set(key, value); }
+    legacyMemories: () => [...rows],
+    deleteLegacyMemory: (id: string) => { const index = rows.findIndex(row => row.id === id); if (index >= 0) rows.splice(index, 1); },
+    list: (table: string) => table === 'agents' ? [{ id: 'a1b2' }, { id: 'c3d4' }] : [],
+    getSetting: (key: string) => settings.get(key)
   } as unknown as Store;
   return { memory: new MemoryService(store), rows, settings };
 }
 
-describe('memory local fallback', () => {
-  it('searches the opted-in Hermes default bank while writes remain in Aegir banks', async () => {
+describe('Mnemosyne-only memory', () => {
+  it('saves durable memories in the correct bank with source metadata', async () => {
+    const { memory } = fixture();
+    const saved = await memory.remember('shared', 'Planning brief is due Friday', 'https://example.com/brief');
+    expect(saved.scope).toBe('shared');
+    expect(mnemosyne.banks.get('aegir-shared')).toMatchObject([{ id: saved.id, content: saved.content, source: 'https://example.com/brief' }]);
+    const call = vi.mocked(spawn).mock.calls.find(item => item[1][0] === 'store');
+    expect(call?.[2]?.env?.MNEMOSYNE_DEFAULT_SCOPE).toBe('global');
+  });
+
+  it('fails visibly when Mnemosyne is unavailable and retains legacy data', async () => {
+    const legacy: Memory = { id: 'local-1', scope: 'shared', content: 'Legacy fact', sourceUrl: null, createdAt: '2026-01-01' };
+    const { memory, rows } = fixture([legacy]);
+    mnemosyne.available = false;
+    await expect(memory.recall('Legacy')).rejects.toThrow('Mnemosyne is unavailable');
+    expect(rows).toEqual([legacy]);
+    expect(mnemosyne.banks.size).toBe(0);
+  });
+
+  it('never returns a local result when Mnemosyne recall fails', async () => {
+    const { memory } = fixture();
+    mnemosyne.available = false;
+    await expect(memory.recall('planning')).rejects.toThrow('Mnemosyne is unavailable');
+  });
+
+  it('migrates old memories once and preserves their bank and source', async () => {
+    const legacy: Memory = { id: 'local-1', scope: 'agent-a1b2', content: 'Agent fact', sourceUrl: 'https://example.com/source', createdAt: '2026-01-01' };
+    const { memory, rows } = fixture([legacy]);
+    await Promise.all([memory.migrateLegacy(), memory.migrateLegacy()]);
+    expect(rows).toHaveLength(0);
+    expect(mnemosyne.banks.get('aegir-agent-a1b2')).toMatchObject([{ content: 'Agent fact', source: legacy.sourceUrl }]);
+    expect(mnemosyne.banks.get('aegir-agent-a1b2')).toHaveLength(1);
+    await memory.migrateLegacy();
+    expect(mnemosyne.banks.get('aegir-agent-a1b2')).toHaveLength(1);
+  });
+
+  it('keeps an already synced Mnemosyne record instead of duplicating it', async () => {
+    const legacy: Memory = { id: 'local-2', scope: 'shared', content: 'Saved decision', sourceUrl: 'https://example.com/decision', createdAt: '2026-01-01' };
+    const { memory, rows, settings } = fixture([legacy]);
+    settings.set('memorySynced:local-2', 'true');
+    settings.set('memoryProviderId:local-2', 'f6110fa945e60c45');
+    mnemosyne.banks.set('aegir-shared', [{ id: 'f6110fa945e60c45', content: 'Saved decision Source: https://example.com/decision', source: 'cli', timestamp: '2026-01-01' }]);
+    await memory.migrateLegacy();
+    expect(rows).toHaveLength(0);
+    expect(mnemosyne.banks.get('aegir-shared')).toHaveLength(1);
+    expect(vi.mocked(spawn).mock.calls.filter(call => call[1][0] === 'store')).toHaveLength(0);
+  });
+
+  it('recalls shared and own agent memories without reading another agent bank', async () => {
+    const { memory } = fixture();
+    await memory.remember('shared', 'Planning shared fact', null);
+    await memory.remember('agent-a1b2', 'Planning private fact', null);
+    await memory.remember('agent-c3d4', 'Planning other fact', null);
+    const result = await memory.recall('Planning', 'a1b2');
+    expect(result).toContain('[shared] Planning shared fact');
+    expect(result).toContain('[agent-a1b2] Planning private fact');
+    expect(result).not.toContain('Planning other fact');
+  });
+
+  it('searches all Ägir banks for the Memory screen and edits in Mnemosyne', async () => {
+    const { memory } = fixture();
+    const saved = await memory.remember('agent-a1b2', 'Draft strategy', 'https://example.com/draft');
+    expect(await memory.search('Draft')).toMatchObject([{ id: saved.id, scope: 'agent-a1b2', sourceUrl: 'https://example.com/draft' }]);
+    await memory.correct(saved.id, saved.scope, 'Final strategy');
+    expect(await memory.search('Final')).toMatchObject([{ id: saved.id, content: 'Final strategy' }]);
+    await memory.forget(saved.id, saved.scope);
+    expect(await memory.search('Final')).toEqual([]);
+  });
+
+  it('keeps Hermes as an optional read-only Mnemosyne bank', async () => {
     const { memory, settings } = fixture();
     settings.set('hermesMemoryDataDir', '/test/hermes/data');
-    settings.set('mnemosyneBinary', '/test/bin/mnemosyne');
-    mnemosyne.available = true;
-    const saved = await memory.remember('shared', 'Planning fact', null);
-    expect(settings.get(`memoryProviderId:${saved!.id}`)).toBe('f6110fa945e60c45');
-    expect(await memory.recall('planning', 'a1b2')).toContain('[hermes] Remote planning result');
-    await memory.forget(saved!.id);
-    const calls = vi.mocked(spawn).mock.calls;
-    const external = calls.filter(call => call[2]?.env?.MNEMOSYNE_DATA_DIR === '/test/hermes/data');
-    expect(external).toHaveLength(1);
-    expect(external[0]).toMatchObject(['/test/bin/mnemosyne', ['recall', 'planning', '5', '--json'], { env: { MNEMOSYNE_BANK: 'default' } }]);
-    expect(calls.filter(call => call[1]?.[0] !== 'recall').every(call => call[2]?.env?.MNEMOSYNE_BANK === 'aegir-shared')).toBe(true);
-  });
-
-  it('returns no memories for empty provider results', async () => {
-    const { memory, settings } = fixture();
-    settings.set('hermesMemoryDataDir', '/test/hermes/data');
-    mnemosyne.available = true;
-    mnemosyne.empty = true;
-    expect(await memory.recall('missing')).toBe('');
-  });
-
-  it('does not search Hermes without opting in', async () => {
-    const { memory } = fixture();
-    mnemosyne.available = true;
-    await memory.recall('planning', 'a1b2');
-    expect(vi.mocked(spawn).mock.calls.map(call => call[2]?.env?.MNEMOSYNE_BANK)).toEqual(['aegir-shared', 'aegir-agent-a1b2']);
-  });
-
-  it('rejects invalid memories before storing them', async () => {
-    const { memory, rows } = fixture();
-    await expect(memory.remember('another-user', 'A fact', null)).rejects.toThrow('Invalid memory scope');
-    await expect(memory.remember('shared', ' ', null)).rejects.toThrow('1–2000 characters');
-    expect(rows).toHaveLength(0);
-  });
-
-  it('keeps one local copy and marks it pending when Mnemosyne is unavailable', async () => {
-    const { memory, rows, settings } = fixture();
-    const first = await memory.remember('shared', 'Planning brief is due Friday', 'https://example.com/brief');
-    const repeated = await memory.remember('shared', 'Planning brief is due Friday', 'https://example.com/brief');
-    expect(repeated?.id).toBe(first?.id);
-    expect(rows).toHaveLength(1);
-    expect(settings.get(`memorySynced:${first?.id}`)).toBe('false');
-  });
-
-  it('recalls shared and own private memories, but not another agent’s', async () => {
-    const { memory } = fixture();
-    await memory.remember('shared', 'Planning brief is due Friday', null);
-    await memory.remember('agent-a1b2', 'Planning draft belongs to first agent', null);
-    await memory.remember('agent-c3d4', 'Planning notes belong to second agent', null);
-    const recalled = await memory.recall('planning', 'a1b2');
-    expect(recalled).toContain('Planning brief is due Friday');
-    expect(recalled).toContain('Planning draft belongs to first agent');
-    expect(recalled).not.toContain('Planning notes belong to second agent');
-  });
-
-  it('includes pending local memories even when another scope recalls remotely', async () => {
-    const { memory } = fixture();
-    await memory.remember('shared', 'Planning brief is due Friday', null);
-    await memory.remember('agent-a1b2', 'Planning draft belongs to first agent', null);
-    mnemosyne.available = true;
-    mnemosyne.failPrivate = true;
-    const recalled = await memory.recall('planning', 'a1b2');
-    expect(recalled).toContain('[shared] Remote planning result');
-    expect(recalled).toContain('[shared] Planning brief is due Friday');
-    expect(recalled).toContain('[agent-a1b2] Planning draft belongs to first agent');
-  });
-
-  it('syncs pending memories once Mnemosyne becomes available', async () => {
-    const { memory, settings } = fixture();
-    const row = await memory.remember('shared', 'Planning brief is due Friday', null);
-    expect(settings.get(`memorySynced:${row?.id}`)).toBe('false');
-    mnemosyne.available = true;
-    await memory.retryPending();
-    expect(settings.get(`memorySynced:${row?.id}`)).toBe('true');
-  });
-
-  it('corrects and forgets pending local memories', async () => {
-    const { memory, rows, settings } = fixture();
-    const original = await memory.remember('shared', 'Old project fact', 'https://example.com/source');
-    await memory.correct(original!.id, 'Updated project fact');
-    expect(rows).toMatchObject([{ content: 'Updated project fact', sourceUrl: 'https://example.com/source' }]);
-    expect(settings.has(`memorySynced:${original!.id}`)).toBe(false);
-    await memory.forget(rows[0].id);
-    expect(rows).toHaveLength(0);
+    mnemosyne.banks.set('hermes', [{ id: 'f6110fa945e60c45', content: 'Hermes preference', source: 'hermes', timestamp: '2026-01-01' }]);
+    expect(await memory.recall('Hermes')).toContain('[hermes] Hermes preference');
+    const calls = vi.mocked(spawn).mock.calls.filter(call => call[2]?.env?.MNEMOSYNE_DATA_DIR);
+    expect(calls).toMatchObject([['/test/bin/mnemosyne', ['recall', 'Hermes', '20', '--json'], { env: { MNEMOSYNE_BANK: 'default' } }]]);
   });
 });

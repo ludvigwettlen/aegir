@@ -67,7 +67,7 @@ Anchored under the row. The hand-off popover has a title, one instruction field 
 
 ### Task detail
 
-The right-hand pane (440 px). Its header is the single editing surface for task title, notes, label and due date, whether or not the task has been handed off. Label and due-date controls include explicit clear actions. Deletion requires a second confirming click, is unavailable while the task is running, and removes an associated task thread and its messages while leaving external output files alone. A handed-off task shows its thread plus Output (opens the folder) and Stop buttons. A task not yet handed off shows Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
+The right-hand pane (440 px). Its header is the single editing surface for task title, notes, label and due date, whether or not the task has been handed off. Label and due-date controls include explicit clear actions. Favor immediate, reversible task actions with `Cmd+Z` undo over confirmation dialogs. Deletion is unavailable while the task is running; it removes the associated task thread and messages while leaving external output files alone, and undo must restore the removed conversation. The current build still requires a second click to delete until undo is implemented. A handed-off task shows its thread plus Output (opens the folder) and Stop buttons. A task not yet handed off shows Hand off / Mark done actions. Review state adds Mark done beside a hint that replying asks for changes.
 
 ### Thread list and thread
 

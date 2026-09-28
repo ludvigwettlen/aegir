@@ -17,7 +17,7 @@ describe('OAuth callback state', () => {
     const store = {
       getSetting: (key: string) => settings.get(key),
       setSetting: (key: string, value: string) => { settings.set(key, value); },
-      db: { prepare: () => ({ run: (key: string) => { settings.delete(key); } }) }
+      deleteSetting: (key: string) => { settings.delete(key); }
     } as unknown as Store;
     const provider = new DesktopOAuthProvider('notion', store, () => {});
     const state = provider.state();

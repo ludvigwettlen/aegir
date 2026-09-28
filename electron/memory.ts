@@ -2,106 +2,117 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import type { Memory } from '../shared/types.js';
 import type { Store } from './db.js';
+
+type RecallResult = { id?: unknown; content?: unknown; source?: unknown; timestamp?: unknown };
 
 function run(binary: string, args: string[], bank: string, dataDir?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MNEMOSYNE_BANK: bank, ...(dataDir ? { MNEMOSYNE_DATA_DIR: dataDir } : {}) } });
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MNEMOSYNE_BANK: bank, MNEMOSYNE_DEFAULT_SCOPE: 'global', ...(dataDir ? { MNEMOSYNE_DATA_DIR: dataDir } : {}) } });
     let output = ''; let error = '';
     const timeout = setTimeout(() => { child.kill(); reject(new Error('Mnemosyne timed out')); }, 30000);
-    child.on('error', () => clearTimeout(timeout));
-    child.on('close', () => clearTimeout(timeout));
     child.stdout.on('data', chunk => { output += chunk.toString(); });
     child.stderr.on('data', chunk => { error += chunk.toString(); });
-    child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve(output) : reject(new Error(error || `Mnemosyne exited ${code}`)));
+    child.on('error', cause => { clearTimeout(timeout); reject(new Error(`Mnemosyne is unavailable: ${cause.message}`)); });
+    child.on('close', code => { clearTimeout(timeout); code === 0 ? resolve(output) : reject(new Error(error.trim() || `Mnemosyne exited ${code}`)); });
   });
 }
 
 export class MemoryService {
+  private migration: Promise<void> | null = null;
   constructor(private store: Store) {}
   binary() {
     const configured = this.store.getSetting('mnemosyneBinary');
     if (configured) return configured;
+    const aegir = join(homedir(), '.local', 'share', 'aegir', 'mnemosyne-venv', 'bin', 'mnemosyne');
+    if (existsSync(aegir)) return aegir;
     const hermes = join(homedir(), '.hermes', 'hermes-agent', 'venv', 'bin', 'mnemosyne');
     return existsSync(hermes) ? hermes : 'mnemosyne';
   }
-  private async search(query: string, bank: string, dataDir?: string): Promise<string> {
-    const output = await run(this.binary(), ['recall', query, '5', '--json'], bank, dataDir);
-    const payload = JSON.parse(output) as { results?: { content?: unknown }[] };
-    if (!Array.isArray(payload.results)) throw new Error('Invalid Mnemosyne recall response');
-    return payload.results.map(result => typeof result.content === 'string' ? result.content.trim() : '').filter(Boolean).join('\n');
-  }
   private bank(scope: string) { return `aegir-${scope.replace(/[^a-z0-9-]/gi, '-')}`; }
-  private async sync(id: string, scope: string, content: string, sourceUrl: string | null) {
-    const bank = this.bank(scope);
-    try { await run(this.binary(), ['bank', 'create', bank], bank); } catch { /* An existing bank is expected. */ }
-    const output = await run(this.binary(), ['store', `${content}${sourceUrl ? ` Source: ${sourceUrl}` : ''}`], bank);
-    const providerId = output.match(/^Stored:\s*([0-9a-f-]+)\s*$/im)?.[1];
-    if (providerId) this.store.setSetting(`memoryProviderId:${id}`, providerId);
-    this.store.setSetting(`memorySynced:${id}`, 'true');
-  }
-  async remember(scope: string, content: string, sourceUrl: string | null) {
+  private validateScope(scope: string) {
     if (scope !== 'shared' && !/^agent-[0-9a-f-]+$/i.test(scope)) throw new Error('Invalid memory scope');
+  }
+  private validateContent(content: string) {
     if (!content.trim() || content.length > 2000) throw new Error('Memory must be 1–2000 characters');
-    const existing = this.store.db.prepare('SELECT id FROM memories WHERE scope=? AND content=?').get(scope, content) as { id: string } | undefined;
-    if (existing) return this.store.list<{ id: string }>('memories').find(x => x.id === existing.id);
-    const row = this.store.remember(scope, content, sourceUrl);
-    try { await this.sync(row.id, scope, content, sourceUrl); }
-    catch { this.store.setSetting(`memorySynced:${row.id}`, 'false'); }
-    return row;
+  }
+  private async storeRemote(scope: string, content: string, sourceUrl: string | null): Promise<string> {
+    const bank = this.bank(scope);
+    try { await run(this.binary(), ['bank', 'create', bank], bank); } catch { /* Existing banks cannot be created again; store still verifies availability. */ }
+    const output = await run(this.binary(), ['store', content, sourceUrl || 'aegir'], bank);
+    const id = output.match(/^Stored:\s*([0-9a-f-]{8,80})\s*$/im)?.[1];
+    if (!id) throw new Error('Mnemosyne did not confirm the memory was saved');
+    return id;
+  }
+  private async results(query: string, scope: string, dataDir?: string): Promise<Memory[]> {
+    const output = await run(this.binary(), ['recall', query, '20', '--json'], dataDir ? 'default' : this.bank(scope), dataDir);
+    const payload = JSON.parse(output) as { results?: RecallResult[] };
+    if (!Array.isArray(payload.results)) throw new Error('Invalid Mnemosyne recall response');
+    return payload.results.flatMap(result => {
+      if (typeof result.id !== 'string' || typeof result.content !== 'string') return [];
+      const sourceUrl = typeof result.source === 'string' && /^https?:\/\//i.test(result.source) ? result.source : null;
+      return [{ id: result.id, scope, content: result.content, sourceUrl, createdAt: typeof result.timestamp === 'string' ? result.timestamp : '' }];
+    });
+  }
+  // This table is read only for the one-time transfer from old Ägir builds.
+  // Each successful remote write removes its legacy row; a failed write leaves it intact.
+  migrateLegacy(): Promise<void> {
+    if (this.migration) return this.migration;
+    this.migration = (async () => {
+      for (const row of this.store.legacyMemories()) {
+        this.validateScope(row.scope);
+        const oldId = this.store.getSetting(`memoryProviderId:${row.id}`);
+        if (this.store.getSetting(`memorySynced:${row.id}`) === 'true' && oldId && /^[0-9a-f-]{8,80}$/i.test(oldId)) {
+          try {
+            // A successful update confirms that the existing Mnemosyne copy is present.
+            await run(this.binary(), ['update', oldId, `${row.content}${row.sourceUrl ? ` Source: ${row.sourceUrl}` : ''}`], this.bank(row.scope));
+            this.store.deleteLegacyMemory(row.id);
+            continue;
+          } catch (error) {
+            if (!String(error).includes('Memory not found')) throw error;
+          }
+        }
+        await this.storeRemote(row.scope, row.content, row.sourceUrl);
+        this.store.deleteLegacyMemory(row.id);
+      }
+    })().finally(() => { this.migration = null; });
+    return this.migration;
+  }
+  async remember(scope: string, content: string, sourceUrl: string | null): Promise<Memory> {
+    this.validateScope(scope); this.validateContent(content);
+    await this.migrateLegacy();
+    const id = await this.storeRemote(scope, content.trim(), sourceUrl);
+    return { id, scope, content: content.trim(), sourceUrl, createdAt: new Date().toISOString() };
+  }
+  async search(query: string): Promise<Memory[]> {
+    if (!query.trim()) return [];
+    await this.migrateLegacy();
+    const scopes = ['shared', ...this.store.list('agents').map(agent => `agent-${agent.id}`)];
+    const rows = (await Promise.all(scopes.map(scope => this.results(query.trim(), scope)))).flat();
+    return rows.filter((row, index) => rows.findIndex(other => other.id === row.id && other.scope === row.scope) === index);
   }
   async recall(query: string, agentId?: string): Promise<string> {
+    await this.migrateLegacy();
     const scopes = ['shared', ...(agentId ? [`agent-${agentId}`] : [])];
-    const recalled: string[] = [];
-    const recalledScopes = new Set<string>();
-    for (const scope of scopes) {
-      try {
-        const result = await this.search(query, this.bank(scope));
-        if (result) { recalled.push(`[${scope}] ${result}`); recalledScopes.add(scope); }
-      }
-      catch { /* Use the local mirror below. */ }
-    }
-    // The external Hermes bank is a retrieval source only. All writes above and
-    // below remain in aegir-* banks; source memories never enter the local mirror.
+    const recalled = (await Promise.all(scopes.map(scope => this.results(query, scope)))).flat().map(row => `[${row.scope}] ${row.content}`);
     const hermesDataDir = this.store.getSetting('hermesMemoryDataDir');
     if (hermesDataDir) {
-      try {
-        const result = await this.search(query, 'default', hermesDataDir);
-        if (result) recalled.push(`[hermes] ${result}`);
-      } catch (error) { console.warn('Hermes memory recall failed:', error); }
+      try { recalled.push(...(await this.results(query, 'hermes', hermesDataDir)).map(row => `[hermes] ${row.content}`)); }
+      catch (error) { console.warn('Hermes memory recall failed:', error); }
     }
-    const terms = query.toLowerCase().split(/\W+/).filter(x => x.length > 3);
-    const local = this.store.list<{ id: string; scope: string; content: string }>('memories')
-      .filter(x => scopes.includes(x.scope) && (!recalledScopes.has(x.scope) || this.store.getSetting(`memorySynced:${x.id}`) === 'false') && terms.some(term => x.content.toLowerCase().includes(term)))
-      .slice(0, 8).map(x => `[${x.scope}] ${x.content}`);
-    return [...recalled, ...local].join('\n');
+    return recalled.join('\n');
   }
-  async forget(id: string) {
-    const row = this.store.db.prepare('SELECT scope FROM memories WHERE id=?').get(id) as { scope: string } | undefined;
-    if (!row) return;
-    const providerId = this.store.getSetting(`memoryProviderId:${id}`);
-    if (this.store.getSetting(`memorySynced:${id}`) === 'true') {
-      if (!providerId) throw new Error('Mnemosyne did not return an ID for this memory; cannot safely forget it in both stores');
-      await run(this.binary(), ['delete', providerId], this.bank(row.scope));
-    }
-    this.store.forgetMemory(id);
-    this.store.db.prepare('DELETE FROM settings WHERE key IN (?,?)').run(`memoryProviderId:${id}`, `memorySynced:${id}`);
+  async forget(id: string, scope: string): Promise<void> {
+    this.validateScope(scope);
+    if (!/^[0-9a-f-]{8,80}$/i.test(id)) throw new Error('Invalid memory ID');
+    await this.migrateLegacy();
+    await run(this.binary(), ['delete', id], this.bank(scope));
   }
-  async correct(id: string, content: string) {
-    const row = this.store.db.prepare('SELECT scope,sourceUrl,content FROM memories WHERE id=?').get(id) as { scope: string; sourceUrl: string | null; content: string } | undefined;
-    if (!row) throw new Error('Memory not found');
-    if (!content.trim() || content.length > 2000) throw new Error('Memory must be 1–2000 characters');
-    if (content.trim() === row.content) return;
-    await this.forget(id);
-    await this.remember(row.scope, content.trim(), row.sourceUrl);
-  }
-  async retryPending() {
-    for (const row of this.store.list<{ id: string; scope: string; content: string; sourceUrl: string | null }>('memories')) {
-      if (this.store.getSetting(`memorySynced:${row.id}`) === 'false') {
-        try { await this.sync(row.id, row.scope, row.content, row.sourceUrl); }
-        catch { break; }
-      }
-    }
+  async correct(id: string, scope: string, content: string): Promise<void> {
+    this.validateScope(scope); this.validateContent(content);
+    if (!/^[0-9a-f-]{8,80}$/i.test(id)) throw new Error('Invalid memory ID');
+    await this.migrateLegacy();
+    await run(this.binary(), ['update', id, content.trim()], this.bank(scope));
   }
 }

@@ -15,7 +15,7 @@ export function memoryTool(agent: Agent): Tool {
 }
 
 export function memoryRecallTool(agent: Agent): Tool {
-  return { name: `memory__recall_${agent.id.replace(/-/g, '_')}`, description: 'Search and retrieve durable memories from the shared bank and your own private bank. Use a focused query when you need prior decisions, preferences, or project context; you can search again with different terms. Results may come from Mnemosyne or the local mirror.', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['query'], additionalProperties: false }, readOnly: true };
+  return { name: `memory__recall_${agent.id.replace(/-/g, '_')}`, description: 'Search and retrieve durable memories from the shared bank and your own private bank in Mnemosyne. Use a focused query when you need prior decisions, preferences, or project context; you can search again with different terms.', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['query'], additionalProperties: false }, readOnly: true };
 }
 
 export const suggestTaskTool: Tool = {

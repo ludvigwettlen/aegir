@@ -39,8 +39,8 @@ describe('store', () => {
     expect(product).toMatchObject({ title: 'Product', kind: 'group', leadAgentId: 'a1' });
     const threads = store.threads().filter(thread => thread.groupId === 'r1');
     expect(threads.map(thread => [thread.title, thread.kind]).sort()).toEqual([['Earlier conversation', 'chat'], ['Write memo', 'task']]);
-    const taskThread = store.get<{ threadId: string }>('tasks', 't1')!.threadId;
-    expect(store.messagesForThread(taskThread).map(message => message.content)).toEqual(['Memo written']);
+    const taskThread = store.get('tasks', 't1')!.threadId;
+    expect(store.messagesForThread(taskThread!).map(message => message.content)).toEqual(['Memo written']);
     expect(store.groups().some(group => group.kind === 'group' && group.title === 'General')).toBe(false);
     store.close();
     const reopened = new Store(file);
@@ -55,7 +55,7 @@ describe('store', () => {
     store.setThreadStatus(thread.id, 'closed');
     store.addMessage(thread.id, null, 'user', 'What did we decide?');
     expect(store.messagesForThread(thread.id).map(message => message.content)).toEqual(['What did we decide?']);
-    expect(store.get<{ status: string }>('threads', thread.id)!.status).toBe('active');
+    expect(store.get('threads', thread.id)!.status).toBe('active');
     store.close();
   });
 
@@ -66,8 +66,8 @@ describe('store', () => {
     const thread = store.createThread(group.id, task.title, 'task', task.id);
     store.updateTask(task.id, { threadId: thread.id });
     store.updateTask(task.id, { title: '  Better title  ', notes: 'New', label: null, dueAt: null });
-    expect(store.get<{ title: string; notes: string; label: string | null; dueAt: string | null }>('tasks', task.id)).toMatchObject({ title: 'Better title', notes: 'New', label: null, dueAt: null });
-    expect(store.get<{ title: string }>('threads', thread.id)?.title).toBe('Better title');
+    expect(store.get('tasks', task.id)).toMatchObject({ title: 'Better title', notes: 'New', label: null, dueAt: null });
+    expect(store.get('threads', thread.id)?.title).toBe('Better title');
     expect(() => store.updateTask(task.id, { title: '  ' })).toThrow('A task needs a title');
     store.close();
   });

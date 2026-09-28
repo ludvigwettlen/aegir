@@ -1,6 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react';
-import type { Agent, Message, Routine, RoutineRun, Task, Thread } from '../../../shared/types';
-import { describeSchedule, nextRunAfter } from '../../../shared/routines';
+import type { CSSProperties,ReactNode } from 'react';
+import { describeSchedule,nextRunAfter } from '../../../shared/routines';
+import type { Agent,Routine,RoutineRun,Task } from '../../../shared/types';
 
 export const api = window.aegir;
 export type Run = (action: () => Promise<unknown>) => Promise<void>;
@@ -60,13 +60,6 @@ export function routineStatus(routine: Routine, runs: RoutineRun[]): { text: str
   return { text: minutes <= 0 ? 'Due' : minutes < 60 ? `in ${minutes}m` : minutes < 24 * 60 ? time(next.toISOString()) : next.toLocaleDateString([], { weekday: 'short' }), tone: 'ok' };
 }
 export { describeSchedule };
-
-export function threadSnippet(thread: Thread, messages: Message[], agents: Agent[]) {
-  const last = [...messages].reverse().find(message => message.threadId === thread.id && message.role !== 'system' && message.content);
-  if (!last) return '';
-  const who = last.role === 'user' ? 'You' : agents.find(agent => agent.id === last.agentId)?.name || 'Agent';
-  return `${who}: ${last.content.replace(/\s+/g, ' ').slice(0, 140)}`;
-}
 
 // True when a key event should drive list shortcuts rather than typing.
 export function isTyping(event: KeyboardEvent) {

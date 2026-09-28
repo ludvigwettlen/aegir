@@ -20,7 +20,7 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   let runtime!: Runtime;
   const codex = { run: async (input: RunInput) => { runs.push(input); const id = `codex-${++n}`; input.onThreadStarted?.(id); const text = await script(input, id, runtime); return { threadId: id, text, status: 'completed' }; }, stop: async () => {} } as unknown as CodexProvider;
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
-  const memory = { recall: async () => '', remember: async () => ({ id: 'm' }), retryPending: vi.fn(async () => {}) } as unknown as MemoryService;
+  const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
   runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir });
   return { store, runtime, runs, memory };
 }
@@ -66,7 +66,7 @@ describe('runtime', () => {
     const { store, runtime, runs } = setup();
     const task = store.createTask({ title: 'Competitor pricing' });
     await runtime.handOff(task.id, 'Compare five competitors');
-    const updated = store.get<Task>('tasks', task.id)!;
+    const updated = store.get('tasks', task.id)!;
     expect(updated.status).toBe('review');
     expect(updated.outputDir).toContain('competitor-pricing');
     const thread = store.threads().find(x => x.id === updated.threadId)!;
@@ -89,7 +89,7 @@ describe('runtime', () => {
     finishRouting(JSON.stringify({ groupId: group.id }));
     await first;
     expect(store.threads().filter(thread => thread.taskId === task.id)).toHaveLength(1);
-    expect(store.messagesForThread(store.get<Task>('tasks', task.id)!.threadId!).filter(message => message.role === 'user')).toHaveLength(1);
+    expect(store.messagesForThread(store.get('tasks', task.id)!.threadId!).filter(message => message.role === 'user')).toHaveLength(1);
   });
 
   it('reports a hand-off setup failure and leaves the task blocked', async () => {
@@ -97,15 +97,7 @@ describe('runtime', () => {
     vi.spyOn(memory, 'recall').mockRejectedValue(new Error('Recall failed'));
     const task = store.createTask({ title: 'Competitor pricing' });
     await expect(runtime.handOff(task.id, 'Compare competitors')).rejects.toThrow('Recall failed');
-    expect(store.get<Task>('tasks', task.id)?.status).toBe('blocked');
-  });
-
-  it('retries pending memories on a scheduler tick without routines', () => {
-    const { store, runtime, memory } = setup();
-    for (const routine of store.routines()) store.updateRoutine(routine.id, { enabled: false });
-    runtime.tick();
-    runtime.tick();
-    expect(memory.retryPending).toHaveBeenCalledTimes(1);
+    expect(store.get('tasks', task.id)?.status).toBe('blocked');
   });
 
   it('logs a routine run and records suggested tasks once', async () => {
@@ -117,7 +109,7 @@ describe('runtime', () => {
     await runtime.runRoutine(routine.id, 'manual');
     const run = store.routineRuns()[0];
     expect(run).toMatchObject({ status: 'ok', summary: '1 task suggested', trigger: 'manual' });
-    expect(store.list<Task>('tasks').filter(x => x.status === 'proposed').map(x => x.title)).toEqual(['Reply to Anna']);
+    expect(store.list('tasks').filter(x => x.status === 'proposed').map(x => x.title)).toEqual(['Reply to Anna']);
     const kinds = store.runEvents(run.id).map(x => x.kind);
     expect(kinds[0]).toBe('run'); expect(kinds.at(-1)).toBe('run'); expect(kinds).toContain('agent');
     expect(store.routine(routine.id)!.lastRunAt).toBe(run.startedAt);
