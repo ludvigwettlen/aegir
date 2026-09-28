@@ -148,6 +148,7 @@ export type Snapshot = {
   mcpSettings: { slackClientId: string; slackConfigured: boolean };
 };
 export type AppEvent =
+  | { type: 'open-settings' }
   | { type: 'skills-changed' }
   | { type: 'snapshot'; value: Snapshot }
   | { type: 'message'; value: Message }

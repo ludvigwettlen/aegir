@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BookOpen, CalendarDays, CheckCheck, FileText, Inbox, Plus, Repeat2, Settings2, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -55,11 +55,9 @@ export function Sidebar({
   const isList = (list: string) => route.view === 'tasks' && route.list === list;
   const groups = data.groups.filter((group) => group.kind === 'group');
   const privates = data.groups.filter((group) => group.kind === 'private');
-  const connected = data.connectors
-    .filter((connector) => connector.status === 'connected')
-    .map((connector) => (connector.id === 'slack' ? 'Slack' : 'Notion'));
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
+      <div className="ws-nav-label">TASKS</div>
       <Item
         active={isList('needs')}
         onClick={() => go({ view: 'tasks', list: 'needs' })}
@@ -68,7 +66,6 @@ export function Sidebar({
         count={needs + data.approvals.length}
         tone="attention"
       />
-      <div className="ws-nav-label">TASKS</div>
       <Item
         active={isList('today')}
         onClick={() => go({ view: 'tasks', list: 'today' })}
@@ -149,35 +146,6 @@ export function Sidebar({
           />
         );
       })}
-      <div className="ws-sidebar-foot">
-        <button data-nav-item aria-label="Skills" title="Skills" className={route.view === 'skills' ? 'active' : ''} onClick={() => go({ view: 'skills' })}><BookOpen size={15}/></button>
-        <button
-          data-nav-item
-          aria-label="Memory"
-          title="Memory"
-          className={route.view === 'memory' ? 'active' : ''}
-          onClick={() => go({ view: 'memory' })}
-        >
-          <FileText size={15} />
-        </button>
-        <button
-          data-nav-item
-          aria-label="Settings"
-          title="Settings"
-          className={route.view === 'settings' ? 'active' : ''}
-          onClick={() => go({ view: 'settings' })}
-        >
-          <Settings2 size={15} />
-        </button>
-        <span className="grow" />
-        <span
-          className={`ws-sources ${connected.length ? 'on' : ''}`}
-          title={`${connected.length} of 2 sources connected`}
-        >
-          <i />
-          {connected.length ? connected.join(' · ') : 'No sources'}
-        </span>
-      </div>
     </nav>
   );
 }

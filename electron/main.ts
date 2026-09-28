@@ -301,6 +301,35 @@ function createWindow() {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('did-finish-load', refresh);
 }
+function openSettings() {
+  window?.show();
+  window?.focus();
+  emit({ type: 'open-settings' });
+}
+function createApplicationMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Ägir',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ]));
+}
 function createTray() {
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#111" d="M9 1 16 5v8l-7 4-7-4V5zm0 3L5 6v5l4 2 4-2V6z"/></svg>';
@@ -313,6 +342,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Open Ägir', click: () => window?.show() },
+      { label: 'Settings…', click: openSettings },
       { type: 'separator' },
       {
         label: 'Quit',
@@ -400,6 +430,7 @@ if (app.requestSingleInstanceLock()) {
     connectors.start();
     runtime.start();
     createWindow();
+    createApplicationMenu();
     createTray();
     void memory
       .migrateLegacy()

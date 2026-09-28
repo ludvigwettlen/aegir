@@ -50,7 +50,7 @@ The app is a left sidebar plus one working area; there is no top navigation. Vie
 
 ### Sidebar
 
-The only navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Needs you** (count on a lemon badge), **Tasks** (Today, Upcoming, With the team, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed), then Memory and Settings icons and connected sources in the footer. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
+The workspace navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Tasks** (Needs you with a lemon count badge, Today, Upcoming, With the team, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed). There is no sidebar footer; Settings opens from the Ägir application menu, the menu-bar tray, or `Cmd+,`. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
 
 ### Task list
 
@@ -59,7 +59,7 @@ A dense, keyboard-first list modelled on Godspeed. Rows are one line, 34 px tall
 - **Glyphs** (`TaskGlyph`): an empty circle for your open task, a spinning partial lime ring while the team works, a lemon "!" for review or blocked, a spark for a suggestion, and a filled check for done. Each has an accessible label.
 - **Cursor and panes**: the selected row uses the lime-soft selection style and scrolls into view. `J/K` or Up/Down moves it. `H` or Left moves into the sidebar; `L` or Right opens the detail pane. The same pane motions work in group and routine lists. Selection is retained per task list.
 - **Shortcuts** are listed in the footer bar and must stay in sync with the handler: `Space` completes or reopens, `Enter` edits the selected title, `N` edits notes, `A` hands off, `B` sets a label, `Shift+B` clears it, `D` sets a due date, `Shift+D` clears it, `Cmd+N` creates a task, `Cmd+V` attaches a copied link, `Cmd+Z` undoes the last local task action, `Y` accepts, and Backspace dismisses a suggestion. `G` then `T/U/W/N/C` jumps to a task list. Shortcuts are ignored while typing in a field; text editors retain native undo.
-- **Quick add** is one line above open task lists with `Cmd+N` shown; it parses `#label` and date words. The completed list has no quick add field.
+- **Quick add** is one line above open task lists with `Cmd+N` shown; it parses `#label` and date words. The completed list has no quick add field. Successful creation clears the field and focuses the selected task row once the updated list arrives; if the new task belongs to another list, focus returns to the current row or empty list pane. Failed creation retains the draft.
 
 ### Task popovers
 
@@ -97,8 +97,12 @@ When a new section adopts Lime Glass, compose it from existing Fragments primiti
 
 ## Skills library
 
-The Skills footer button opens a two-column workspace: a 300 px library list (250 px at compact widths) and a scrolling editor. The library offers Shared, per-agent inherited/owned, Proposed changes, and Archived filters plus text search. Rows use lime-soft selection, wrap long names, and participate in the existing J/K and pane-focus navigation. Empty, loading, and error states are explicit text.
+Settings → Manage skills opens a two-column workspace: a 300 px library list (250 px at compact widths) and a scrolling editor. The library offers Shared, per-agent inherited/owned, Proposed changes, and Archived filters plus text search. Rows use lime-soft selection, wrap long names, and participate in the existing J/K and pane-focus navigation. Empty, loading, and error states are explicit text.
 
 The editor uses Fragments buttons and badges, semantic glass/surface/line tokens, labeled native selectors and a monospace package-file editor. Agent availability and customization are collapsible. New files and package edits stay local until Save revision; a reason accompanies every edit. Conflicting revisions preserve the user's draft and offer Reload latest. History restores create a new revision, and archive exposes Restore immediately. Proposal comparison labels Before and Proposed for each changed file, stacking at compact widths.
 
 Agent settings link to inherited and owned skills. The composer’s + Skill selector inserts a stable explicit reference. Routine headers offer required-skill checkboxes with a clear explanation that disabled dependencies stop execution. These controls retain native keyboard behavior and visible focus; no new animation is introduced.
+
+## Settings
+
+Settings uses one content column, capped at 960 px, with actionable sections for Skills, Startup, Connections, and Agent personalities. Manage skills opens the full library; each agent retains its scoped skills link. Startup preserves the start-at-login toggle with an accessible pressed state. Runtime and output explanations are not separate cards. Use the existing Card and Button primitives, with visible keyboard focus and text for connection states.

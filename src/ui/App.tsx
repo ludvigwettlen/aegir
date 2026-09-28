@@ -23,6 +23,10 @@ export function App() {
     void api.snapshot().then(setData);
     return api.onEvent((event) => {
       if (event.type === 'snapshot') setData(event.value);
+      if (event.type === 'open-settings') {
+        setShowNewGroup(false);
+        setRoute({ view: 'settings' });
+      }
     });
   }, []);
   const run: Run = useCallback(async (action) => {

@@ -1,4 +1,4 @@
-import { Cpu, ExternalLink, Plus, ShieldCheck, SquareArrowOutUpRight, X } from 'lucide-react';
+import { ExternalLink, Plus, ShieldCheck, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useState } from 'react';
 import { modelTierForRole } from '../../../shared/model-policy';
 import type { Agent, Snapshot } from '../../../shared/types';
@@ -7,7 +7,7 @@ import { api, Avatar, type Run } from './common';
 import { AgentSkillsSummary } from './SkillBindings';
 import { PageHeader } from './PageHeader';
 
-export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run; onSkills: (id: string) => void }) {
+export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run; onSkills: (id?: string) => void }) {
   const [clientId, setClientId] = useState(data.mcpSettings.slackClientId);
   const [clientSecret, setClientSecret] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -23,8 +23,33 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
         title="Your workspace"
         description="Shape your agents, connect your sources, and choose how the app runs."
       />
-      <div className="settings-grid">
+      <div className="settings-grid settings-controls">
         <div className="settings-main">
+          <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
+            <div className="panel-heading">
+              <div>
+                <h2>Skills</h2>
+                <p>Manage shared and agent-owned skills, imports, and proposed changes.</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => onSkills()}>Manage skills</Button>
+            </div>
+          </Card>
+          <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
+            <div className="panel-heading">
+              <div>
+                <h2>Startup</h2>
+                <p>Open Ägir automatically when you log in to your Mac.</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-pressed={data.launchAtLogin}
+                onClick={() => void run(() => api.setLaunchAtLogin(!data.launchAtLogin))}
+              >
+                {data.launchAtLogin ? 'Disable start at login' : 'Start at login'}
+              </Button>
+            </div>
+          </Card>
           <Card
             className="content-panel settings-panel"
             variant="outline"
@@ -279,44 +304,6 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
                 )}
               </div>
             )}
-          </Card>
-        </div>
-        <div className="settings-aside">
-          <Card className="info-card" variant="outline" padding="md">
-            <span className="eyebrow">RUNTIME</span>
-            <h3>Codex</h3>
-            <div className="status-line">
-              <Cpu size={17} />
-              <span>{data.codexStatus}</span>
-            </div>
-            <p>
-              Lead agents use your Codex default. Specialists and routines use an available Luna
-              model at low effort. If none is available, those runs stop rather than silently use a
-              larger model.
-            </p>
-          </Card>
-          <Card className="info-card" variant="outline" padding="md">
-            <span className="eyebrow">BACKGROUND</span>
-            <h3>Always ready</h3>
-            <p>
-              Closing the window keeps Ägir in the menu bar. Routines run on schedule while your Mac
-              is awake.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void run(() => api.setLaunchAtLogin(!data.launchAtLogin))}
-            >
-              {data.launchAtLogin ? 'Disable start at login' : 'Start at login'}
-            </Button>
-          </Card>
-          <Card className="info-card" variant="outline" padding="md">
-            <span className="eyebrow">OUTPUT</span>
-            <h3>Files, not posts</h3>
-            <p>
-              Work handed to the team is saved as files in Documents › Ägir. It never writes to
-              Slack or Notion.
-            </p>
           </Card>
         </div>
       </div>

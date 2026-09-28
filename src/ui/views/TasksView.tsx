@@ -76,6 +76,9 @@ export function TasksView({
   const [popover, setPopover] = useState<Popover>(null);
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
+  const rows = useRef<HTMLDivElement>(null);
+  const adding = useRef(false);
+  const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
   const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
   const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
@@ -106,6 +109,21 @@ export function TasksView({
     if (editTarget === 'title' && field instanceof HTMLInputElement) field.select();
     setEditTarget(null);
   }, [editTarget, openId]);
+
+  useEffect(() => {
+    if (!createdTask) return;
+    if (createdTask.list !== list) {
+      setCreatedTask(null);
+      return;
+    }
+    // Wait for the snapshot as well as the IPC reply before choosing a row.
+    if (!data.tasks.some(task => task.id === createdTask.id)) return;
+    const pane = rows.current;
+    if (document.activeElement === quickAdd.current) {
+      (pane?.querySelector<HTMLElement>('[data-keyboard-current]') || pane)?.focus();
+    }
+    setCreatedTask(null);
+  }, [createdTask, data.tasks, list]);
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
@@ -169,11 +187,19 @@ export function TasksView({
 
   const add = () => {
     const parsed = parseQuickAdd(draft);
-    if (!parsed.title) return;
-    setDraft('');
+    if (!parsed.title || adding.current) return;
+    adding.current = true;
     void run(async () => {
-      const task = await api.createTask(parsed);
-      setCursor(task.id);
+      try {
+        const task = await api.createTask(parsed);
+        setDraft('');
+        setOpenId(null);
+        setEditTarget(null);
+        setCursor(task.id);
+        setCreatedTask({ id: task.id, list });
+      } finally {
+        adding.current = false;
+      }
     });
   };
   const count = order.length;
@@ -216,7 +242,7 @@ export function TasksView({
             <Kbd>⌘N</Kbd>
           </form>
         )}
-        <div className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
+        <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
           {groups.map(([name, tasks]) => (
             <div key={name} className="ws-row-group">
               <div className="ws-group-label">
