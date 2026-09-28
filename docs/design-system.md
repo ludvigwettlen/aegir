@@ -50,7 +50,7 @@ The app is a left sidebar plus one working area; there is no top navigation. Vie
 
 ### Sidebar
 
-The workspace navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Tasks** (Needs you with a lemon count badge, Today, Upcoming, With the team, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed). There is no sidebar footer; Settings opens from the Ägir application menu, the menu-bar tray, or `Cmd+,`. The active item uses lime-soft with a 1 px lime inset and `aria-current="page"`. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
+The workspace navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Tasks** (Needs you with a lemon count badge, Today, Upcoming, Delegated, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed). There is no sidebar footer; Settings opens from the Ägir application menu, the menu-bar tray, or `Cmd+,`. The active item uses the pale `--ds-color-nav-selected` fill without a border, semibold text, and `aria-current="page"`. Keyboard focus is a separate thin inset ring using `--ds-color-focus`, contained within the item so adjacent navigation rows never overlap. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
 
 ### Task list
 
@@ -74,13 +74,13 @@ Enter on a highlighted row edits its title; Enter saves and returns focus to the
 
 ### Thread list and thread
 
-A group view lists its threads (title, status chip for task threads, last message snippet, participating agents, count and time) with Active / Tasks / Closed filters and a "Start a thread" field. Private groups show the agent's avatar and "Private · just you and <agent>".
+A group view lists its threads (title, status chip for task threads, last message snippet, participating agents, count and time) with Active / Tasks / Closed filters and a "Start a thread" field. Cmd+N focuses “Start a thread” in the current group or private chat, preserving any existing draft; Enter submits it. Outside chats, Cmd+N still opens task quick-add. When a document hides the thread list, close it with Escape first so unsaved edits can be saved. Private groups show the agent's avatar and "Private · just you and <agent>".
 
 Messages render Markdown headings, emphasis, lists, code, quotes, and GFM tables using `ChatMarkdown`; raw HTML is not executed. External links use the app’s link-opening API. Code blocks and tables scroll within the message, including in the compact task detail pane. Messages are Slack-style, not bubbles: avatar, name, role chip, time, then text. Failures and streaming are shown in words and a typing indicator. System events are a single muted line with an arrow. Routine changes render as a card listing the before → after values, with Apply / Discard while pending and the outcome afterwards.
 
 ### Composer
 
-A two-line textarea that grows with content, with a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. Stop appears while an agent in the thread is running.
+A two-line textarea that grows with content, with a lime send button that is muted while empty. `↵` sends and `⇧↵` adds a line. Typing `@` opens the mention picker, with routines listed above agents; arrows move, `↵`/`Tab` insert, and `Esc` closes. In group/private chats, Escape leaves the message editor and focuses the selected thread in the middle list without clearing the draft; H/Left can then return to the sidebar. An open mention picker consumes the first Escape. Task chats retain Escape-to-task-list behavior, and an open document retains save-and-close priority. Stop appears while an agent in the thread is running.
 
 ### Document workspace
 
@@ -102,7 +102,7 @@ A run list (grouped by day, with All / Failed / Did something filters) beside a 
 
 ## States and accessibility
 
-- Provide visible focus outlines on controls and source links.
+- Provide visible focus outlines on controls and source links. Workspace navigation uses a 1 px `--ds-color-focus` ring. Focused list/detail containers use an inset ring so all four edges remain inside clipped or scrolling layouts, including empty states; do not frame a pane merely because a child has focus. The document pane retains its outline-free editing treatment.
 - Do not rely on color alone for working, failed, or connected states.
 - Preserve readable contrast over glow: opaque or near-opaque surface behind content, with `--ds-color-ink` or `--ds-color-muted` text.
 - Long titles truncate in lists but wrap in headers and messages; links wrap anywhere.

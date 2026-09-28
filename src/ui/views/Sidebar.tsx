@@ -86,7 +86,7 @@ export function Sidebar({
         active={isList('team')}
         onClick={() => go({ view: 'tasks', list: 'team' })}
         icon={<Users size={16} />}
-        label="With the team"
+        label="Delegated"
         count={tasksFor('team', data.tasks).length}
       />
       <Item

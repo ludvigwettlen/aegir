@@ -6,6 +6,7 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 
 ## Next
 
+- [ ] Explore an in-app calendar view where clicking a meeting opens meeting prep prepared by the agent teams for review.
 - [ ] Make team collaboration the default for handed-off tasks: the lead should involve suitable teammates unless the task is clearly simple enough to handle alone.
 - [ ] Add /-commands in the chat composer to discover and invoke skills.
 - [ ] Add an in-app Markdown viewer and editor for reviewing, editing, and collaborating on files with the agent team.

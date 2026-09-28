@@ -15,7 +15,7 @@
   a { color: var(--ds-color-link); text-decoration: none; }
   a:hover { text-decoration: underline; text-decoration-color: var(--ds-color-link-underline); }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--ds-color-lime-ink); outline-offset: 2px; }
+  :focus-visible { outline: 1px solid var(--ds-color-focus); outline-offset: 2px; }
   input, textarea { color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); border-radius: 9px; box-shadow: none; }
   input:focus, textarea:focus { border-color: var(--ds-color-lime-strong); box-shadow: 0 0 0 3px var(--ds-color-lime-soft); outline: none; }
   input::placeholder, textarea::placeholder { color: #7c8876; }
@@ -42,7 +42,8 @@
   display: flex; align-items: center; gap: 9px; width: 100%; min-height: 31px; padding: 4px 9px; box-sizing: border-box;
   border: 0; border-radius: 8px; background: transparent; text-align: left; font-size: 13.5px; color: #33412f; cursor: pointer;
   &:hover { background: color-mix(in srgb, var(--ds-color-lemon-soft) 80%, white); }
-  &.active { background: var(--ds-color-lime-soft); color: #2d4a1c; font-weight: 600; box-shadow: inset 0 0 0 1px #d6ecb0; }
+  &:focus-visible { outline-offset: -1px; box-shadow: none; }
+  &.active { background: var(--ds-color-nav-selected); color: var(--ds-color-lime-ink); font-weight: 600; box-shadow: none; }
 }
 .ws-nav-icon { width: 20px; display: grid; place-items: center; color: #596753; flex: none; }
 .ws-nav-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2;
@@ -116,7 +117,7 @@
   &:hover { background: rgba(237, 248, 210, 0.45); }
   &.selected { background: var(--ds-color-lime-soft); box-shadow: inset 0 0 0 1px #c6e39a; }
   &.opened .ws-task-title { font-weight: 600; }
-  &:focus-visible { outline: 2px solid var(--ds-color-lime-ink); outline-offset: -2px; }
+  &:focus-visible { outline: 1px solid var(--ds-color-focus); outline-offset: -1px; }
 }
 .ws-glyph { flex: none; }
 .ws-glyph-open { width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 1.6px solid #9aa692; display: inline-block; }
@@ -304,7 +305,7 @@
 .skill-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, monospace; background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); padding: 10px; max-height: 400px; overflow: auto; }
 .skill-history { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--ds-color-line); }
 .skill-history small { display: block; color: var(--ds-color-muted); margin-top: 4px; }
-.skills-layout :focus-visible { outline: 2px solid var(--ds-color-lime-ink); outline-offset: 2px; }
+.skills-layout :focus-visible { outline: 1px solid var(--ds-color-focus); outline-offset: 2px; }
 @media (max-width: 1100px) { .skills-layout { grid-template-columns: 250px minmax(0, 1fr); } .skills-editor { padding: 20px; } .skill-diff { grid-template-columns: 1fr; } }
 
 .settings-grid.settings-controls { grid-template-columns: minmax(0, 1fr); max-width: 960px; }
@@ -336,3 +337,11 @@
   img { max-width: 100%; height: auto; }
 }
 .ws-markdown-table { max-width: 100%; overflow-x: auto; margin: 12px 0; }
+
+/* Pane focus stays inside scrolling/clipped layouts, including empty lists.
+   Only the focused pane receives a ring; focusing its controls does not frame it. */
+.ws-shell [data-keyboard-pane]:focus-visible {
+  outline: 1px solid var(--ds-color-focus);
+  outline-offset: -1px;
+}
+.ws-shell [data-keyboard-pane="document"]:focus-visible { outline: none; }

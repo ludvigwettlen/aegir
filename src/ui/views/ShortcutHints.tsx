@@ -17,7 +17,7 @@ function contextFor(route: Route): Context {
   if (editor) {
     const label = target?.getAttribute('aria-label');
     const hints: Hint[] = [['⌘Z', 'Undo text edit'], ['Tab / ⇧Tab', 'Move between controls']];
-    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['↑ / ↓', 'Choose a mention'], ['Enter / Tab', 'Insert selected mention'], ['Esc', route.view === 'tasks' ? 'Dismiss mention picker or return to task list' : 'Dismiss mention picker']);
+    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['↑ / ↓', 'Choose a mention'], ['Enter / Tab', 'Insert selected mention'], ['Esc', route.view === 'tasks' ? 'Dismiss mention picker or return to task list' : 'Dismiss mention picker or return to thread list']);
     else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['Esc', 'Clear and leave quick add']);
     else if (label === 'Start a thread') hints.unshift(['Enter', 'Start thread']);
     else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit and return to list']);
@@ -68,9 +68,9 @@ export function ShortcutHints({ route }: { route: Route }) {
     };
   }, [route]);
   if (!context) return null;
-  const global: Hint[] = context.dialog ? [] : [['⌘N', 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
+  const global: Hint[] = context.dialog ? [] : [['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
-    ['G then T / U / W / N / C', 'Today / Upcoming / With the team / Needs you / Completed'] as Hint,
+    ['G then T / U / W / N / C', 'Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
   ] : [])];
   return <div className="ws-hints-overlay">
     <section className="ws-hints-panel" role="region" aria-label="Keyboard hints" aria-live="polite">

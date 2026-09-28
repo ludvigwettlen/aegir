@@ -52,6 +52,12 @@ export function useWorkspaceKeyboard(
       if (event.metaKey && !event.ctrlKey && !event.altKey) {
         if (event.key.toLowerCase() === 'n') {
           event.preventDefault();
+          const newThread = document.querySelector<HTMLInputElement>('[data-new-thread]');
+          if (newThread) {
+            if (newThread.getClientRects().length) newThread.focus();
+            else setNotice('Close the document with Escape to start a new thread');
+            return;
+          }
           setRoute({ view: 'tasks', list: 'today' });
           window.requestAnimationFrame(() =>
             window.requestAnimationFrame(() =>

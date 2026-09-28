@@ -323,6 +323,7 @@ export function Composer({
     finally { setSending(false); }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
     if (picker && options.length) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -344,6 +345,15 @@ export function Composer({
         setPicker(null);
         return;
       }
+    }
+    if (event.key === 'Escape' && !event.currentTarget.closest('.ws-tasks')) {
+      const list = event.currentTarget.closest('.ws-group')?.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
+      if (list) {
+        event.preventDefault();
+        (list.querySelector<HTMLElement>('[data-keyboard-current]') ||
+          list.querySelector<HTMLElement>('[data-keyboard-item]') || list).focus();
+      }
+      return;
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();

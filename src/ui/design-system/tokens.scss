@@ -10,6 +10,8 @@
   --ds-color-lime-strong: #91d318;
   --ds-color-lime-soft: #edf8d2;
   --ds-color-lime-ink: #42622c;
+  --ds-color-focus: color-mix(in srgb, var(--ds-color-lime-ink) 75%, var(--ds-color-surface));
+  --ds-color-nav-selected: color-mix(in srgb, var(--ds-color-lime-soft) 65%, var(--ds-color-surface));
   --ds-color-lemon: #ffe95e;
   --ds-color-lemon-soft: #fff9db;
   --ds-color-link: #366d36;

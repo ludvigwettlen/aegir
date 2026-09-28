@@ -90,6 +90,7 @@ export function GroupView({
             <Plus size={15} aria-hidden="true" />
             <input
               autoFocus={!!draft}
+              data-new-thread
               aria-label="Start a thread"
               placeholder={
                 group.kind === 'private'

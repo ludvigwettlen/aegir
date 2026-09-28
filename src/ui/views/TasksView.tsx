@@ -24,7 +24,7 @@ import { ThreadView } from './ThreadView';
 const titles: Record<TaskView, string> = {
   today: 'Today',
   upcoming: 'Upcoming',
-  team: 'With the team',
+  team: 'Delegated',
   needs: 'Needs you',
   completed: 'Completed',
 };
@@ -229,7 +229,7 @@ export function TasksView({
             <h1>{titles[list]}</h1>
             <p>
               {count} task{count === 1 ? '' : 's'}
-              {team ? ` · ${team} with the team` : ''}
+              {team ? ` · ${team} delegated` : ''}
             </p>
           </div>
         </header>
