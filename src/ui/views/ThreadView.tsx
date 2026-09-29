@@ -110,6 +110,12 @@ export function ThreadView({
           <MessageRow key={message.id} message={message} data={data} run={run} onOpenDocument={openDocument} />
         ))}
       </ConversationList>
+      {busy && (
+        <div className="ws-chat-activity" role="status">
+          <span className="ws-typing" aria-hidden="true"><i /><i /><i /></span>
+          <span>Working…</span>
+        </div>
+      )}
       <Composer
         key={`composer-${thread.id}`}
         data={data}
