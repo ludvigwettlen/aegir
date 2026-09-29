@@ -33,6 +33,7 @@ import {
   slug,
   suggestTaskTool,
   taskSourceKey,
+  taskReadTools,
   type RunKind,
 } from './agent-tools.js';
 
@@ -85,7 +86,7 @@ export class Runtime {
     void this.sendMessage(thread.id, text).catch(() => {});
     return thread;
   }
-  async sendMessage(threadId: string, content: string) {
+  async sendMessage(threadId: string, content: string, waitForCompletion = true) {
     if (!this.available) throw new Error('Runtime is stopped');
     const text = content.trim();
     if (!text) return;
@@ -98,11 +99,23 @@ export class Runtime {
       throw new Error('An agent is already working in this thread');
     const execution = { cancelled: false };
     this.runningThreads.set(threadId, execution);
-    let ok = false;
+    // Persist before acknowledging so rejected sends leave the draft intact.
     try {
       this.store.addMessage(threadId, null, 'user', text);
       if (thread.taskId) this.store.updateTask(thread.taskId, { status: 'running' });
       this.refresh();
+    } catch (error) {
+      this.runningThreads.delete(threadId);
+      throw error;
+    }
+    const completion = this.respondToMessage(thread, group, text, execution);
+    if (waitForCompletion) await completion;
+    else void completion.catch(() => {}); // runAgent records failures in the conversation.
+  }
+  private async respondToMessage(thread: Thread, group: Group, text: string, execution: { cancelled: boolean }) {
+    const threadId = thread.id;
+    let ok = false;
+    try {
       const kind: RunKind = thread.kind === 'task' ? 'task' : 'chat';
       ok = true;
       for (const agent of mentionedAgents(text, this.store.list('agents'), group)) {
@@ -256,6 +269,7 @@ export class Runtime {
         memoryTool(agent),
         memoryRecallTool(agent),
         ...skillTools,
+        ...taskReadTools,
         ...(kind === 'chat' ? [proposeRoutineTool] : []),
       ];
       const skillContext = this.skills.session(agent.id, message.id, kind, tools.map(tool => tool.name), userText);
@@ -265,6 +279,7 @@ export class Runtime {
           ? `Tagged routines:\n${routines.map((routine) => this.describeRoutine(routine, agents)).join('\n\n')}`
           : '',
         `Thread "${thread.title}" so far:\n${history || '(empty)'}`,
+        task ? `Current todo (latest saved details):\n${JSON.stringify(task)}` : '',
         `Current message:\n${userText}`,
       ]
         .filter(Boolean)
@@ -415,6 +430,20 @@ ${memoryGuidance}`;
       if (this.available) this.refresh();
       return { id: result?.id, saved: true };
     }
+    if (provider === 'tasks' && (tool === 'list' || tool === 'read')) {
+      if (!context) throw new Error('No active agent run');
+      if (tool === 'read') {
+        if (typeof args.id !== 'string') throw new Error('A todo id is required');
+        const task = this.store.get('tasks', args.id);
+        if (!task) throw new Error('Todo not found');
+        return task;
+      }
+      const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+      const offset = args.offset === undefined ? 0 : args.offset;
+      if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid offset');
+      const tasks = this.store.list('tasks').filter(task => !query || `${task.title}\n${task.notes}`.toLowerCase().includes(query));
+      return { tasks: tasks.slice(offset, offset + 50).map(({ id, title, status, label }) => ({ id, title, status, label })), nextOffset: offset + 50 < tasks.length ? offset + 50 : null };
+    }
     if (provider === 'tasks' && tool === 'suggest') {
       const title = String(args.title || '').trim();
       const sourceUrl = String(args.sourceUrl || '').trim();
@@ -552,6 +581,7 @@ ${memoryGuidance}`;
         memoryTool(agent),
         memoryRecallTool(agent),
         ...skillTools,
+        ...taskReadTools,
         suggestTaskTool,
       ];
       const skillContext = this.skills.session(agent.id, run.id, 'routine', tools.map(tool => tool.name), routine.instructions, routine.id);

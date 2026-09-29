@@ -30,6 +30,49 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
 }
 
 describe('runtime', () => {
+  it('acknowledges a saved long message before the agent finishes and rejects duplicate sends', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const { store, runtime, runs } = setup(async () => { await gate; return 'Done'; });
+    const thread = store.createThread(store.groups()[0].id, 'Long message');
+    const text = 'A long message with Unicode åäö. '.repeat(4000);
+    await runtime.sendMessage(thread.id, text, false);
+    expect(store.messagePage(thread.id).messages.find(message => message.role === 'user')?.content).toBe(text.trim());
+    await expect(runtime.sendMessage(thread.id, 'Duplicate', false)).rejects.toThrow('already working');
+    await vi.waitFor(() => expect(runs).toHaveLength(1));
+    expect(runs[0].prompt).toContain(text.trim());
+    finish();
+    await vi.waitFor(() => expect(store.messagePage(thread.id).messages.some(message => message.role === 'agent' && message.status === 'complete')).toBe(true));
+  });
+
+  it('gives chat agents searchable todos and full saved notes', async () => {
+    const notes = 'Detailed todo notes åäö. '.repeat(4000).trim();
+    let taskId = '';
+    const { store, runtime } = setup(async (input, id, rt) => {
+      expect(input.tools).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'tasks__list', readOnly: true }),
+        expect.objectContaining({ name: 'tasks__read', readOnly: true }),
+      ]));
+      expect(await rt.handleInternalTool('tasks', 'list', { query: 'Detailed todo' }, id)).toMatchObject({ tasks: [{ id: taskId }] });
+      expect(await rt.handleInternalTool('tasks', 'read', { id: taskId }, id)).toMatchObject({ notes });
+      await expect(rt.handleInternalTool('tasks', 'read', { id: 'missing' }, id)).rejects.toThrow('Todo not found');
+      return 'Done';
+    });
+    taskId = store.createTask({ title: 'Research', notes }).id;
+    await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Read notes').id, 'Read my todo');
+    await expect(runtime.handleInternalTool('tasks', 'list', {}, 'expired')).rejects.toThrow('No active');
+  });
+
+  it('includes current todo notes even when the hand-off has a separate instruction', async () => {
+    const { store, runtime, runs } = setup();
+    const task = store.createTask({ title: 'Research', notes: 'Essential background in the notes' });
+    await runtime.handOff(task.id, 'Please work on this');
+    expect(runs.at(-1)?.prompt).toContain(task.notes);
+    store.updateTask(task.id, { notes: 'Updated background' });
+    await runtime.sendMessage(store.get('tasks', task.id)!.threadId!, 'Continue');
+    expect(runs.at(-1)?.prompt).toContain('Updated background');
+  });
+
   it.each(['chat', 'task', 'routine'] as const)('enforces browser access and releases the session in a %s run', async kind => {
     const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'Browser result' }] }));
     const close = vi.fn(async () => {});

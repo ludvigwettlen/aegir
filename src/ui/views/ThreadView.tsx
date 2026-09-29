@@ -270,6 +270,7 @@ export function Composer({
 }) {
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [sendError, setSendError] = useState('');
   const [picker, setPicker] = useState<{ query: string; start: number } | null>(null);
   const [active, setActive] = useState(0);
@@ -313,14 +314,25 @@ export function Composer({
     });
   };
   const submit = async () => {
-    const text = value.trim();
-    if (!text || busy || sending) return;
+    const draft = value;
+    const text = draft.trim();
+    if (!text || busy || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true); setSendError('');
+    setValue(''); setPicker(null);
+    input.current?.focus();
+    // Keep any follow-up typed while saving, including when the send is rejected.
+    const restoreDraft = () => setValue(next => next ? `${draft}\n\n${next}` : draft);
     try {
       const sent = await onSend(text);
-      if (sent !== false) { setValue(''); setPicker(null); }
-    } catch (cause) { setSendError(String(cause)); }
-    finally { setSending(false); }
+      if (sent === false) restoreDraft();
+    } catch (cause) {
+      restoreDraft();
+      setSendError(String(cause));
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+    }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
@@ -415,7 +427,6 @@ export function Composer({
         {sendError && <p role="alert">{sendError}</p>}
         <textarea
           ref={input}
-          disabled={sending}
           aria-label="Message"
           rows={2}
           placeholder={placeholder}

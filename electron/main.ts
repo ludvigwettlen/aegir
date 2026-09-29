@@ -192,7 +192,7 @@ function registerIpc() {
     runtime.startThread(groupId, content),
   );
   handle('send-message', (threadId: string, content: string) =>
-    runtime.sendMessage(threadId, content),
+    runtime.sendMessage(threadId, content, false),
   );
   handle('stop-thread', (threadId: string) => runtime.stopThread(threadId));
   handle('close-thread', (threadId: string) => {

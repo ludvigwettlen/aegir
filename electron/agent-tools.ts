@@ -19,6 +19,21 @@ export function memoryRecallTool(agent: Agent): Tool {
   return { name: `memory__recall_${agent.id.replace(/-/g, '_')}`, description: 'Search and retrieve durable memories from the shared bank and your own private bank in Mnemosyne. Use a focused query when you need prior decisions, preferences, or project context; you can search again with different terms.', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['query'], additionalProperties: false }, readOnly: true };
 }
 
+export const taskReadTools: Tool[] = [
+  {
+    name: 'tasks__list',
+    description: 'Find the user’s todos in Ägir by title or notes. Returns ids and summaries; use tasks__read for the complete saved notes. Omit query to browse all todos, and use nextOffset for more results.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, additionalProperties: false },
+    readOnly: true,
+  },
+  {
+    name: 'tasks__read',
+    description: 'Read a todo and its complete saved notes by id, including status and linked thread. Use tasks__list to find the id.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    readOnly: true,
+  },
+];
+
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',
   description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires the source permalink the task came from.',

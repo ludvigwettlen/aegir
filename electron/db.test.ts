@@ -10,6 +10,22 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
 
 describe('store', () => {
+  it('preserves long pasted task notes through save and reopen', () => {
+    const file = path();
+    const notes = ('A pasted paragraph with Unicode åäö and a newline.\n').repeat(4000) + 'END OF PASTE';
+    const store = new Store(file);
+    const task = store.createTask({ title: 'Long notes' });
+    store.updateTask(task.id, { notes }, true);
+    expect(store.get('tasks', task.id)?.notes).toBe(notes);
+    store.close();
+    const reopened = new Store(file);
+    try {
+      expect(reopened.get('tasks', task.id)?.notes).toBe(notes);
+    } finally {
+      reopened.close();
+    }
+  });
+
   it('seeds a shared group, one private group per agent and the discovery routine', () => {
     const store = new Store(path());
     const groups = store.groups();
