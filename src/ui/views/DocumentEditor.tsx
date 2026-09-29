@@ -6,7 +6,7 @@ import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
-import { X } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 
@@ -29,6 +29,19 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const pending = useRef<Promise<boolean> | null>(null);
   const [status, setStatus] = useState(recovered ? 'Recovered local edits' : 'Saved');
   const [error, setError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  const copy = async () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    try {
+      await navigator.clipboard.writeText(content.current);
+      setCopyStatus('Copied');
+    } catch {
+      setCopyStatus('Could not copy. Try again.');
+    }
+    copyTimer.current = setTimeout(() => setCopyStatus(''), 3000);
+  };
   const [diskChanged, setDiskChanged] = useState(false);
   const [showReload, setShowReload] = useState(false);
   // Preserve content we cannot faithfully represent instead of silently deleting it on save.
@@ -122,7 +135,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     } catch (cause) { setError(errorText(cause)); }
   };
   return <section className="ws-document" data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
-    <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}<span role="status">{unsupported ? 'Read only' : status}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
+    <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}<button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
