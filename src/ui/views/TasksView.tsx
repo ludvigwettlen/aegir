@@ -526,7 +526,6 @@ function TaskDetail({
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const cancelledTitle = useRef(false);
-  const cancelledNotes = useRef(false);
   const links = data.taskLinks.filter(link => link.taskId === task.id);
   const saveTitle = () => {
     if (cancelledTitle.current) { cancelledTitle.current = false; setTitle(task.title); return; }
@@ -601,11 +600,14 @@ function TaskDetail({
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           onBlur={() => {
-            if (cancelledNotes.current) { cancelledNotes.current = false; setNotes(task.notes); return; }
             if (notes !== task.notes) void run(() => api.updateTask(task.id, { notes }));
           }}
           onKeyDown={event => {
-            if (event.key === 'Escape') { event.preventDefault(); cancelledNotes.current = true; setNotes(task.notes); event.currentTarget.blur(); onReturnToList(); }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.currentTarget.blur();
+              onReturnToList();
+            }
           }}
         />
       </label>
