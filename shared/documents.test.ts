@@ -13,6 +13,19 @@ describe('document references', () => {
     expect(markdownPath('file:///tmp/PRD.md')).toBe('/tmp/PRD.md');
     for (const value of ['https://example.com/prd.md', 'javascript:evil.md', 'file://server/prd.md', 'data:text/plain,doc.md', 'bad%zz.md']) expect(markdownPath(value)).toBeNull();
   });
+  it('keeps documents with horizontal rules editable without allowing real frontmatter', () => {
+    expect(hasUnsupportedMarkdown('# Plan\n\n---\n\nFirst section\n\n---\n\nSecond section')).toBe(false);
+    expect(hasUnsupportedMarkdown('```md\nExample\n```\n---\n\nSection\n\n---\n')).toBe(false);
+    expect(hasUnsupportedMarkdown('---\r\ntitle: Example\r\n---\r\n# Hello')).toBe(true);
+    expect(hasUnsupportedMarkdown('\uFEFF---\ntitle: Example\n...\n# Hello')).toBe(true);
+  });
+  it('allows only the table header marker attached to a pipe table', () => {
+    const marker = '<!-- aegir:table-header=off -->';
+    expect(hasUnsupportedMarkdown(`${marker}\n| A | B |\n| --- | --- |\n| 1 | 2 |`)).toBe(false);
+    expect(hasUnsupportedMarkdown(`${marker}\nNot a table`)).toBe(true);
+    expect(hasUnsupportedMarkdown(`${marker}\n| A | B |\n| --- | --- |\n\n<script>bad()</script>`)).toBe(true);
+    expect(hasUnsupportedMarkdown('<!-- another comment -->')).toBe(true);
+  });
   it('includes the file and quoted passage with the actual user message', () => {
     expect(withDocumentReference('Make this concrete', { path: 'prd.md', text: 'First\nSecond' })).toBe('Selected passage from prd.md:\n\n> First\n> Second\n\nMake this concrete');
     expect(withDocumentReference('Hello', null)).toBe('Hello');

@@ -9,6 +9,7 @@ import Image from '@tiptap/extension-image';
 import { Copy, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
+import { DocumentTable } from '../document-tables';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
 type Draft = { content: string; revision: string };
@@ -71,7 +72,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const saveRef = useRef(save); saveRef.current = save;
   useImperativeHandle(ref, () => ({ save: () => saveRef.current() }));
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit, TaskList, TaskItem.configure({ nested: true }), Image],
+    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, TaskList, TaskItem.configure({ nested: true }), Image],
     content: content.current, contentType: 'markdown', editable: !unsupported,
     editorProps: { attributes: { class: 'ws-document-prose', 'aria-label': 'Document', role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: ({ editor }) => {
@@ -89,6 +90,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
       onSelection(text ? { path: initial.path, text } : null);
     },
   });
+  useEffect(() => { editor?.setEditable(!unsupported, false); }, [editor, unsupported]);
   useEffect(() => {
     let active = true;
     let checking = false;

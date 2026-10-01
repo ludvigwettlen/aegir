@@ -100,6 +100,14 @@ Esc saves and closes the document, except while a mention picker consumes Escape
 
 The document pane and editable prose have no focus outline. Buttons, links, and the resize separator retain their visible keyboard focus indicators.
 
+#### Editable tables
+
+`DocumentTable` supplies the same table controls in task and group document panes. Hovering a table, placing the caret inside it, or focusing a control reveals quiet “+” rails along its bottom and right edges. Click or activate with Enter/Space to append one row/column; drag outward to preview and append several (up to 20 per gesture). Release commits one undoable edit. Drag back to the starting edge to add nothing; Escape, pointer cancellation, or losing window focus cancels without changing content. These handles add cells; they do not resize column widths or remove existing content. Wide tables scroll inside the document pane, keeping both rails reachable.
+
+The First row control selects that row, exposing the Header row toggle. Placing the caret in the first row also exposes the toggle. Its pressed state reflects header styling; toggling preserves all cell text and alignment. Header cells use lime-soft and semibold ink, while selected cells receive a separate translucent lime overlay. Buttons use surface, muted, line and focus tokens; keyboard focus remains visible. Controls are hidden in read-only documents and remain discoverable on touch devices. There are no animations.
+
+Table changes use the editor's existing autosave, recovery, Copy, and undo flows. GFM requires a header, so header-off tables serialize as an ordinary pipe table preceded by the inert `<!-- aegir:table-header=off -->` marker. Aegir restores its first row as body cells on reopen, without inserting a phantom blank header. Other Markdown readers can still read the cell content but may display their standard header styling. Only this exact marker immediately followed by a table is accepted by the editor; other HTML/comments retain the existing read-only protection.
+
 ### Routine view
 
 A run list (grouped by day, with All / Failed / Did something filters) beside a monospace run log. The header has Discuss, Run now and Pause/Resume, plus collapsible instructions. Log lines are raw text: time with seconds, kind (run, system, call, result, agent, error), then the text. Colour only reinforces the kind column, and errors are red in both columns. The log is for debugging, so it has no chips or summaries beyond the run header.

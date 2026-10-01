@@ -1,9 +1,18 @@
 export type WorkspaceDocument = { path: string; content: string; revision: string };
 export type DocumentReference = { path: string; text: string };
 
+// GFM requires a header. This inert marker preserves Aegir's header-off choice
+// without adding a blank row or changing cell content in other Markdown readers.
+export const tableHeaderOffMarker = '<!-- aegir:table-header=off -->';
+export const headerlessTableStart = /^<!-- aegir:table-header=off -->\r?\n(?=[^\n]*\|[^\n]*\r?\n[ \t|:]*-[ \t|:-]*\|[ \t|:-]*(?:\r?\n|$))/;
+
 export function hasUnsupportedMarkdown(content: string): boolean {
-  const prose = content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
-  return /^---\s*\n[\s\S]*?\n---\s*$/m.test(prose) || /<!--|<\/?[A-Za-z][^>]*>|^\[\^[^\]]+\]:/m.test(prose);
+  const prose = content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '')
+    .replace(new RegExp(headerlessTableStart.source, 'gm'), '');
+  // Frontmatter starts at the beginning of the source. Horizontal rules later
+  // in ordinary prose must not turn an otherwise editable document read only.
+  return /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.test(content)
+    || /<!--|<\/?[A-Za-z][^>]*>|^\[\^[^\]]+\]:/m.test(prose);
 }
 
 /** Local Markdown references only; remote links continue through the external-link policy. */

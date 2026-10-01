@@ -26,11 +26,34 @@
   .tableWrapper { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; }
   td, th { min-width: 70px; border: 1px solid var(--ds-color-line); padding: 8px; vertical-align: top; position: relative; }
-  th { background: var(--ds-color-lime-soft); }
-  .selectedCell { background: var(--ds-color-lime-soft); }
+  th { background: var(--ds-color-lime-soft); text-align: left; font-weight: 600; }
+  .selectedCell::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: color-mix(in srgb, var(--ds-color-lime) 22%, transparent); }
   ul[data-type="taskList"] { list-style: none; padding: 0; li { display: flex; gap: 10px; > div { flex: 1; } } }
   ::selection, &::selection { background: var(--ds-color-lime-soft); }
 }
+.ws-document-prose .ws-editable-table { margin: 18px 0; padding: 0 0 4px; overflow-x: auto;
+  .ws-table-frame { position: relative; width: 100%; min-width: calc(var(--table-columns, 3) * 120px + 24px); box-sizing: border-box; padding: 34px 24px 26px 0; }
+  table { width: 100%; table-layout: fixed; }
+  td, th { min-width: 100px; p:last-child { margin-bottom: 0; } }
+  button { appearance: none; border: 1px solid transparent; background: var(--ds-color-surface); color: var(--ds-color-muted); font: inherit; font-size: 11px; line-height: 1; cursor: pointer; border-radius: 5px;
+    &:hover { background: var(--ds-color-lime-soft); color: var(--ds-color-ink); }
+    &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
+    &[aria-pressed="true"] { color: var(--ds-color-lime-ink); background: var(--ds-color-lime-soft); border-color: var(--ds-color-line); }
+  }
+  .ws-table-toolbar { position: absolute; top: 0; left: 0; height: 30px; display: flex; align-items: center; gap: 6px; user-select: none;
+    button { padding: 6px 8px; } [hidden] { display: none; }
+  }
+  .ws-table-add { position: absolute; background: color-mix(in srgb, var(--ds-color-line) 40%, var(--ds-color-canvas)); font-size: 16px; touch-action: none; user-select: none; }
+  .ws-table-add-row { bottom: 3px; left: 0; width: calc(100% - 24px); height: 20px; cursor: ns-resize; }
+  .ws-table-add-column { top: 34px; right: 1px; width: 20px; height: calc(100% - 60px); cursor: ew-resize; }
+  .ws-table-drag-hint { position: absolute; bottom: 27px; right: 28px; background: var(--ds-color-ink); color: var(--ds-color-surface); font-size: 11px; line-height: 1.5; border-radius: 5px; padding: 4px 8px; pointer-events: none; z-index: 2;
+    &:empty { display: none; }
+  }
+  .ws-table-toolbar, .ws-table-add { opacity: 0; }
+  &:hover, &:focus-within, &[data-active="true"], &[data-dragging="true"] { .ws-table-toolbar, .ws-table-add { opacity: 1; } }
+}
+.ws-document-prose[contenteditable="false"] .ws-editable-table { .ws-table-toolbar, .ws-table-add { display: none; } .ws-table-frame { padding: 0; } }
+@media (hover: none) { .ws-document-prose .ws-editable-table { .ws-table-toolbar, .ws-table-add { opacity: 1; } } }
 .ws-shell .ws-document:focus-visible,
 .ws-shell .ws-document-prose:focus,
 .ws-shell .ws-document-prose:focus-visible { outline: none; box-shadow: none; }
