@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
@@ -11,8 +11,12 @@ import { api, Avatar, time, YouAvatar, type Run } from './common';
 import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
 import { CopyChatButton } from './CopyChatButton';
+import { useSkillLibrary } from '../hooks/useSkillLibrary';
+import { commandSkills, withSkillCommands } from '../../../shared/skill-commands';
+import { mentionedAgents } from '../../../shared/agent-mentions';
+import type { Skill } from '../../../shared/skills';
 
-type Mention = { kind: 'agent'; agent: Agent } | { kind: 'routine'; routine: Routine };
+type Mention = { kind: 'agent'; agent: Agent } | { kind: 'routine'; routine: Routine } | { kind: 'skill'; skill: Skill };
 
 export function ThreadView({
   data,
@@ -153,6 +157,7 @@ export function ThreadView({
         data={data}
         group={group}
         busy={busy}
+        kind={thread.kind}
         placeholder={
           thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'
         }
@@ -299,6 +304,7 @@ export function Composer({
   onStop,
   reference,
   onClearReference,
+  kind = 'chat',
 }: {
   data: Snapshot;
   group: Group;
@@ -308,17 +314,27 @@ export function Composer({
   reference?: DocumentReference | null;
   onClearReference?: () => void;
   onStop?: () => void;
+  kind?: 'chat' | 'task';
 }) {
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [sendError, setSendError] = useState('');
-  const [picker, setPicker] = useState<{ query: string; start: number } | null>(null);
+  const [picker, setPicker] = useState<{ kind: 'mention' | 'skill'; query: string; start: number; end: number } | null>(null);
+  const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
+  const { library, error: skillError, reload } = useSkillLibrary();
+  const availableSkills = commandSkills(library?.skills || [], mentionedAgents(value, data.agents, group).map(agent => agent.id), kind);
+  const invalidSelection = selectedSkills.some(skill => !availableSkills.some(item => item.id === skill.id));
+  const pickerId = useId();
   const [active, setActive] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
   const options = useMemo<Mention[]>(() => {
     if (!picker) return [];
     const q = picker.query.toLowerCase();
+    if (picker.kind === 'skill') return availableSkills
+      .filter(skill => !selectedSkills.some(item => item.id === skill.id)
+        && `${skill.name} ${skill.description}`.toLowerCase().includes(q))
+      .slice(0, 8).map(skill => ({ kind: 'skill', skill }));
     const agents = [...data.agents].sort(
       (a, b) => Number(group.agentIds.includes(b.id)) - Number(group.agentIds.includes(a.id)),
     );
@@ -330,40 +346,54 @@ export function Composer({
         .filter((agent) => agent.name.toLowerCase().startsWith(q))
         .map((agent) => ({ kind: 'agent', agent }) as Mention),
     ].slice(0, 8);
-  }, [picker, data.agents, data.routines, group.agentIds]);
+  }, [picker, data.agents, data.routines, group.agentIds, library, value, selectedSkills, kind]);
+  const activeIndex = Math.min(active, Math.max(0, options.length - 1));
+  useEffect(() => {
+    if (picker) document.getElementById(`${pickerId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [picker, pickerId, activeIndex]);
   const update = (text: string, caret: number) => {
     setValue(text);
+    const command = text.slice(0, caret).match(/(^|\s)\/([\w-]*)$/);
+    if (command) {
+      setPicker({ kind: 'skill', query: command[2], start: caret - command[2].length - 1, end: caret });
+      setActive(0);
+      return;
+    }
     // Routine names contain spaces, so the query may too; a trailing space closes the picker.
     const match = text.slice(0, caret).match(/(^|\s)@([\w ]{0,30})$/);
     const query = match?.[2];
     if (query !== undefined && !query.endsWith(' ')) {
-      setPicker({ query, start: caret - query.length - 1 });
+      setPicker({ kind: 'mention', query, start: caret - query.length - 1, end: caret });
       setActive(0);
     } else setPicker(null);
   };
   const choose = (option: Mention) => {
     if (!picker) return;
-    const name = option.kind === 'agent' ? option.agent.name : option.routine.name;
-    const caret = input.current?.selectionStart ?? value.length;
-    const next = `${value.slice(0, picker.start)}@${name} ${value.slice(caret)}`;
+    const insertion = option.kind === 'skill' ? '' : `@${option.kind === 'agent' ? option.agent.name : option.routine.name} `;
+    if (option.kind === 'skill') setSelectedSkills(previous => [...previous.filter(skill => skill.id !== option.skill.id), option.skill]);
+    const next = `${value.slice(0, picker.start)}${insertion}${value.slice(picker.end)}`;
     setValue(next);
     setPicker(null);
     requestAnimationFrame(() => {
-      const at = picker.start + name.length + 2;
+      const at = picker.start + insertion.length;
       input.current?.setSelectionRange(at, at);
       input.current?.focus();
     });
   };
   const submit = async () => {
     const draft = value;
-    const text = draft.trim();
-    if (!text || busy || sendingRef.current) return;
+    const skills = selectedSkills;
+    const text = withSkillCommands(draft, skills);
+    if (!text || busy || sendingRef.current || invalidSelection) return;
     sendingRef.current = true;
     setSending(true); setSendError('');
-    setValue(''); setPicker(null);
+    setValue(''); setPicker(null); setSelectedSkills([]);
     input.current?.focus();
     // Keep any follow-up typed while saving, including when the send is rejected.
-    const restoreDraft = () => setValue(next => next ? `${draft}\n\n${next}` : draft);
+    const restoreDraft = () => {
+      setValue(next => next ? `${draft}\n\n${next}` : draft);
+      setSelectedSkills(next => [...skills, ...next.filter(skill => !skills.some(item => item.id === skill.id))]);
+    };
     try {
       const sent = await onSend(text);
       if (sent === false) restoreDraft();
@@ -377,25 +407,27 @@ export function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) setPicker(null);
+    if (picker && event.key === 'Escape') {
+      event.preventDefault(); setPicker(null); return;
+    }
+    if (picker?.kind === 'skill' && !options.length && event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault(); return;
+    }
     if (picker && options.length) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setActive((active + 1) % options.length);
+        setActive((activeIndex + 1) % options.length);
         return;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setActive((active - 1 + options.length) % options.length);
+        setActive((activeIndex - 1 + options.length) % options.length);
         return;
       }
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
-        choose(options[active]);
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setPicker(null);
+        choose(options[activeIndex]);
         return;
       }
     }
@@ -417,8 +449,21 @@ export function Composer({
   const agents = options.filter((option) => option.kind === 'agent');
   return (
     <div className="ws-composer-wrap">
-      {picker && options.length > 0 && (
-        <div className="ws-picker" role="listbox" aria-label="Mention">
+      {picker && (options.length > 0 || picker.kind === 'skill') && (
+        <div className="ws-picker" id={pickerId} role="listbox" aria-label={picker.kind === 'skill' ? 'Skills' : 'Mention'}>
+          {picker.kind === 'skill' && <>
+            <div className="ws-picker-label">SKILLS</div>
+            {skillError ? <div className="ws-picker-state" role="alert">Could not load skills. <button onClick={() => void reload()}>Retry</button></div>
+              : !library ? <p className="ws-picker-state" role="status">Loading skills…</p>
+              : !options.length && <p className="ws-picker-state" role="status">No matching skills for this conversation.</p>}
+            {options.map((option, index) => option.kind === 'skill' && <button
+              key={option.skill.id} id={`${pickerId}-${index}`} role="option" aria-selected={index === activeIndex}
+              className={`ws-skill-option ${index === activeIndex ? 'active' : ''}`}
+              onMouseDown={event => event.preventDefault()} onClick={() => choose(option)}>
+              <span><strong>/{option.skill.name}</strong><small>{option.skill.description}</small></span>
+              <small>{option.skill.ownerAgentId ? data.agents.find(agent => agent.id === option.skill.ownerAgentId)?.name : 'Shared'}</small>
+            </button>)}
+          </>}
           {routines.length > 0 && <div className="ws-picker-label">ROUTINES</div>}
           {routines.map((option) => {
             const index = options.indexOf(option);
@@ -426,9 +471,10 @@ export function Composer({
             return (
               <button
                 key={routine.id}
+                id={`${pickerId}-${index}`}
                 role="option"
-                aria-selected={index === active}
-                className={index === active ? 'active' : ''}
+                aria-selected={index === activeIndex}
+                className={index === activeIndex ? 'active' : ''}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   choose(option);
@@ -447,9 +493,10 @@ export function Composer({
             return (
               <button
                 key={agent.id}
+                id={`${pickerId}-${index}`}
                 role="option"
-                aria-selected={index === active}
-                className={index === active ? 'active' : ''}
+                aria-selected={index === activeIndex}
+                className={index === activeIndex ? 'active' : ''}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   choose(option);
@@ -464,15 +511,25 @@ export function Composer({
         </div>
       )}
       <div className="ws-composer">
+        {selectedSkills.length > 0 && <div className="ws-selected-skills" aria-label="Selected skills">
+          {selectedSkills.map(skill => <span key={skill.id}>/{skill.name}<button type="button" className="ws-icon-btn"
+            aria-label={`Remove skill ${skill.name}`} onClick={() => setSelectedSkills(items => items.filter(item => item.id !== skill.id))}><X size={12} /></button></span>)}
+        </div>}
+        {invalidSelection && <p role="alert">A selected skill is unavailable for the current recipients. Remove it or change the @mention.</p>}
         {reference && <div className="ws-document-reference"><div><strong>{reference.path}</strong><blockquote>{reference.text}</blockquote></div><button className="ws-icon-btn" aria-label="Remove selected passage" onClick={onClearReference}><X size={13} /></button></div>}
         {sendError && <p role="alert">{sendError}</p>}
         <textarea
           ref={input}
           aria-label="Message"
+          aria-controls={picker ? pickerId : undefined}
+          aria-expanded={!!picker}
+          aria-autocomplete="list"
+          aria-activedescendant={picker && options.length ? `${pickerId}-${activeIndex}` : undefined}
           rows={2}
           placeholder={placeholder}
           value={value}
           onChange={(event) => update(event.target.value, event.target.selectionStart)}
+          onClick={() => setPicker(null)}
           onKeyDown={onKeyDown}
         />
         <div className="ws-composer-bar">
@@ -484,7 +541,7 @@ export function Composer({
           <button
             className="ws-send"
             aria-label="Send"
-            disabled={busy || sending || !value.trim()}
+            disabled={busy || sending || invalidSelection || (!value.trim() && !selectedSkills.length)}
             onClick={submit}
           >
             <Send size={15} />

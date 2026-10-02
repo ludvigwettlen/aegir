@@ -20,7 +20,7 @@ export function useWorkspaceKeyboard(
       const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
       const keyTarget = event.target instanceof Element ? event.target : null;
       if (documentPane && !event.isComposing) {
-        if (event.key === 'Escape' && !document.querySelector('.ws-picker')) {
+        if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
           event.preventDefault();
           documentWorkspace?.querySelector<HTMLButtonElement>('[data-close-document]')?.click();
           return;

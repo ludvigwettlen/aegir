@@ -63,7 +63,8 @@ export function App() {
       <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} />
       <div className="ws-main">
         {route.view === 'tasks' && (
-          <TasksView data={data} run={run} list={route.list} notify={setNotice} />
+          <TasksView data={data} run={run} list={route.list} notify={setNotice}
+            onOpenThread={(groupId, threadId) => setRoute({ view: 'group', groupId, threadId })} />
         )}
         {route.view === 'group' && group && (
           <GroupView

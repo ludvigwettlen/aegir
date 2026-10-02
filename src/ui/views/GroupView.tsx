@@ -21,7 +21,10 @@ export function GroupView({
   run: Run;
   onSelectThread: (threadId: string) => void;
 }) {
-  const [filter, setFilter] = useState<Filter>('active');
+  const [filter, setFilter] = useState<Filter>(() => {
+    const target = data.threads.find(thread => thread.id === threadId && thread.groupId === group.id);
+    return target?.kind === 'task' ? 'tasks' : target?.status === 'closed' ? 'closed' : 'active';
+  });
   const [first, setFirst] = useState(draft || '');
   const all = data.threads.filter((thread) => thread.groupId === group.id);
   const shown = all.filter((thread) =>
@@ -35,6 +38,14 @@ export function GroupView({
   useEffect(() => {
     if (selected && selected.id !== threadId) onSelectThread(selected.id);
   }, [selected?.id]);
+  useEffect(() => {
+    if (!threadId) return;
+    const frame = requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>('.ws-thread-items [data-keyboard-current]');
+      row?.scrollIntoView({ block: 'nearest' }); row?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [threadId]);
   const members = group.agentIds
     .map((id) => data.agents.find((agent) => agent.id === id))
     .filter(Boolean);

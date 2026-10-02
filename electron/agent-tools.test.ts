@@ -16,6 +16,12 @@ describe('tool policy', () => {
 });
 
 describe('mentions', () => {
+  it('treats custom agent names literally without breaking composer discovery', () => {
+    const custom = [agent('a', 'Aegir'), agent('b', 'Research [EU]'), agent('c', 'René')];
+    expect(mentionedAgents('@Research [EU] review', custom, group).map(agent => agent.id)).toEqual(['b']);
+    expect(mentionedAgents('@René review', custom, group).map(agent => agent.id)).toEqual(['c']);
+    expect(mentionedAgents('@Renée review', custom, group).map(agent => agent.id)).toEqual(['a']);
+  });
   it('routes to mentioned agents, else the lead; private groups always go to their agent', () => {
     expect(mentionedAgents('@mimer can you look?', agents, group).map(x => x.name)).toEqual(['Mimer']);
     expect(mentionedAgents('@aegir please help', agents, group).map(x => x.name)).toEqual(['Aegir']);

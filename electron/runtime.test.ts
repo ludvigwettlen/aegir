@@ -332,6 +332,52 @@ describe('runtime', () => {
     expect(run.tools.map(tool => tool.name)).not.toContain('slack__post');
   });
 
+  it('keeps a task running through a teammate contribution and shares its output folder', async () => {
+    let teammate = '';
+    const { store, runtime, runs } = setup(async (_input, _id) => {
+      if (runs.length === 1) return `Draft ready. @${teammate} verify the evidence and improve the report.`;
+      expect(store.get('tasks', task.id)?.status).toBe('running');
+      return 'Evidence checked and report updated.';
+    });
+    const group = store.groups().find(group => group.kind === 'group')!;
+    const specialist = store.list('agents').find(agent => agent.id !== group.leadAgentId && group.agentIds.includes(agent.id))!;
+    teammate = specialist.name;
+    const task = store.createTask({ title: 'Compare competitors' });
+    await runtime.handOff(task.id, 'Compare the evidence');
+    expect(runs).toHaveLength(2);
+    expect(runs[1].cwd).toBe(runs[0].cwd);
+    expect(runs[1].prompt).toContain('verify the evidence');
+    expect(runs[1].tools.some(tool => tool.name === 'slack__post')).toBe(false);
+    expect(store.get('tasks', task.id)?.status).toBe('review');
+    const messages = store.messagesForThread(store.get('tasks', task.id)!.threadId!);
+    expect(messages.filter(message => message.role === 'agent').map(message => message.agentId)).toEqual([group.leadAgentId, specialist.id]);
+  });
+
+  it('does not start a teammate after the task is stopped', async () => {
+    const { store, runtime, runs } = setup(async (_input, _id, rt) => {
+      await rt.stopTask(task.id);
+      return `@${teammate.name} please review.`;
+    });
+    const group = store.groups().find(group => group.kind === 'group')!;
+    const teammate = store.list('agents').find(agent => agent.id !== group.leadAgentId && group.agentIds.includes(agent.id))!;
+    const task = store.createTask({ title: 'Stopped collaboration' });
+    await runtime.handOff(task.id, 'Review');
+    expect(runs).toHaveLength(1);
+    expect(store.get('tasks', task.id)?.status).toBe('blocked');
+  });
+
+  it('preloads a skill selected by the composer before the model runs', async () => {
+    const { store, runtime, runs } = setup();
+    const skill = runtime.skills.list().find(skill => skill.name === 'research')!;
+    const thread = store.createThread(store.groups()[0].id, 'Use a skill');
+    await runtime.sendMessage(thread.id, `Use skill research ($skill:${skill.id}).\n\nCompare evidence`);
+    expect(runtime.skills.detail(skill.id).recentLoads).toHaveLength(1);
+    expect(runs[0].instructions).toContain('compare evidence');
+    runtime.skills.configure(skill.id, { enabled: false });
+    await expect(runtime.sendMessage(thread.id, `Use skill research ($skill:${skill.id}).`)).rejects.toThrow('missing or disabled');
+    expect(runs).toHaveLength(1);
+  });
+
   it('rejects a second hand-off while the first is still routing', async () => {
     let finishRouting!: (result: string) => void;
     const routing = new Promise<string>(resolve => { finishRouting = resolve; });

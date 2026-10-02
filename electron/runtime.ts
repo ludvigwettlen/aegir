@@ -21,6 +21,7 @@ import { BrowserManager, browserInstructions } from './browser.js';
 import { SkillRegistry, type SkillSession } from './skills.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
 import type { SkillProposal } from '../shared/skills.js';
+import { mentionsAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
 import {
   cleanRoutineChange,
@@ -333,7 +334,7 @@ export class Runtime {
           (other) =>
             other.id !== agent.id &&
             group.agentIds.includes(other.id) &&
-            new RegExp(`@${other.name}\\b`, 'i').test(result.text),
+            mentionsAgent(result.text, other.name),
         );
         if (next) {
           this.store.addMessage(
@@ -375,6 +376,7 @@ export class Runtime {
     const collaboration = collaborationInstructions(
       this.store.list('agents').filter(other => other.id !== agent.id && group.agentIds.includes(other.id)),
       depth > 0,
+      kind === 'task',
     );
     const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
     if (kind === 'task')

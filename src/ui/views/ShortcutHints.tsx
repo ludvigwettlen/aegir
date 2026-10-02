@@ -10,14 +10,14 @@ function contextFor(route: Route): Context {
   const editor = target?.matches('input, textarea, select, [contenteditable="true"]');
   if (document.querySelector('.document-open') && !dialog) return {
     title: 'Document workspace', editing: true, dialog: false,
-    hints: [['Esc', 'Save and close document'], ['F6', 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['Tab / ⇧Tab', 'Move between controls']],
+    hints: [['Esc', 'Save and close document'], ['F6', 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['/', 'Insert formatting on an empty line'], ['⌘K', 'Insert link'], ['Tab / ⇧Tab', 'Move between controls']],
   };
   if (dialog) return { title: dialog.getAttribute('aria-label') || 'Dialog', editing: true, dialog: true,
     hints: [['Tab / ⇧Tab', 'Move between controls'], ['Esc', 'Cancel'], ...(dialog.classList.contains('ws-popover') ? [['Enter', 'Save or hand off'] as Hint, ['⇧Enter', 'New line in instructions'] as Hint] : [])] };
   if (editor) {
     const label = target?.getAttribute('aria-label');
     const hints: Hint[] = [['⌘Z', 'Undo text edit'], ['Tab / ⇧Tab', 'Move between controls']];
-    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['↑ / ↓', 'Choose a mention'], ['Enter / Tab', 'Insert selected mention'], ['Esc', route.view === 'tasks' ? 'Dismiss mention picker or return to task list' : 'Dismiss mention picker or return to thread list']);
+    if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['/', 'Choose a skill'], ['↑ / ↓', 'Choose a suggestion'], ['Enter / Tab', 'Insert selected suggestion'], ['Esc', route.view === 'tasks' ? 'Dismiss picker or return to task list' : 'Dismiss picker or return to thread list']);
     else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['Esc', 'Clear and leave quick add']);
     else if (label === 'Start a thread') hints.unshift(['Enter', 'Start thread']);
     else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit and return to list']);
@@ -32,7 +32,7 @@ function contextFor(route: Route): Context {
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
     ['N', 'Edit notes'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
-    ['A', 'Hand off task or focus its chat'],
+    ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
   );
   else if (route.view === 'group') hints.push(['Enter', 'Start thread from the new-thread field'], ['Enter / ⇧Enter', 'Send / new line in the composer'], ['@', 'Mention an agent or routine in the composer']);

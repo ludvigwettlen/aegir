@@ -21,6 +21,7 @@ import {
   type Run,
 } from './common';
 import { ThreadView } from './ThreadView';
+import { Button } from '../design-system/primitives';
 
 const titles: Record<TaskView, string> = {
   today: 'Today',
@@ -64,11 +65,13 @@ export function TasksView({
   run,
   list,
   notify,
+  onOpenThread,
 }: {
   data: Snapshot;
   run: Run;
   list: TaskView;
   notify: (message: string) => void;
+  onOpenThread: (groupId: string, threadId: string) => void;
 }) {
   const [cursors, setCursors] = useState<Partial<Record<TaskView, string>>>({});
   const [editTarget, setEditTarget] = useState<'title' | 'notes' | 'chat' | null>(null);
@@ -196,6 +199,11 @@ export function TasksView({
         if (current.threadId) setEditTarget('chat');
         else if (current.status !== 'running' && current.status !== 'done') setPopover({ kind: 'handoff', taskId: current.id });
       }
+      else if (key === 'A') {
+        const thread = data.threads.find(item => item.id === current.threadId);
+        if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
+        else notify('This task has no conversation yet');
+      }
       else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
@@ -311,6 +319,7 @@ export function TasksView({
           task={open}
           data={data}
           run={run}
+          onOpenThread={onOpenThread}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
@@ -529,12 +538,14 @@ function TaskDetail({
   run,
   onReturnToList,
   onHandOff,
+  onOpenThread,
 }: {
   task: Task;
   data: Snapshot;
   run: Run;
   onReturnToList: () => void;
   onHandOff: () => void;
+  onOpenThread: (groupId: string, threadId: string) => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
   const group = thread && data.groups.find((item) => item.id === thread.groupId);
@@ -554,13 +565,11 @@ function TaskDetail({
   const header = (
     <header className="ws-detail-head">
       {(group || task.sourceUrl || task.status === 'running') && <div className="ws-detail-top">
-        {(group || task.sourceUrl) && <span className="ws-crumb">
-          {group
-            ? `Thread in ${group.kind === 'private' ? group.title : `#${group.title}`}`
-            : task.sourceUrl
-              ? 'From a source'
-              : ''}
-        </span>}
+        {group && thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
+          title="Open conversation in channel (Shift+A)"
+          onClick={() => onOpenThread(group.id, thread.id)}>
+          <span>Thread in {group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={12} />
+        </Button> : task.sourceUrl && <span className="ws-crumb">From a source</span>}
         {task.status === 'running' && (
           <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
             <Square size={12} /> Stop

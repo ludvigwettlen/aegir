@@ -369,3 +369,19 @@
   white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto;
   max-height: min(220px, 35vh); color: var(--ds-color-ink); line-height: 1.5;
 }
+
+.ws-task-thread-link { flex: 1; min-width: 0; justify-content: flex-start; text-align: left;
+  span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  svg { flex: none; }
+}
+.ws-picker { max-width: calc(100% - 36px); max-height: 320px; overflow-y: auto; background: var(--ds-color-surface); }
+.ws-picker .ws-skill-option { align-items: flex-start;
+  span { min-width: 0; overflow-wrap: anywhere; }
+  strong { display: block; font-weight: 600; }
+  span small { display: block; margin-top: 3px; color: var(--ds-color-muted); }
+}
+.ws-picker-state { margin: 0; padding: 8px; font-size: 12px; color: var(--ds-color-muted); }
+.ws-selected-skills { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0;
+  > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; padding: 3px 5px 3px 8px; border-radius: var(--ds-radius-control); background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); font-size: 12px; }
+  button { flex: none; }
+}

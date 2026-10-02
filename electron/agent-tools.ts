@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Agent, Group, Routine, RoutineChange } from '../shared/types.js';
+import type { Agent, Routine, RoutineChange } from '../shared/types.js';
 import type { Tool } from './codex.js';
 import { validSchedule } from '../shared/routines.js';
 
@@ -67,12 +67,7 @@ export function cleanRoutineChange(value: unknown, agents: Agent[], isNew: boole
   return change;
 }
 
-// Agents mentioned by name (@Mimer), falling back to the group lead.
-export function mentionedAgents(text: string, agents: Agent[], group: Group): Agent[] {
-  const mentioned = agents.filter(agent => new RegExp(`@${agent.name}\\b`, 'i').test(text));
-  if (group.kind === 'private') return agents.filter(agent => agent.id === group.leadAgentId);
-  return mentioned.length ? mentioned : agents.filter(agent => agent.id === group.leadAgentId);
-}
+export { mentionedAgents } from '../shared/agent-mentions.js';
 
 // Routines are tagged as @Routine name. Longer names win so "@Weekly metrics digest" does not also match "@Weekly".
 export function mentionedRoutines(text: string, routines: Routine[]): Routine[] {
