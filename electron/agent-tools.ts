@@ -22,7 +22,7 @@ export function memoryRecallTool(agent: Agent): Tool {
 export const taskReadTools: Tool[] = [
   {
     name: 'tasks__list',
-    description: 'Find the user’s todos in Ägir by title or notes. Returns ids and summaries; use tasks__read for the complete saved notes. Omit query to browse all todos, and use nextOffset for more results.',
+    description: 'Find the user’s todos in Aegir by title or notes. Returns ids and summaries; use tasks__read for the complete saved notes. Omit query to browse all todos, and use nextOffset for more results.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, additionalProperties: false },
     readOnly: true,
   },

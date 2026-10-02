@@ -41,6 +41,11 @@ export type MessageMeta = {
   routineId: string;
   change: RoutineChange;
   state: 'pending' | 'applied' | 'discarded';
+} | {
+  type: 'skill-change';
+  proposalId: string;
+  skillId: string;
+  skillName: string;
 };
 export type Message = {
   id: string;
@@ -103,7 +108,7 @@ export type RunEvent = {
   text: string;
 };
 export type Connector = {
-  id: 'slack' | 'notion';
+  id: 'slack' | 'notion' | 'composio';
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
   detail: string;
   tools: string[];
@@ -147,7 +152,7 @@ export type Snapshot = {
   codexStatus: string;
   launchAtLogin: boolean;
   browser: BrowserState;
-  mcpSettings: { slackClientId: string; slackConfigured: boolean };
+  mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
 export type AppEvent =
   | { type: 'open-settings' }
@@ -193,11 +198,11 @@ export interface DesktopApi extends SkillsApi {
   runEvents(runId: string): Promise<RunEvent[]>;
   resolveApproval(id: string, approved: boolean): Promise<void>;
   connect(
-    provider: 'slack' | 'notion',
+    provider: 'slack' | 'notion' | 'composio',
     slackClientId?: string,
     slackClientSecret?: string,
   ): Promise<void>;
-  disconnect(provider: 'slack' | 'notion'): Promise<void>;
+  disconnect(provider: 'slack' | 'notion' | 'composio'): Promise<void>;
   setMemoryInstructions(value: string): Promise<void>;
   searchMemories(query: string): Promise<Memory[]>;
   forgetMemory(id: string, scope: string): Promise<void>;

@@ -26,10 +26,131 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
   runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, browser);
   cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
-  return { store, runtime, runs, memory };
+  return { store, runtime, runs, memory, reopen: () => new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }) };
 }
 
 describe('runtime', () => {
+  it('publishes a skill review card in its source chat and includes the saved outcome in later context', async () => {
+    let receipt: unknown;
+    let proposed = false;
+    const { store, runtime, runs } = setup(async (_input, id, rt) => {
+      if (!proposed) {
+        proposed = true;
+        const skill = rt.skills.list().find(s => s.name === 'follow-up-extraction')!;
+        const files = rt.skills.detail(skill.id).files.map(f => ({ ...f, content: f.content + '\nRequire explicit ownership.' }));
+        receipt = await rt.handleInternalTool('skills', 'propose_change', { id: skill.id, expectedRevision: skill.revision, files, reason: 'Require evidence of ownership' }, id);
+      }
+      return 'Done';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Improve follow-ups');
+    const other = store.createThread(store.groups()[0].id, 'Unrelated');
+    const emitted: unknown[] = [];
+    store.onMessage = message => emitted.push(message);
+    await runtime.sendMessage(thread.id, 'Propose better extraction rules');
+    const proposal = runtime.skills.proposals()[0];
+    expect(proposal).toMatchObject({ state: 'pending' });
+    expect(receipt).toMatchObject({ id: proposal.id, reviewLocation: 'Review changes card in this conversation' });
+    const card = store.messagePage(thread.id).messages.find(m => m.meta?.type === 'skill-change')!;
+    expect(card).toMatchObject({ content: proposal.reason, meta: { proposalId: proposal.id, skillName: 'follow-up-extraction' } });
+    expect(emitted).toContainEqual(expect.objectContaining({ id: card.id, meta: card.meta, threadId: thread.id }));
+    expect(store.messagePage(other.id).messages).toHaveLength(0);
+    runtime.skills.resolveProposal(proposal.id, true);
+    await runtime.sendMessage(thread.id, 'Where is the proposal now?');
+    expect(runs.at(-1)?.prompt).toContain('current state: applied');
+    expect(runtime.skills.detail(proposal.skillId).files[0].content).toContain('Require explicit ownership.');
+  });
+
+  it('backfills existing skill proposals once without reopening or reordering closed conversations', () => {
+    const { store, runtime, reopen } = setup();
+    const group = store.groups()[0];
+    const thread = store.createThread(group.id, 'Older conversation');
+    const source = store.addMessage(thread.id, group.leadAgentId, 'agent', 'Proposed');
+    const skill = runtime.skills.list()[0];
+    const proposal = runtime.skills.propose(skill.id, skill.revision, runtime.skills.detail(skill.id).files, 'Review this', { agentId: group.leadAgentId, runId: source.id });
+    runtime.skills.resolveProposal(proposal.id, false);
+    store.db.prepare("UPDATE threads SET status='closed' WHERE id=?").run(thread.id);
+    const original = store.get('threads', thread.id);
+    reopen(); reopen();
+    const cards = store.messagePage(thread.id).messages.filter(m => m.meta?.type === 'skill-change');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ createdAt: proposal.createdAt, meta: { proposalId: proposal.id } });
+    expect(store.get('threads', thread.id)).toEqual(original);
+    expect(runtime.skills.proposals()[0].state).toBe('discarded');
+  });
+
+  it('creates no review card for a failed proposal', async () => {
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      const skill = rt.skills.list()[0];
+      await rt.handleInternalTool('skills', 'propose_change', { id: skill.id, expectedRevision: 'stale', files: rt.skills.detail(skill.id).files, reason: 'Invalid revision' }, id);
+      return 'Should not succeed';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Failed proposal');
+    await expect(runtime.sendMessage(thread.id, 'Try a stale proposal')).rejects.toThrow('changed since');
+    expect(runtime.skills.proposals()).toHaveLength(0);
+    const messages = store.messagePage(thread.id).messages;
+    expect(messages.some(m => m.meta?.type === 'skill-change')).toBe(false);
+    expect(messages.at(-1)?.status).toBe('failed');
+  });
+
+  it.each(['group', 'private'] as const)('lets the first agent title a new %s chat without adding a chat message', async kind => {
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      if (input.tools.some(tool => tool.name === 'threads__set_title')) {
+        expect(input.instructions).toContain('Before answering, call threads__set_title');
+        expect(await rt.handleInternalTool('threads', 'set_title', { title: '  Designer competency mapping  ' }, id)).toEqual({ updated: true });
+        await expect(rt.handleInternalTool('threads', 'set_title', { title: 'Another title' }, id)).rejects.toThrow('first response');
+      }
+      return 'Here is the mapping.';
+    });
+    const group = store.groups().find(group => group.kind === kind)!;
+    const opening = 'Could you help me map our designers against the competencies in Proposal A?';
+    const thread = await runtime.startThread(group.id, opening);
+    await vi.waitFor(() => expect(store.messagesForThread(thread.id).at(-1)?.status).toBe('complete'));
+    expect(store.get('threads', thread.id)?.title).toBe('Designer competency mapping');
+    expect(store.threadSummaries().find(item => item.id === thread.id)?.title).toBe('Designer competency mapping');
+    expect(store.messagesForThread(thread.id).map(message => message.content)).toEqual([opening, 'Here is the mapping.']);
+    await runtime.sendMessage(thread.id, 'Now refine the criteria');
+    expect(runs).toHaveLength(2);
+    expect(runs[1].tools.some(tool => tool.name === 'threads__set_title')).toBe(false);
+    expect(store.get('threads', thread.id)?.title).toBe('Designer competency mapping');
+    await expect(runtime.handleInternalTool('threads', 'set_title', { title: 'Late title' }, 'codex-1')).rejects.toThrow('first response');
+  });
+
+  it('keeps the fallback title if no valid suggestion is supplied', async () => {
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      for (const title of [null, '', '   ', 'x'.repeat(81), 'Invalid\u0000title'])
+        await expect(rt.handleInternalTool('threads', 'set_title', { title }, id)).rejects.toThrow('title');
+      return 'The answer still works.';
+    });
+    const thread = await runtime.startThread(store.groups()[0].id, 'Help with planning');
+    await vi.waitFor(() => expect(store.messagesForThread(thread.id).at(-1)?.status).toBe('complete'));
+    expect(store.get('threads', thread.id)?.title).toBe('Help with planning');
+  });
+
+  it('rejects title suggestions after the user stops a response', async () => {
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      await rt.stopThread(rt.appThreadFor(id)!);
+      await expect(rt.handleInternalTool('threads', 'set_title', { title: 'Too late' }, id)).rejects.toThrow('first response');
+      return 'Stopped';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Original');
+    await runtime.sendMessage(thread.id, 'Help with planning');
+    expect(store.get('threads', thread.id)?.title).toBe('Original');
+  });
+
+  it.each(['task', 'routine'] as const)('does not offer or accept chat titles in %s runs', async kind => {
+    const { store, runtime } = setup(async (input, id, rt) => {
+      expect(input.tools.some(tool => tool.name === 'threads__set_title')).toBe(false);
+      await expect(rt.handleInternalTool('threads', 'set_title', { title: 'Wrong scope' }, id)).rejects.toThrow('first response');
+      return 'Done';
+    });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else {
+      const task = store.createTask({ title: 'Keep task title' });
+      await runtime.handOff(task.id, 'Research');
+      expect(store.get('threads', store.get('tasks', task.id)!.threadId!)?.title).toBe(task.title);
+    }
+  });
+
   it('acknowledges a saved long message before the agent finishes and rejects duplicate sends', async () => {
     let finish!: () => void;
     const gate = new Promise<void>(resolve => { finish = resolve; });
@@ -262,7 +383,7 @@ describe('runtime', () => {
     expect(proposal.meta).toMatchObject({ type: 'routine-change', state: 'pending' });
     runtime.resolveRoutineChange(proposal.id, true);
     expect(store.routines()[0].schedule).toEqual({ every: 'hour', weekdaysOnly: true });
-    expect(store.message(proposal.id)!.meta!.state).toBe('applied');
+    expect(store.message(proposal.id)!.meta).toMatchObject({ state: 'applied' });
     expect(() => runtime.resolveRoutineChange(proposal.id, true)).toThrow('no longer pending');
   });
 });

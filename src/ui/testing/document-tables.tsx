@@ -17,4 +17,4 @@ window.aegir = {
   },
 } as unknown as DesktopApi;
 const { DocumentEditor } = await import('../views/DocumentEditor');
-createRoot(document.getElementById('host')!).render(<DocumentEditor document={saved} threadId="table-test" onClose={() => {}} onSelection={() => {}} />);
+createRoot(document.getElementById('host')!).render(<DocumentEditor document={saved} threadId="table-test" onClose={() => {}} onSelection={() => {}} onOpenDocument={() => {}} />);

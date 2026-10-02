@@ -3,7 +3,7 @@ import { cleanRoutineChange, connectorToolsFor, mentionedAgents, mentionedRoutin
 import type { Agent, Group, Routine } from '../shared/types.js';
 
 const agent = (id: string, name: string): Agent => ({ id, name, role: '', color: '', instructions: '', createdAt: '' });
-const agents = [agent('a', 'Ägir'), agent('s', 'Mimer'), agent('q', 'Saga')];
+const agents = [agent('a', 'Aegir'), agent('s', 'Mimer'), agent('q', 'Saga')];
 const group: Group = { id: 'g', title: 'General', kind: 'group', agentIds: ['a', 's', 'q'], leadAgentId: 'a', instructions: '', createdAt: '' };
 
 describe('tool policy', () => {
@@ -18,8 +18,8 @@ describe('tool policy', () => {
 describe('mentions', () => {
   it('routes to mentioned agents, else the lead; private groups always go to their agent', () => {
     expect(mentionedAgents('@mimer can you look?', agents, group).map(x => x.name)).toEqual(['Mimer']);
-    expect(mentionedAgents('@ägir please help', agents, group).map(x => x.name)).toEqual(['Ägir']);
-    expect(mentionedAgents('hello', agents, group).map(x => x.name)).toEqual(['Ägir']);
+    expect(mentionedAgents('@aegir please help', agents, group).map(x => x.name)).toEqual(['Aegir']);
+    expect(mentionedAgents('hello', agents, group).map(x => x.name)).toEqual(['Aegir']);
     expect(mentionedAgents('@Saga hi', agents, { ...group, kind: 'private', agentIds: ['s'], leadAgentId: 's' }).map(x => x.name)).toEqual(['Mimer']);
   });
   it('finds tagged routines by full name', () => {

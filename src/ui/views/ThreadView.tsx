@@ -9,6 +9,7 @@ import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
+import { SkillChangeCard } from './SkillChangeCard';
 
 type Mention = { kind: 'agent'; agent: Agent } | { kind: 'routine'; routine: Routine };
 
@@ -141,7 +142,7 @@ export function ThreadView({
           onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setChatWidth(Math.max(25, Math.min(55, (event.clientX - rect.left) / rect.width * 100))); } }}
           onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)}
           onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowRight' ? 2 : -2)))); } }} />
-        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} headerActions={filePicker} />
+        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument} headerActions={filePicker} />
       </>}
       </div>
     </div>
@@ -149,6 +150,8 @@ export function ThreadView({
 }
 
 function MessageRow({ message, data, run, onOpenDocument }: { message: Message; data: Snapshot; run: Run; onOpenDocument: (path: string) => void }) {
+  if (message.meta?.type === 'skill-change')
+    return <SkillChangeCard meta={message.meta} reason={message.content} />;
   if (message.meta?.type === 'routine-change')
     return <RoutineChangeCard message={message} data={data} run={run} />;
   if (message.role === 'system')
@@ -190,6 +193,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
 
 function RoutineChangeCard({ message, data, run }: { message: Message; data: Snapshot; run: Run }) {
   const meta = message.meta!;
+  if (meta.type !== 'routine-change') return null;
   const routine = data.routines.find((item) => item.id === meta.routineId);
   const rows: [string, string | undefined, string][] = [];
   const agentName = (id?: string) => data.agents.find((agent) => agent.id === id)?.name;

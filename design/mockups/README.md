@@ -2,7 +2,7 @@
 
 ## Implemented UI preview
 
-`document-workspace-app.html` loads the real application UI against an isolated, in-memory desktop API. Serve it through Vite (without the Electron launch plugin) and open `/design/mockups/document-workspace-app.html`, then General → Ägir PRD. It reflects the refined interaction: formatted editing only, automatic selection context, no draft header or suggestion widget, and Esc/F6 keyboard navigation. Files and messages are simulated; no user data or agents are accessed.
+`document-workspace-app.html` loads the real application UI against an isolated, in-memory desktop API. Serve it through Vite (without the Electron launch plugin) and open `/design/mockups/document-workspace-app.html`, then General → Aegir PRD. It reflects the refined interaction: formatted editing only, automatic selection context, no draft header or suggestion widget, and Esc/F6 keyboard navigation. Files and messages are simulated; no user data or agents are accessed.
 
 The original standalone sketch below is retained as design history.
 

@@ -55,7 +55,7 @@ export class MemoryService {
       return [{ id: result.id, scope, content: result.content, sourceUrl, createdAt: typeof result.timestamp === 'string' ? result.timestamp : '' }];
     });
   }
-  // This table is read only for the one-time transfer from old Ägir builds.
+  // This table is read only for the one-time transfer from old Aegir builds.
   // Each successful remote write removes its legacy row; a failed write leaves it intact.
   migrateLegacy(): Promise<void> {
     if (this.migration) return this.migration;

@@ -46,7 +46,7 @@ export function App() {
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  if (!data) return <div className="loading">Loading Ägir…</div>;
+  if (!data) return <div className="loading">Loading Aegir…</div>;
   const group =
     route.view === 'group' ? data.groups.find((item) => item.id === route.groupId) : undefined;
   const routine =

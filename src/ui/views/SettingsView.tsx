@@ -9,6 +9,14 @@ import { PageHeader } from './PageHeader';
 
 export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run; onSkills: (id?: string) => void }) {
   const [clientId, setClientId] = useState(data.mcpSettings.slackClientId);
+  const [composioKey, setComposioKey] = useState('');
+  const [composioAccount, setComposioAccount] = useState(data.mcpSettings.composioSlackAccount || 'slack_style-winrow');
+  const [composioPending, setComposioPending] = useState(false);
+  const composio = data.connectors.find(x => x.id === 'composio');
+  const composioAction = (action: () => Promise<unknown>) => void run(async () => {
+    setComposioPending(true);
+    try { await action(); } finally { setComposioPending(false); setComposioKey(''); }
+  });
   const [clientSecret, setClientSecret] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<Agent | null>(null);
@@ -72,7 +80,7 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
             <div className="panel-heading">
               <div>
                 <h2>Startup</h2>
-                <p>Open Ägir automatically when you log in to your Mac.</p>
+                <p>Open Aegir automatically when you log in to your Mac.</p>
               </div>
               <Button
                 variant="outline"
@@ -99,6 +107,32 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
                 </p>
               </div>
               <SquareArrowOutUpRight size={18} />
+            </div>
+            <div className="connector-row">
+              <span className="connector-icon slack">#</span>
+              <div>
+                <strong>Slack via Composio</strong>
+                <Badge size="sm" dot tone={composio?.status === 'connected' ? 'success' : composio?.status === 'error' ? 'danger' : 'neutral'}>
+                  {composio?.status || 'disconnected'}
+                </Badge>
+                <small className="connector-detail" role="status">{composio?.detail || 'Reuse your existing Composio Slack connection'}</small>
+              </div>
+              <Button variant="outline" size="sm" disabled={composioPending || composio?.status === 'connecting'}
+                onClick={() => composioAction(() => api.connect('composio', composioAccount, composioKey))}>
+                {composioPending ? 'Connecting…' : composio?.status === 'connected' ? 'Reconnect' : 'Connect'}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={composioPending || composio?.status === 'disconnected'}
+                onClick={() => composioAction(() => api.disconnect('composio'))}>Disconnect</Button>
+            </div>
+            <div className="connector-setup">
+              <p>Use the consumer API key from Composio’s AI Clients setup, or leave it blank to sign in through your browser. A saved key is reused; disconnect to clear it and switch to browser sign-in.</p>
+              <div className="form-row">
+                <input aria-label="Expected Composio Slack account" placeholder="Expected Slack account ID" value={composioAccount}
+                  disabled={composioPending} onChange={event => setComposioAccount(event.target.value)} />
+                <input aria-label="Composio consumer API key" type="password" autoComplete="off" placeholder={data.mcpSettings.composioConfigured ? 'Credential saved' : 'Consumer API key (optional)'}
+                  value={composioKey} disabled={composioPending} onChange={event => setComposioKey(event.target.value)} />
+              </div>
+              <p>Agents check the expected account against Composio’s connection status. Known Slack read actions are available to tasks and routines; other Slack actions require approval in chat. Manage Slack accounts in Composio.</p>
             </div>
             <div className="connector-row">
               <span className="connector-icon slack">#</span>
@@ -180,6 +214,8 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
               >
                 {notion.status === 'connected' ? 'Reconnect' : 'Connect'}
               </Button>
+              <Button variant="ghost" size="sm" disabled={notion.status === 'disconnected'}
+                onClick={() => void run(() => api.disconnect('notion'))}>Disconnect</Button>
             </div>
             <div className="connector-note">
               <ShieldCheck size={15} /> OAuth tokens and secrets are encrypted with macOS

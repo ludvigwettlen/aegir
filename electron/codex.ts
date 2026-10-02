@@ -31,16 +31,36 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
   status = 'Not started';
   setToolHandler(handler: ToolHandler) { this.toolHandler = handler; }
   private executable() {
-    const bundled = '/Applications/ChatGPT.app/Contents/Resources/codex';
-    return process.env.CODEX_BINARY || (existsSync(bundled) ? bundled : 'codex');
+    const bundled = [
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+      '/Applications/ChatGPT.app/Contents/Resources/codex',
+    ];
+    return process.env.CODEX_BINARY || bundled.find(path => existsSync(path)) || 'codex';
   }
   async start() {
     if (this.child) return;
-    this.child = spawn(this.executable(), ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const executable = this.executable();
+    const launchError = (error: Error) => new Error(`Could not start Codex (${executable}): ${error.message}. Check the Codex installation or CODEX_BINARY setting.`);
+    try {
+      this.child = spawn(executable, ['app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (error) {
+      this.status = 'Failed to start'; this.emit('status');
+      throw launchError(error as Error);
+    }
+    const child = this.child;
     this.child.stderr.on('data', (data: Buffer) => this.emit('log', data.toString()));
-    this.child.on('exit', () => { this.status = 'Stopped'; this.child = null; this.lightweightModel = null; for (const [, p] of this.pending) p.reject(new Error('Codex app-server stopped')); this.pending.clear(); for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' }); this.turns.clear(); this.emit('status'); });
+    const stopped = (error: Error, status: string) => {
+      if (this.child !== child) return;
+      this.status = status; this.child = null; this.lightweightModel = null;
+      for (const [, p] of this.pending) p.reject(error);
+      this.pending.clear();
+      for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' });
+      this.turns.clear(); this.emit('status');
+    };
+    child.on('error', error => stopped(launchError(error), 'Failed to start'));
+    child.on('exit', () => stopped(new Error('Codex app-server stopped'), 'Stopped'));
     createInterface({ input: this.child.stdout }).on('line', line => { try { this.receive(JSON.parse(line) as RpcMessage); } catch { this.emit('log', `Invalid Codex event: ${line}`); } });
-    await this.request('initialize', { clientInfo: { name: 'aegir', title: 'Ägir', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+    await this.request('initialize', { clientInfo: { name: 'aegir', title: 'Aegir', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     this.notify('initialized', {});
     this.status = 'Connected'; this.emit('status');
   }

@@ -54,6 +54,7 @@ vi.mock('./connectors.js', async () => {
   return { ConnectorManager: class extends EventEmitter {
     states = {};
     constructor() { super(); fixture.connectors = this; }
+    composioConfigured() { return false; }
     slackConfigured() { return false; }
     start() {}
     close() { this.emit('change'); }

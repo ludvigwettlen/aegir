@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDue, parseQuickAdd, tasksFor } from './tasks.js';
+import { parseDue, parseQuickAdd, taskCursor, tasksFor } from './tasks.js';
 import type { Task } from './types.js';
 
 const saturday = new Date(2026, 8, 26);
@@ -31,5 +31,30 @@ describe('task lists', () => {
     expect(tasksFor('team', tasks, saturday).map(x => x.id)).toEqual(['blocked']);
     expect(tasksFor('needs', tasks, saturday).map(x => x.id)).toEqual(['suggested', 'blocked']);
     expect(tasksFor('completed', tasks, saturday).map(x => x.id)).toEqual(['recently-done', 'done']);
+  });
+  it.each(['ready', 'dismissed'] as const)('advances past a proposal changed to %s instead of jumping to review', status => {
+    const before: Task[] = [
+      { ...base, id: 'review', status: 'review' },
+      { ...base, id: 'first-proposal', status: 'proposed' },
+      { ...base, id: 'next-proposal', status: 'proposed' },
+    ];
+    const after = tasksFor('needs', before.map(task => task.id === 'first-proposal' ? { ...task, status } : task));
+    expect(taskCursor(after.map(task => task.id), before.map(task => task.id), 'first-proposal')).toBe('next-proposal');
+  });
+});
+
+describe('task cursor', () => {
+  it('moves backward when the last task disappears', () => {
+    expect(taskCursor(['review', 'first'], ['review', 'first', 'last'], 'last')).toBe('first');
+  });
+  it('skips other tasks removed in the same update', () => {
+    expect(taskCursor(['review', 'last'], ['review', 'first', 'second', 'last'], 'first')).toBe('last');
+  });
+  it('keeps the selected task when the list is reordered', () => {
+    expect(taskCursor(['second', 'first'], ['first', 'second'], 'first')).toBe('first');
+  });
+  it('handles empty and newly opened lists', () => {
+    expect(taskCursor([], ['only'], 'only')).toBeUndefined();
+    expect(taskCursor(['first', 'second'], [])).toBe('first');
   });
 });

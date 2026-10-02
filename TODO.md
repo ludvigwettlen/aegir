@@ -11,7 +11,27 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 - [ ] Make team collaboration the default for handed-off tasks: the lead should involve suitable teammates unless the task is clearly simple enough to handle alone.
 - [ ] Add /-commands in the chat composer to discover and invoke skills.
 - [ ] Add an in-app Markdown viewer and editor for reviewing, editing, and collaborating on files with the agent team.
-- [ ] Exercise Slack, Notion, and full agent runs end to end with real accounts.
+- [ ] Add a Copy chat transcript button.
+- [ ] Add proper web search tools for agents.
+
+## Security review follow-ups — 2026-10-01
+
+Reviewed the working tree, including uncommitted changes. P1 items are high priority; P2 items are normal priority. These findings have not been fixed.
+
+- [ ] **P1 — Show the actual scope of permission approvals.** In `electron/codex.ts`, display requested filesystem paths, access levels, network access, and grant duration alongside the agent's reason. Currently the reason can be the only visible detail while approval grants the full requested permissions for the turn. Add a regression test verifying that every granted capability is visible to the user.
+- [ ] **P1 — Cancel pending external writes when their run ends.** Bind connector approvals in `electron/main.ts` to the originating run's cancellation signal, expire them on stop/completion, and revalidate the active run immediately before calling the connector. A pending write currently executes after its run context disappears if its stale approval is accepted. Cover cancellation, completion, and late approval responses.
+- [ ] **P1 — Isolate Aegir runs from host Codex MCP/plugin tools.** `electron/codex.ts` disables host skills but does not isolate inherited MCP/plugin configuration. A host tool configured for automatic approval can bypass Aegir's connector policy, including in routines. Use an explicitly restricted configuration and verify the effective tool inventory; test with a synthetic host write tool. This risk depends on host configuration and was not tested with a live external write. See the [official MCP configuration documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+- [ ] **P1 — Upgrade the packaged Electron runtime and triage dependency advisories.** `package.json` resolves to Electron 37.10.3. The review's dependency audit reported 41 advisories (13 high, 22 moderate, six low), including 37 Electron entries. Upgrade to a supported, patched release, rebuild native dependencies, and rerun the audit and app checks. Electron is the packaged runtime despite being listed in devDependencies. Review the [context-isolation bypass advisory](https://github.com/electron/electron/security/advisories/GHSA-h7rp-cf8h-j98x), which involves the Promise-returning bridge pattern used here; exploitability requires additional conditions, and the advisory count is not a count of demonstrated application exploits.
+- [ ] **P2 — Replace Slack/Notion read-only name heuristics with explicit allowlists.** In `electron/connectors.ts`, a `get`/`read`-style name currently overrides even an explicit `readOnlyHint: false`. Follow Composio's reviewed allowlist approach; require chat approval for unknown actions and exclude them from tasks/routines. Add a regression case for a synthetic `notion-get-or-create-page` tool marked as a write.
+
+Validation at review time: TypeScript passed; 132 tests passed under Electron's runtime, with two opt-in tests skipped. Three temporary probes reproduced hidden permission scope, writes after run-context removal, and the read-only classification override. The probes were removed from the project after the review. Live authenticated integrations were not exercised.
+
+## Structural and security hardening
+
+- [ ] Centralize run identity, allowed tools, cancellation, and pending approvals in a shared run context used by every tool dispatcher. Permission and lifecycle ownership is currently split across `main.ts`, `runtime.ts`, `codex.ts`, and the browser/connector modules.
+- [ ] Validate IPC sender/frame identity and channel payloads at the boundary in `electron/main.ts`; replace the unchecked `any[]` handler contract with runtime schemas and typed handlers. Test rejection of untrusted senders and malformed payloads.
+- [ ] Enable the Electron renderer sandbox, currently disabled in `electron/main.ts`, and verify preload compatibility and app flows. Sender validation and sandboxing are hardening gaps, not demonstrated renderer exploits. Follow [Electron's security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
+- [ ] Separate IPC registration, approval management, and startup from `electron/main.ts`; separate migrations and domain persistence responsibilities in `electron/db.ts` so permission boundaries and data preservation are easier to test.
 
 ## Recently completed
 

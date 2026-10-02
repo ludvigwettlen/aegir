@@ -33,9 +33,9 @@ it.skipIf(process.env.AEGIR_BROWSER_SMOKE !== '1')('browses, interacts, sees ima
     };
     const nav = await invoke('browser_navigate', { url: `${url}/remember` });
     expect(JSON.stringify(nav.content)).toContain('Browser test');
-    await invoke('browser_type', { target: 'role=textbox[name="Name"]', text: 'Ägir' });
+    await invoke('browser_type', { target: 'role=textbox[name="Name"]', text: 'Aegir' });
     const clicked = await invoke('browser_click', { target: 'role=button[name="Greet"]' });
-    expect(JSON.stringify(clicked.content)).toContain('Hello Ägir');
+    expect(JSON.stringify(clicked.content)).toContain('Hello Aegir');
     const screenshot = mcpToolResult(await invoke('browser_take_screenshot', { type: 'png', scale: 'css' }));
     expect(screenshot.contentItems.some(item => item.type === 'inputImage' && item.imageUrl.startsWith('data:image/png;base64,'))).toBe(true);
     await backend.close();

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BookOpen, Plus, Upload } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import type { Skill, SkillDetail, SkillFile, SkillProposal } from '../../../shared/skills';
+import { PackageDiff } from '../design-system/PackageDiff';
 import { newSkillText } from '../../../shared/skills';
 import { Button, Badge } from '../design-system/primitives';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
@@ -107,8 +108,4 @@ function SkillEditor({ skill, allSkills, data, run, onReload, onCopy }: { skill:
     <details><summary>Revision history ({detail.revisions.length})</summary>{detail.revisions.map(revision => <div className="skill-history" key={revision.id}><span>{revision.reason}<small>{new Date(revision.createdAt).toLocaleString()} · {data.agents.find(a => a.id === revision.actor)?.name || revision.actor}</small></span><Button size="sm" variant="ghost" disabled={busy || dirty || revision.id === base} onClick={() => void act(() => api.restoreSkillRevision(skill.id, base, revision.id))}>Restore</Button></div>)}</details>
     <details><summary>Recent loads</summary>{detail.recentLoads.length ? detail.recentLoads.map((load, i) => <p className="skills-meta" key={i}>{data.agents.find(a => a.id === load.agentId)?.name} · {load.path} · revision {load.revision.slice(0, 8)} · {new Date(load.createdAt).toLocaleString()}</p>) : <p>No loads yet. Loading records access, not whether the workflow succeeded.</p>}</details>
   </div>;
-}
-function PackageDiff({ before, after }: { before: SkillFile[]; after: SkillFile[] }) {
-  const paths = [...new Set([...before, ...after].map(f => f.path))].filter(path => JSON.stringify(before.find(f => f.path === path)) !== JSON.stringify(after.find(f => f.path === path)));
-  return <>{paths.map(path => { const old = before.find(f => f.path === path); const next = after.find(f => f.path === path); return <div key={path}><h4>{path} · {!old ? 'Added' : !next ? 'Removed' : 'Changed'}</h4><div className="skill-diff"><div><strong>Before</strong><pre>{old ? old.encoding === 'utf8' ? old.content : '[Binary asset]' : '(No file)'}</pre></div><div><strong>Proposed</strong><pre>{next ? next.encoding === 'utf8' ? next.content : '[Binary asset]' : '(Removed)'}</pre></div></div></div>; })}</>;
 }

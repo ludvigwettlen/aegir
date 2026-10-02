@@ -16,10 +16,12 @@ import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
-import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
+import { baseAgentInstructions, collaborationInstructions, memoryInstructions } from './agent-instructions.js';
 import { BrowserManager, browserInstructions } from './browser.js';
 import { SkillRegistry, type SkillSession } from './skills.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
+import type { SkillProposal } from '../shared/skills.js';
+import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
 import {
   cleanRoutineChange,
   connectorToolsFor,
@@ -42,6 +44,7 @@ type Context = {
   skills?: SkillSession;
   browser?: boolean;
   threadId?: string;
+  initialTitle?: string;
   runId?: string;
   counts?: { tasks: number; memories: number };
 };
@@ -67,7 +70,11 @@ export class Runtime {
     private emit: (event: AppEvent) => void,
     private paths: { outputRoot: string; routineCwd: string },
     private browser?: BrowserManager,
-  ) { this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId); }
+  ) {
+    this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId);
+    for (const proposal of this.skills.proposals())
+      store.ensureSkillProposalMessage(proposal, this.skills.get(proposal.skillId).name);
+  }
 
   contextFor(codexThreadId: string) {
     return this.active.get(codexThreadId);
@@ -255,10 +262,17 @@ export class Runtime {
     let activeId: string | undefined;
     try {
       const agents = this.store.list('agents');
-      const history = this.store
-        .messagePage(thread.id, message.id, 30)
-        .messages.map((x) => `${this.speaker(x, agents)}: ${x.content}`)
-        .join('\n');
+      const page = this.store.messagePage(thread.id, message.id, 30);
+      const suggestTitle = kind === 'chat' && depth === 0 && !page.before
+        && page.messages.length === 1 && page.messages[0].role === 'user';
+      const proposals = new Map(this.skills.proposals().map(proposal => [proposal.id, proposal]));
+      const history = page.messages.map((x) => {
+        if (x.meta?.type === 'skill-change') {
+          const proposal = proposals.get(x.meta.proposalId);
+          return `System: Skill revision ${x.meta.skillName}, proposal ${x.meta.proposalId}, current state: ${proposal?.state || 'unavailable'}. Review changes in this conversation. Reason: ${x.content}`;
+        }
+        return `${this.speaker(x, agents)}: ${x.content}`;
+      }).join('\n');
       const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
       if (!this.available) return false;
       const routines = kind === 'chat' ? mentionedRoutines(userText, this.store.routines()) : [];
@@ -271,6 +285,7 @@ export class Runtime {
         ...skillTools,
         ...taskReadTools,
         ...(kind === 'chat' ? [proposeRoutineTool] : []),
+        ...(suggestTitle ? [threadTitleTool] : []),
       ];
       const skillContext = this.skills.session(agent.id, message.id, kind, tools.map(tool => tool.name), userText);
       const prompt = [
@@ -292,14 +307,14 @@ export class Runtime {
       const result = await this.codex.run({
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
-        instructions: `${this.instructionsFor(kind, agent, group)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}`,
+        instructions: `${this.instructionsFor(kind, agent, group, depth)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}\n${suggestTitle ? threadTitleInstructions : ''}`,
         prompt,
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) => {
           if (!this.available) return;
           activeId = codexThreadId;
-          this.active.set(codexThreadId, { kind, threadId: thread.id, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')) });
+          this.active.set(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')) });
         },
         onDelta: (delta) => {
           if (!this.available) return;
@@ -355,18 +370,23 @@ export class Runtime {
       }
     }
   }
-  private instructionsFor(kind: RunKind, agent: Agent, group: Group) {
+  private instructionsFor(kind: RunKind, agent: Agent, group: Group, depth = 0) {
     const memoryGuidance = memoryInstructions(this.store.getSetting('memoryInstructions') || '');
+    const collaboration = collaborationInstructions(
+      this.store.list('agents').filter(other => other.id !== agent.id && group.agentIds.includes(other.id)),
+      depth > 0,
+    );
     const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
     if (kind === 'task')
       return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
 Slack and Notion tools are read-only; use them to research. Do not write to external systems through commands or connectors. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
-If another agent in the group should do part of the work, mention them as @Name in your final reply.
+${collaboration}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
-    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Ägir.${purpose}
-Address the user directly. If another agent should contribute, mention them as @Name in your final reply. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
+    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Aegir.${purpose}
+Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
+${collaboration}
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}`;
   }
@@ -395,6 +415,16 @@ ${memoryGuidance}`;
   ): Promise<unknown> {
     if (!this.available) throw new Error('Runtime is stopped');
     const context = this.active.get(codexThreadId);
+    if (provider === 'threads' && tool === 'set_title') {
+      if (context?.kind !== 'chat' || !context.threadId || context.initialTitle === undefined
+        || !this.runningThreads.has(context.threadId) || this.runningThreads.get(context.threadId)?.cancelled)
+        throw new Error('Title suggestions are only available during the first response in a new chat');
+      const title = cleanThreadTitle(args.title);
+      const updated = this.store.setSuggestedThreadTitle(context.threadId, context.initialTitle, title);
+      delete context.initialTitle;
+      if (updated) this.refresh();
+      return { updated };
+    }
     if (provider === 'browser') {
       if (!this.browser || !context?.browser || !context.threadId || this.runningThreads.get(context.threadId)?.cancelled)
         throw new Error('Browser tools are unavailable in this run');
@@ -403,9 +433,15 @@ ${memoryGuidance}`;
     if (provider === 'skills') {
       if (!context?.skills) throw new Error('No active skill session');
       const result = handleSkillTool(this.skills, context.skills, tool, args);
+      let reviewLocation: string | undefined;
+      if (tool === 'propose_change') {
+        const proposal = result as SkillProposal;
+        const message = this.store.ensureSkillProposalMessage(proposal, this.skills.get(proposal.skillId).name);
+        reviewLocation = message ? 'Review changes card in this conversation' : 'Settings → Manage skills → Proposed changes';
+      }
       this.emit({ type: 'skills-changed' });
       this.refresh();
-      return result;
+      return reviewLocation ? { ...result, reviewLocation } : result;
     }
     if (provider === 'memory') {
       const match = tool.match(/^(remember|recall)_([0-9a-f_]+)$/i);

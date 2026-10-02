@@ -126,7 +126,7 @@ describe('Mnemosyne-only memory', () => {
     expect(result).not.toContain('Planning other fact');
   });
 
-  it('searches all Ägir banks for the Memory screen and edits in Mnemosyne', async () => {
+  it('searches all Aegir banks for the Memory screen and edits in Mnemosyne', async () => {
     const { memory } = fixture();
     const saved = await memory.remember('agent-a1b2', 'Draft strategy', 'https://example.com/draft');
     expect(await memory.search('Draft')).toMatchObject([{ id: saved.id, scope: 'agent-a1b2', sourceUrl: 'https://example.com/draft' }]);

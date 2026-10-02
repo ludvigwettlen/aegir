@@ -28,6 +28,20 @@ export function parseQuickAdd(text: string, today = new Date()): { title: string
 }
 
 export type TaskView = 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
+
+// Keep selection near a removed task in the previous visible order.
+export function taskCursor(order: string[], previousOrder: string[], selected?: string): string | undefined {
+  if (selected && order.includes(selected)) return selected;
+  const index = selected ? previousOrder.indexOf(selected) : -1;
+  if (index >= 0) {
+    const remaining = new Set(order);
+    return previousOrder.slice(index + 1).find(id => remaining.has(id))
+      ?? previousOrder.slice(0, index).reverse().find(id => remaining.has(id))
+      ?? order[0];
+  }
+  return order[0];
+}
+
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);

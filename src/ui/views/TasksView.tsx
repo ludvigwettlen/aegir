@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,7 +9,7 @@ import {
 import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { parseDue, parseQuickAdd, tasksFor, type TaskView } from '../../../shared/tasks';
+import { parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -80,7 +81,21 @@ export function TasksView({
   const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
   const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
-  const current = order.find((task) => task.id === cursors[list]) || order[0];
+  const previousLists = useRef<Partial<Record<TaskView, { order: string[]; selected?: string }>>>({});
+  const previousList = previousLists.current[list];
+  const selectedId = cursors[list] ?? previousList?.selected;
+  const currentId = taskCursor(order.map(task => task.id), previousList?.order ?? [], selectedId);
+  const current = order.find(task => task.id === currentId);
+  useLayoutEffect(() => {
+    previousLists.current[list] = { order: order.map(task => task.id), selected: currentId };
+    if (selectedId && selectedId !== currentId) {
+      setCursors(previous => ({ ...previous, [list]: currentId }));
+      // A removed row or detail button loses focus when React unmounts it.
+      if (document.activeElement === document.body) {
+        (rows.current?.querySelector<HTMLElement>('[data-keyboard-current]') || rows.current)?.focus();
+      }
+    }
+  });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
   const open = current;
   const openId = open?.id;

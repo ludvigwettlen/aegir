@@ -7,8 +7,9 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
 import { Copy, X } from 'lucide-react';
-import { hasUnsupportedMarkdown, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
+import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
+import { DocumentLinkSource } from '../document-links';
 import { DocumentTable } from '../document-tables';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
@@ -18,7 +19,8 @@ const errorText = (error: unknown) => String(error).replace(/^Error: (Error invo
 export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   document: WorkspaceDocument; threadId: string; onClose: () => void; headerActions?: ReactNode;
   onSelection: (selection: DocumentReference | null) => void;
-}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, headerActions }, ref) {
+  onOpenDocument: (path: string) => void;
+}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions }, ref) {
   const storageKey = `aegir-document:${threadId}:${initial.path}`;
   const [recovered] = useState<Draft | null>(() => {
     try { const draft = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof draft?.content === 'string' && typeof draft?.revision === 'string' ? draft : null; } catch { return null; }
@@ -72,7 +74,13 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const saveRef = useRef(save); saveRef.current = save;
   useImperativeHandle(ref, () => ({ save: () => saveRef.current() }));
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, TaskList, TaskItem.configure({ nested: true }), Image],
+    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, TaskList, TaskItem.configure({ nested: true }), Image,
+      DocumentLinkSource.configure({ openLink: href => {
+        const path = markdownPath(href);
+        if (path) onOpenDocument(path.startsWith('/') ? path : [...initial.path.split('/').slice(0, -1), path].join('/'));
+        else void api.openExternal(href).catch(cause => setError(errorText(cause)));
+      } }),
+    ],
     content: content.current, contentType: 'markdown', editable: !unsupported,
     editorProps: { attributes: { class: 'ws-document-prose', 'aria-label': 'Document', role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: ({ editor }) => {

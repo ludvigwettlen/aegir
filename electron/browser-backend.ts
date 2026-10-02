@@ -12,7 +12,7 @@ export type BrowserBackend = {
 };
 
 // No listening socket, shell, browser extension, or access to the user's Chrome
-// profile. Chrome runs visibly with a separate persistent profile owned by Ägir.
+// profile. Chrome runs visibly with a separate persistent profile owned by Aegir.
 export async function createBrowserBackend(root: string, headless = false): Promise<BrowserBackend> {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   let context: Promise<BrowserContext> | undefined;

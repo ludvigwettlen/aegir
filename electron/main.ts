@@ -72,6 +72,8 @@ function snapshot(): Snapshot {
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
       slackConfigured: connectors.slackConfigured(),
+      composioConfigured: connectors.composioConfigured(),
+      composioSlackAccount: store.getSetting('composioSlackAccount') || '',
     },
   };
 }
@@ -279,13 +281,13 @@ function registerIpc() {
   });
   handle(
     'connect',
-    async (provider: 'slack' | 'notion', clientId?: string, clientSecret?: string) => {
+    async (provider: 'slack' | 'notion' | 'composio', clientId?: string, clientSecret?: string) => {
       if (provider === 'slack' && clientId) store.setSetting('slackClientId', clientId);
       await connectors.connect(provider, clientId, clientSecret);
       refresh();
     },
   );
-  handle('disconnect', async (provider: 'slack' | 'notion') => {
+  handle('disconnect', async (provider: 'slack' | 'notion' | 'composio') => {
     await connectors.disconnect(provider);
     refresh();
   });
@@ -358,7 +360,7 @@ function openSettings() {
 function createApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: 'Ägir',
+      label: 'Aegir',
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -387,10 +389,10 @@ function createTray() {
       `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     ),
   );
-  tray.setToolTip('Ägir');
+  tray.setToolTip('Aegir');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Open Ägir', click: () => window?.show() },
+      { label: 'Open Aegir', click: () => window?.show() },
       { label: 'Settings…', click: openSettings },
       { type: 'separator' },
       {
@@ -419,7 +421,7 @@ if (app.requestSingleInstanceLock()) {
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
-    const outputRoot = join(app.getPath('documents'), 'Ägir');
+    const outputRoot = join(app.getPath('documents'), 'Aegir');
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
       routineCwd: app.getPath('userData'),
@@ -458,7 +460,10 @@ if (app.requestSingleInstanceLock()) {
           runtime.logToolResult(codexThreadId, internal);
           return internal;
         }
-        if (provider !== 'slack' && provider !== 'notion') throw new Error('Unknown tool');
+        if (provider !== 'slack' && provider !== 'notion' && provider !== 'composio') throw new Error('Unknown tool');
+        const info = connectors.toolInfo(provider, tool);
+        if (!info) throw new Error('Tool is not available');
+        readOnly = info.readOnly;
         const context = runtime.contextFor(codexThreadId);
         // Tasks and routines only receive read-only tools; this is the backstop if one is called anyway.
         if (!readOnly && context && context.kind !== 'chat')
@@ -482,11 +487,11 @@ if (app.requestSingleInstanceLock()) {
     });
     connectors.on('change', refresh);
     registerIpc();
-    connectors.start();
-    runtime.start();
     createWindow();
     createApplicationMenu();
     createTray();
+    connectors.start();
+    runtime.start();
     void memory
       .migrateLegacy()
       .then(() => {

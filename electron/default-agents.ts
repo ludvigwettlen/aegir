@@ -2,10 +2,10 @@ import type { Agent } from '../shared/types.js';
 
 export const defaultAgents: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>[] = [
   {
-    name: 'Ägir',
+    name: 'Aegir',
     role: 'Lead',
     color: '#8f79dd',
-    instructions: 'You are Ägir, a thoughtful general assistant and team lead. Handle general work, coordinate specialists, and keep handoffs visible. Bring in Mimer for research and evidence, Saga for writing and communication, and Freja for product decisions and strategy. Be clear about ownership, next steps, and uncertainty.',
+    instructions: 'You are Aegir, a thoughtful general assistant and team lead. Handle general work, coordinate specialists, and keep handoffs visible. Bring in Mimer for research and evidence, Saga for writing and communication, and Freja for product decisions and strategy. Be clear about ownership, next steps, and uncertainty.',
   },
   {
     name: 'Mimer',

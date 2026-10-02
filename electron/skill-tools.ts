@@ -7,11 +7,19 @@ export const skillTools: Tool[] = [
   tool('list', 'List this run’s available skills. Results are paginated.', { offset: { type: 'integer', minimum: 0 } }, [], true),
   tool('search', 'Search skill names and descriptions in this run’s catalog.', { query: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, ['query'], true),
   tool('read', 'Load a skill before applying it, or read a supporting text file. Returns the run’s frozen revision.', { id: { type: 'string' }, path: { type: 'string' } }, ['id'], true),
+  tool('proposals', 'Check saved skill proposals and their current pending, applied, or discarded state. Use this before reporting whether a revision was submitted or approved. Review is available in the originating chat and Settings → Manage skills → Proposed changes.', { id: { type: 'string', description: 'Optional skill ID' }, offset: { type: 'integer', minimum: 0 } }, [], true),
   tool('create', 'Save a verified reusable skill in your own library. Files must include SKILL.md with YAML name and description. Prefer improving an existing skill.', { files: fileSchema }, ['files'], false),
   ...['update', 'propose_change'].map(name => tool(name, name === 'update' ? 'Update your own agent-created skill. For other skills use propose_change. Send the complete text package; existing binary assets are preserved.' : 'Propose a revision to a shared or user-authored skill for user review. Send the complete text package; existing binary assets are preserved.', { id: { type: 'string' }, expectedRevision: { type: 'string' }, reason: { type: 'string' }, files: fileSchema }, ['id', 'expectedRevision', 'reason', 'files'], false)),
 ];
 export function handleSkillTool(registry: SkillRegistry, session: SkillSession, name: string, args: Record<string, unknown>) {
   const actor = { agentId: session.agentId, runId: session.runId };
+  if (name === 'proposals') {
+    if (args.id !== undefined && (typeof args.id !== 'string' || !session.entries.has(args.id))) throw new Error('Skill is not available to this agent');
+    const offset = args.offset === undefined ? 0 : Number(args.offset);
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('Invalid offset');
+    const all = registry.proposals().filter(p => session.entries.has(p.skillId) && (!args.id || p.skillId === args.id)).reverse();
+    return { proposals: all.slice(offset, offset + 50).map(({ files: _files, ...proposal }) => ({ ...proposal, skillName: registry.get(proposal.skillId).name })), nextOffset: offset + 50 < all.length ? offset + 50 : null };
+  }
   if (name === 'list' || name === 'search') {
     if (name === 'search' && (typeof args.query !== 'string' || args.query.length > 2000)) throw new Error('Invalid skill search');
     const query = String(args.query || '').toLowerCase(); const offset = args.offset === undefined ? 0 : Number(args.offset);

@@ -10,6 +10,25 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
 
 describe('store', () => {
+  it('persists suggested chat titles without overwriting newer titles, closed chats, or tasks', () => {
+    const file = path();
+    const store = new Store(file);
+    const groupId = store.groups()[0].id;
+    const thread = store.createThread(groupId, 'Opening message');
+    expect(store.setSuggestedThreadTitle(thread.id, thread.title, 'A useful title')).toBe(true);
+    expect(store.setSuggestedThreadTitle(thread.id, thread.title, 'Stale suggestion')).toBe(false);
+    store.setThreadStatus(thread.id, 'closed');
+    expect(store.setSuggestedThreadTitle(thread.id, 'A useful title', 'Closed suggestion')).toBe(false);
+    const task = store.createThread(groupId, 'Task title', 'task');
+    expect(store.setSuggestedThreadTitle(task.id, task.title, 'Chat title')).toBe(false);
+    store.close();
+    const reopened = new Store(file);
+    try {
+      expect(reopened.get('threads', thread.id)?.title).toBe('A useful title');
+      expect(reopened.get('threads', task.id)?.title).toBe('Task title');
+    } finally { reopened.close(); }
+  });
+
   it('preserves long pasted task notes through save and reopen', () => {
     const file = path();
     const notes = ('A pasted paragraph with Unicode åäö and a newline.\n').repeat(4000) + 'END OF PASTE';
@@ -30,11 +49,36 @@ describe('store', () => {
     const store = new Store(path());
     const groups = store.groups();
     expect(groups.filter(group => group.kind === 'group').map(group => group.title)).toEqual(['General']);
-    expect(groups.filter(group => group.kind === 'private').map(group => group.title)).toEqual(['Ägir', 'Mimer', 'Saga', 'Freja']);
+    expect(groups.filter(group => group.kind === 'private').map(group => group.title)).toEqual(['Aegir', 'Mimer', 'Saga', 'Freja']);
     expect(store.routines().map(routine => routine.name)).toEqual(['Hourly discovery']);
     expect(store.get('agents', store.routines()[0].agentId)?.name).toBe('Mimer');
     expect(groups.find(group => group.kind === 'group')?.agentIds).toHaveLength(4);
     store.close();
+  });
+
+  it.each([false, true])('renames the existing lead in place (custom instructions: %s)', (custom) => {
+    const file = path();
+    const initial = new Store(file);
+    const lead = initial.list('agents')[0];
+    const others = initial.list('agents').slice(1);
+    const group = initial.groups().find(item => item.kind === 'private' && item.leadAgentId === lead.id)!;
+    const thread = initial.createThread(group.id, 'Existing history');
+    initial.addMessage(thread.id, lead.id, 'agent', 'Historical Ägir message');
+    const instructions = custom ? 'My custom lead instructions' : defaultAgents[0].instructions.replace('You are Aegir,', 'You are Ägir,');
+    initial.updateAgent({ ...lead, name: 'Ägir', instructions });
+    initial.db.prepare("DELETE FROM settings WHERE key='aegirNameMigrated'").run();
+    initial.close();
+
+    const upgraded = new Store(file);
+    expect(upgraded.get('agents', lead.id)).toMatchObject({ name: 'Aegir', instructions: custom ? instructions : defaultAgents[0].instructions });
+    expect(upgraded.list('agents').slice(1)).toEqual(others);
+    expect(upgraded.group(group.id)?.title).toBe('Aegir');
+    expect(upgraded.messagesForThread(thread.id)[0]).toMatchObject({ agentId: lead.id, content: 'Historical Ägir message' });
+    upgraded.updateAgent({ ...upgraded.get('agents', lead.id)!, name: 'My lead' });
+    upgraded.close();
+    const reopened = new Store(file);
+    expect(reopened.get('agents', lead.id)?.name).toBe('My lead');
+    reopened.close();
   });
 
   it('upgrades the old team in place, preserves custom instructions and history, and runs only once', () => {
@@ -59,7 +103,7 @@ describe('store', () => {
     old.close();
 
     const upgraded = new Store(file);
-    expect(upgraded.list('agents').map(agent => agent.name)).toEqual(['Ägir', 'Mimer', 'Saga', 'Freja']);
+    expect(upgraded.list('agents').map(agent => agent.name)).toEqual(['Aegir', 'Mimer', 'Saga', 'Freja']);
     expect(upgraded.get('agents', researcher.id)?.instructions).toBe('My custom research instructions');
     expect(upgraded.get('agents', agents[0].id)?.instructions).toBe(defaultAgents[0].instructions);
     expect(upgraded.group(privateGroup.id)?.title).toBe('Mimer');

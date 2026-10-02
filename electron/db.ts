@@ -22,6 +22,7 @@ import type {
 } from '../shared/types.js';
 import { defaultAgents, legacyAgents } from './default-agents.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
+import type { SkillProposal } from '../shared/skills.js';
 
 const now = () => new Date().toISOString();
 type Tables = { agents: Agent; tasks: Task; threads: Thread };
@@ -84,6 +85,7 @@ export class Store {
     })();
     this.db.exec('CREATE INDEX IF NOT EXISTS messages_thread ON messages(threadId);');
     this.seedAgentTeam();
+    this.renameLeadAgent();
     const agents = this.list('agents');
     if (!this.groups().some((group) => group.kind === 'group'))
       this.createGroup(
@@ -113,7 +115,7 @@ export class Store {
       .run(now());
     this.db
       .prepare(
-        "UPDATE routine_runs SET status='failed',summary='Interrupted when Ägir quit',endedAt=? WHERE status='running'",
+        "UPDATE routine_runs SET status='failed',summary='Interrupted when Aegir quit',endedAt=? WHERE status='running'",
       )
       .run(now());
     this.db.prepare("UPDATE messages SET status='failed' WHERE status='streaming'").run();
@@ -143,6 +145,21 @@ export class Store {
         }
       }
       this.setSetting('nordicTeamSeeded', 'true');
+    })();
+  }
+  private renameLeadAgent() {
+    if (this.getSetting('aegirNameMigrated')) return;
+    this.db.transaction(() => {
+      const lead = defaultAgents[0];
+      const oldInstructions = lead.instructions.replace('You are Aegir,', 'You are Ägir,');
+      for (const agent of this.list('agents').filter((item) => item.name === 'Ägir' && item.role === 'Lead')) {
+        this.updateAgent({
+          ...agent,
+          name: lead.name,
+          instructions: agent.instructions === oldInstructions ? lead.instructions : agent.instructions,
+        });
+      }
+      this.setSetting('aegirNameMigrated', 'true');
     })();
   }
   private columns(table: string) {
@@ -403,6 +420,11 @@ export class Store {
   setThreadStatus(id: string, status: Thread['status']) {
     this.db.prepare('UPDATE threads SET status=?,updatedAt=? WHERE id=?').run(status, now(), id);
   }
+  setSuggestedThreadTitle(id: string, expectedTitle: string, title: string): boolean {
+    // A late suggestion must not replace a newer title or rename a task.
+    return this.db.prepare("UPDATE threads SET title=? WHERE id=? AND kind='chat' AND status='active' AND title=?")
+      .run(title, id, expectedTitle).changes > 0;
+  }
 
   message(id: string): Message | undefined {
     const row = this.db.prepare('SELECT * FROM messages WHERE id=?').get(id) as
@@ -446,6 +468,24 @@ export class Store {
       .run(row.createdAt, threadId);
     this.onMessage?.(row);
     return row;
+  }
+  ensureSkillProposalMessage(proposal: SkillProposal, skillName: string) {
+    const source = proposal.sourceRun && this.message(proposal.sourceRun);
+    const thread = source && this.get('threads', source.threadId);
+    if (!thread) return null; // Routine runs and deleted conversations have no chat destination.
+    const id = `skill-proposal:${proposal.id}`;
+    const existing = this.message(id);
+    if (existing) return existing;
+    const message: Message = {
+      id, threadId: thread.id, agentId: proposal.actor, role: 'system',
+      content: proposal.reason, status: 'complete', createdAt: proposal.createdAt,
+      meta: { type: 'skill-change', proposalId: proposal.id, skillId: proposal.skillId, skillName },
+    };
+    this.db.prepare('INSERT INTO messages(id,roomId,threadId,agentId,role,content,status,meta,createdAt) VALUES (@id,@roomId,@threadId,@agentId,@role,@content,@status,@meta,@createdAt)')
+      .run({ ...message, roomId: thread.groupId, meta: JSON.stringify(message.meta) });
+    // Backfilling history must not reopen or reorder old conversations.
+    this.onMessage?.(message);
+    return message;
   }
   updateMessage(id: string, content: string, status: Message['status']) {
     this.db.prepare('UPDATE messages SET content=?,status=? WHERE id=?').run(content, status, id);

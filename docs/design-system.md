@@ -1,4 +1,4 @@
-# Ägir design system
+# Aegir design system
 
 The Lime Glass direction is being introduced one section at a time. The [Paper Tasks sketch](https://app.paper.design/file/01M35BFSHJZGNPY821ZEJG3MQ2/p-1-0/BR-0) defines the compact layout. The third image in `design/concepts/03-lime-glass.png` defines the color and atmosphere. The workspace (sidebar, Tasks, groups and threads, Routines) is fully on Lime Glass; Memory and Settings still use some legacy styles from `light.scss`. The layouts follow the sketch canvas agreed in September 2026.
 
@@ -26,7 +26,7 @@ Ambient color belongs behind the content. Only translucent surfaces receive back
 
 ## Shared primitives
 
-`src/ui/design-system/primitives.tsx` adapts the Fragments components already in use. Import these Ägir exports in product views instead of importing the same components directly from `@usefragments/ui`. Their Fragments foundations retain semantics, keyboard behavior, and core sizing; `primitives.scss` applies our tokens and visual states. `ThemeProvider` remains a library integration, not a product component. The chat `Prompt` is adapted through `ChatComposer` below.
+`src/ui/design-system/primitives.tsx` adapts the Fragments components already in use. Import these Aegir exports in product views instead of importing the same components directly from `@usefragments/ui`. Their Fragments foundations retain semantics, keyboard behavior, and core sizing; `primitives.scss` applies our tokens and visual states. `ThemeProvider` remains a library integration, not a product component. The chat `Prompt` is adapted through `ChatComposer` below.
 
 ### `Button`
 
@@ -50,7 +50,7 @@ The app is a left sidebar plus one working area; there is no top navigation. Vie
 
 ### Sidebar
 
-The workspace navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Tasks** (Needs you with a lemon count badge, Today, Upcoming, Delegated, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed). There is no sidebar footer; Settings opens from the Ägir application menu, the menu-bar tray, or `Cmd+,`. The active item uses the pale `--ds-color-nav-selected` fill without a border, semibold text, and `aria-current="page"`. Keyboard focus is a separate thin inset ring using `--ds-color-focus`, contained within the item so adjacent navigation rows never overlap. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
+The workspace navigation. It has no in-app product lockup; the top inset leaves a clean drag region below the macOS window controls. Sections, in order: **Tasks** (Needs you with a lemon count badge, Today, Upcoming, Delegated, Completed), **Groups** (with a + to create one), **Agents** (each agent's private group; the second line shows "Working · <thread>" while it runs), **Routines** (next run, Paused, Running, or Failed). There is no sidebar footer; Settings opens from the Aegir application menu, the menu-bar tray, or `Cmd+,`. The active item uses the pale `--ds-color-nav-selected` fill without a border, semibold text, and `aria-current="page"`. Keyboard focus is a separate thin inset ring using `--ds-color-focus`, contained within the item so adjacent navigation rows never overlap. Counts and routine states are text, never colour alone. `J/K` moves focus among sidebar items; `Enter` opens one and `L` enters its content.
 
 ### Task list
 
@@ -74,11 +74,15 @@ Enter on a highlighted row edits its title; Enter saves and returns focus to the
 
 ### Thread list and thread
 
+New group and private chats initially use the opening message as a fallback title. The first responding agent is instructed to set a short topic-based title through `threads__set_title` before answering. The title updates in the thread list and conversation header without adding a message. If no valid suggestion arrives, the fallback remains. Follow-up turns do not rename the chat, and task threads retain their task titles. Late suggestions cannot overwrite a changed title or rename a closed chat.
+
 A group view lists its threads (title, status chip for task threads, last message snippet, participating agents, count and time) with Active / Tasks / Closed filters and a "Start a thread" field. Cmd+N focuses “Start a thread” in the current group or private chat, preserving any existing draft; Enter submits it. Outside chats, Cmd+N still opens task quick-add. When a document hides the thread list, close it with Escape first so unsaved edits can be saved. Private groups show the agent's avatar and "Private · just you and <agent>".
 
 Messages render Markdown headings, emphasis, lists, code, quotes, and GFM tables using `ChatMarkdown`; raw HTML is not executed. External links use the app’s link-opening API. Code blocks and tables scroll within the message, including in the compact task detail pane. Messages are Slack-style, not bubbles: avatar, name, role chip, time, then text. Failures and streaming are shown in words and a typing indicator. System events are a single muted line with an arrow. Routine changes render as a card listing the before → after values, with Apply / Discard while pending and the outcome afterwards.
 
 While the thread is busy, a persistent “Working…” status sits above the composer, outside the scrolling message list. It remains visible after partial replies and during silent reasoning or tool use, in both full conversations and compact task details. It disappears when the run finishes, fails, or stops. The status uses muted text and lime-strong dots, announces itself with `role="status"`, and never moves keyboard focus. Decorative dots stop animating with reduced motion; the text remains visible.
+
+Skill revisions render as `SkillChangeCard` in group/private conversations and compact task chats. The card names the skill, shows the reason and current saved status, and offers Review changes / Discard while pending. Review expands a shared `PackageDiff` with labeled Before and Proposed contents for every changed file; Apply revision appears only after opening the comparison. Stale proposals explain how to merge in Manage skills. Applied and discarded cards remain in history with reviewable contents. Status refreshes after changes in Settings, and loading, missing-proposal, and retryable failure states are explicit. Buttons disable during actions, retain keyboard focus indicators, and use the existing Fragments primitives. Surface, line, ink and muted tokens define the card. Comparisons stack vertically within the narrow chat column; long paths wrap and file contents scroll. No animation is introduced.
 
 ### Composer
 
@@ -91,6 +95,8 @@ A two-line textarea that grows with content, with a lime send button that is mut
 The document is always formatted and directly editable. There is no source toggle, draft/byline header, or suggestions card. The header contains the filename, save state, and close action. Surface/canvas, ink/muted, and line tokens define the editor; lime-soft highlights text selection and referenced passages. Editing uses native undo, Markdown input shortcuts, and Cmd+B / Cmd+I. Headings, lists, code, quotes, tables, images, and checklists serialize back to Markdown; formatting syntax can normalize on edit. HTML, frontmatter, and footnotes are currently read only to avoid dropping unsupported content.
 
 The document header’s Copy button copies the full current Markdown source, including unsaved or recovered edits and content in read-only documents. It does not change the selection or save the file. The existing status area briefly announces success or clipboard failure.
+
+Document links open on click. Web links use the app’s external-link handler; local Markdown links resolve relative to the current document and use the existing save-before-switching flow. Moving the text caret into a link reveals its Markdown source inline, including the label and destination. Moving the selection outside restores formatted rendering. The source uses monospace text, ink, and surface tokens and wraps long destinations within the prose width. Autosave and Copy retain Markdown syntax while a link is being edited; read-only documents keep their links clickable without exposing an editable source state. Failed link opening appears in the document’s existing error alert.
 
 Selecting text automatically attaches a removable, labeled passage to the composer without moving focus. The next sent message includes the file path and quoted passage. Clearing a selection in the editor or sending the message clears the reference. Unsaved document changes are flushed before sending so the team receives current file contents.
 
@@ -143,3 +149,7 @@ The approval dock displays the complete permission scope and requested action, w
 ## Contextual keyboard hints
 
 Hold `§` to show `ShortcutHints` for the current page or focused editor/dialog; release it to dismiss. Losing window focus or hiding the app also dismisses it. The overlay preserves focus and does not capture Tab navigation. The unmodified section key is reserved for hints even in text fields; literal section symbols can be pasted. No persistent shortcut footer or inline key badges appear in normal content. Native menu accelerators and transient undo notices remain. The overlay uses surface, ink, muted, and line tokens, fits compact windows with internal scrolling, and has no motion.
+
+### Composio connection in Settings
+
+The Connections panel includes a Slack via Composio row using the existing connector layout, `Badge`, and `Button` primitives. It shows textual connection status, Connect/Reconnect and Disconnect actions, an expected Slack account field, and a password input for the consumer API key. The key is never populated from saved credentials; a placeholder indicates saved authentication. Submission clears the password field, including on failure. Pending actions disable duplicate submission; Disconnect remains available during browser authorization to cancel it. Labels provide accessible names and status updates use a live status region. No new visual tokens or motion are introduced. The expected account is an agent verification hint, not a server-side account restriction.

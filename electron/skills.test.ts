@@ -18,6 +18,22 @@ function setup() {
 }
 afterEach(() => cleanup.splice(0).forEach(fn => fn()));
 describe('skills', () => {
+  it('reports live proposal outcomes while restricting results to the agent catalog', () => {
+    const { registry } = setup();
+    const shared = registry.create({ ownerAgentId: null, files: files() });
+    const privateSkill = registry.create({ ownerAgentId: 'b', files: files('private-skill') });
+    const session = registry.session('a', 'run', 'chat', []).session;
+    const proposal = registry.propose(shared.id, shared.revision, files('example', 'New instructions'), 'Improve', { agentId: 'a', runId: 'run' });
+    registry.propose(privateSkill.id, privateSkill.revision, files('private-skill'), 'Private', { agentId: 'b' });
+    const list = () => handleSkillTool(registry, session, 'proposals', {}) as { proposals: { id: string; state: string; files?: unknown }[] };
+    expect(list().proposals).toEqual([expect.objectContaining({ id: proposal.id, state: 'pending' })]);
+    expect(list().proposals[0].files).toBeUndefined();
+    registry.resolveProposal(proposal.id, true);
+    expect(list().proposals[0].state).toBe('applied');
+    expect(registry.read(session, shared.id).content).not.toContain('New instructions');
+    expect(() => handleSkillTool(registry, session, 'proposals', { id: privateSkill.id })).toThrow('not available');
+    expect(() => handleSkillTool(registry, session, 'proposals', { offset: -1 })).toThrow('Invalid offset');
+  });
   it('seeds once and preserves edits, disabled state and archives across restarts', () => {
     const { registry, root, db } = setup(); const research = registry.list().find(s => s.name === 'research')!;
     registry.update(research.id, research.revision, files('research', 'My method'), 'Edited');
