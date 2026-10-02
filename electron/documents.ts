@@ -32,6 +32,12 @@ export function readDocument(root: string, reference: string): WorkspaceDocument
   } finally { closeSync(fd); }
 }
 
+export function documentLocation(root: string, reference: string): string {
+  const path = resolveDocument(root, reference);
+  if (!lstatSync(path).isFile()) throw new Error('Choose a Markdown file');
+  return path;
+}
+
 export function saveDocument(root: string, reference: string, expected: string, content: string): WorkspaceDocument {
   if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_BYTES) throw new Error('Document exceeds the 2 MB limit');
   const current = readDocument(root, reference);

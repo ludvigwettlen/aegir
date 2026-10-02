@@ -165,9 +165,11 @@ export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'labe
 export interface DesktopApi extends SkillsApi {
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
+  showDocumentInFinder(threadId: string, path: string): Promise<void>;
   saveDocument(threadId: string, path: string, expected: string, content: string): Promise<import('./documents').WorkspaceDocument>;
   snapshot(): Promise<Snapshot>;
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
+  copyChatTranscript(threadId: string): Promise<void>;
   onEvent(callback: (event: AppEvent) => void): () => void;
   createGroup(title: string, agentIds: string[]): Promise<Group>;
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Promise<void>;

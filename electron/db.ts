@@ -434,7 +434,7 @@ export class Store {
   messagesForThread(threadId: string): Message[] {
     return (
       this.db
-        .prepare('SELECT * FROM messages WHERE threadId=? ORDER BY createdAt ASC')
+        .prepare('SELECT * FROM messages WHERE threadId=? ORDER BY createdAt ASC, rowid ASC')
         .all(threadId) as MessageRow[]
     ).map(toMessage);
   }

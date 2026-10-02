@@ -3,13 +3,14 @@ import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, FileText, Repeat2, Send, Square, X } from 'lucide-react';
+import { ArrowDownRight, ChevronRight, FileText, FolderSearch, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
+import { CopyChatButton } from './CopyChatButton';
 
 type Mention = { kind: 'agent'; agent: Agent } | { kind: 'routine'; routine: Routine };
 
@@ -35,6 +36,8 @@ export function ThreadView({
   const [showFiles, setShowFiles] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const fileAccess = useRef<HTMLDivElement>(null);
   const [chatWidth, setChatWidth] = useState(36);
   const [mobilePane, setMobilePane] = useState<'chat' | 'document'>('document');
   const documentEditor = useRef<DocumentEditorHandle>(null);
@@ -43,6 +46,26 @@ export function ThreadView({
   const active = useRef(true);
   const openingRef = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => {
+    if (!showFiles) return;
+    const outside = (event: Event) => {
+      if (event.target instanceof Node && !fileAccess.current?.contains(event.target)) setShowFiles(false);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      setShowFiles(false);
+      fileAccess.current?.querySelector<HTMLButtonElement>('[data-document-files]')?.focus();
+    };
+    window.document.addEventListener('pointerdown', outside, true);
+    window.document.addEventListener('focusin', outside);
+    window.addEventListener('keydown', escape, true);
+    return () => {
+      window.document.removeEventListener('pointerdown', outside, true);
+      window.document.removeEventListener('focusin', outside);
+      window.removeEventListener('keydown', escape, true);
+    };
+  }, [showFiles]);
   const openDocument = (path: string) => {
     if (openingRef.current) return;
     opener.current = window.document.activeElement as HTMLElement;
@@ -75,19 +98,26 @@ export function ThreadView({
   const busy =
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
-  const filePicker = <div className="ws-document-access">
+  const filePicker = <div ref={fileAccess} className="ws-document-access">
     <button className="ws-btn ghost" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} />{opening ? 'Opening…' : 'Files'}</button>
     {showFiles && <div className="ws-document-files" aria-label="Workspace files">
       <strong>Markdown files</strong>
-      {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <button key={path} className="ws-btn ghost" disabled={opening} onClick={() => openDocument(path)}><FileText size={14} />{path}</button>) : <p>No Markdown files in this workspace yet.</p>}
+      {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <div key={path} className="ws-document-file-row">
+        <button className="ws-btn ghost ws-document-file-open" disabled={opening} onClick={() => openDocument(path)}><FileText size={14} aria-hidden="true" /><span>{path}</span></button>
+        <button className="ws-icon-btn" aria-label={`Show ${path} in Finder`} title="Show in Finder" disabled={revealing} onClick={() => void run(async () => {
+          setRevealing(true);
+          try { await api.showDocumentInFinder(thread.id, path); if (active.current) setShowFiles(false); }
+          finally { if (active.current) setRevealing(false); }
+        })}><FolderSearch size={15} aria-hidden="true" /></button>
+      </div>) : <p>No Markdown files in this workspace yet.</p>}
     </div>}
   </div>;
   return (
     <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open' : ''}`} data-mobile-pane={mobilePane}>
-      {document ? <header className="ws-editing-head">
-        <div><span>{group.kind === 'private' ? group.title : `# ${group.title}`}</span><h2>{thread.title}</h2></div>
+      {document ? <header className="ws-editing-head" role="banner" aria-label="Window header">
+        <div className="ws-editing-context"><span title={group.title}>{group.kind === 'private' ? group.title : `# ${group.title}`}</span><ChevronRight size={13} aria-hidden="true" /><h2 title={thread.title}>{thread.title}</h2></div>
         <div className="ws-document-tabs"><button className="ws-btn" aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>Conversation</button><button className="ws-btn" aria-pressed={mobilePane === 'document'} onClick={() => setMobilePane('document')}>Document</button></div>
-      </header> : <div className="ws-conversation-head">{header}{filePicker}</div>}
+      </header> : <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div></div>}
       <div className="ws-thread-panes">
     <section
       style={document ? { flex: `0 0 ${chatWidth}%` } : undefined}
@@ -96,6 +126,7 @@ export function ThreadView({
       tabIndex={-1}
       aria-label={`Thread: ${thread.title}`}
     >
+      {document && <header className="ws-conversation-pane-head"><MessageSquare size={14} aria-hidden="true" /><h3>Conversation</h3><CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></header>}
       <ConversationList
         key={thread.id}
         className="ws-messages"

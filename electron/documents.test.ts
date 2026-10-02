@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listDocuments, readDocument, saveDocument } from './documents';
+import { documentLocation, listDocuments, readDocument, saveDocument } from './documents';
 
 const dirs: string[] = [];
 const directory = () => { const path = mkdtempSync(join(tmpdir(), 'aegir-documents-')); dirs.push(path); return path; };
@@ -12,6 +12,10 @@ describe('workspace documents', () => {
   it('lists nested Markdown and saves edits without changing other files', () => {
     const root = directory(); mkdirSync(join(root, 'docs')); writeFileSync(join(root, 'docs/prd.md'), '# Vision\n'); writeFileSync(join(root, 'data.txt'), 'keep');
     expect(listDocuments(root)).toEqual(['docs/prd.md']);
+    expect(documentLocation(root, 'docs/prd.md')).toBe(realpathSync(join(root, 'docs/prd.md')));
+    expect(() => documentLocation(root, 'missing.md')).toThrow();
+    mkdirSync(join(root, 'directory.md'));
+    expect(() => documentLocation(root, 'directory.md')).toThrow('Choose a Markdown file');
     const original = readDocument(root, 'docs/prd.md');
     const saved = saveDocument(root, original.path, original.revision, '# A clearer vision\n');
     expect(readDocument(root, 'docs/prd.md')).toEqual(saved);
@@ -30,6 +34,7 @@ describe('workspace documents', () => {
     for (const path of [join(outside, 'secret.md'), '../secret.md', 'linked/secret.md', 'linked.md']) {
       expect(() => readDocument(root, path)).toThrow();
       expect(() => saveDocument(root, path, 'any', 'changed')).toThrow();
+      expect(() => documentLocation(root, path)).toThrow();
     }
     expect(listDocuments(root)).toEqual([]);
     expect(readFileSync(join(outside, 'secret.md'), 'utf8')).toBe('private');

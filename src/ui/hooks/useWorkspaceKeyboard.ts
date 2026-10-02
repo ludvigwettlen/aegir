@@ -14,6 +14,8 @@ export function useWorkspaceKeyboard(
     let timer = 0;
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[role="dialog"]')) return;
+      // The Files popover consumes Escape before document/pane navigation.
+      if (event.key === 'Escape' && document.querySelector('.ws-document-files')) return;
       const documentWorkspace = document.querySelector<HTMLElement>('.document-open');
       const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
       const keyTarget = event.target instanceof Element ? event.target : null;

@@ -11,7 +11,6 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 - [ ] Make team collaboration the default for handed-off tasks: the lead should involve suitable teammates unless the task is clearly simple enough to handle alone.
 - [ ] Add /-commands in the chat composer to discover and invoke skills.
 - [ ] Add an in-app Markdown viewer and editor for reviewing, editing, and collaborating on files with the agent team.
-- [ ] Add a Copy chat transcript button.
 - [ ] Add proper web search tools for agents.
 
 ## Security review follow-ups — 2026-10-01
@@ -34,6 +33,8 @@ Validation at review time: TypeScript passed; 132 tests passed under Electron's 
 - [ ] Separate IPC registration, approval management, and startup from `electron/main.ts`; separate migrations and domain persistence responsibilities in `electron/db.ts` so permission boundaries and data preservation are easier to test.
 
 ## Recently completed
+
+- [x] Add a Copy chat button for the full conversation transcript, including earlier messages and proposal status.
 
 - [x] Replace persistent keyboard hints with a contextual hold-§ overlay.
 - [x] Render Markdown in chat and remove the composer’s skill dropdown.

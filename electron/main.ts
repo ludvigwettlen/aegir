@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
-import { listDocuments, readDocument, saveDocument } from './documents.js';
+import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
@@ -26,6 +26,7 @@ import { BrowserManager } from './browser.js';
 import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
 import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
+import { chatTranscript } from './chat-transcript.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -144,6 +145,7 @@ function registerIpc() {
   handle('browser-stop', () => browser.stop());
   handle('document-list', (id: string) => listDocuments(documentRoot(id)));
   handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
+  handle('document-show-in-finder', (id: string, path: string) => shell.showItemInFolder(documentLocation(documentRoot(id), path)));
   handle('document-save', (id: string, path: string, expected: string, content: string) => saveDocument(documentRoot(id), path, expected, content));
   handle('skill-library', () => runtime.skills.library());
   handle('skill-detail', (id: string) => runtime.skills.detail(id));
@@ -177,6 +179,9 @@ function registerIpc() {
   handle('thread-messages', (threadId: string, before?: string) =>
     store.messagePage(threadId, before),
   );
+  handle('copy-chat-transcript', (threadId: string) => {
+    clipboard.writeText(chatTranscript(store, threadId, runtime.skills.proposals()));
+  });
   handle('create-group', (title: string, agentIds: string[]) => {
     const group = store.createGroup(title.trim() || 'New group', agentIds);
     refresh();
@@ -325,6 +330,7 @@ function createWindow() {
     minWidth: 950,
     minHeight: 620,
     titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 20 },
     backgroundColor: '#111116',
     show: !app.getLoginItemSettings().wasOpenedAsHidden,
     webPreferences: {
