@@ -99,7 +99,8 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
   private sessions = new Map<string, string>();
   private pending = new Map<string, Pending>();
 
-  constructor(private binary: string) { super(); }
+  // readDirs: folders agents may read without asking (the user's brain). Edits there still need approval.
+  constructor(private binary: string, private readDirs: string[] = []) { super(); }
 
   setToolHandler(handler: ToolHandler) { this.toolHandler = handler; }
 
@@ -207,6 +208,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
                 mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
                 allowedTools: [...tools.keys()].map((name) => `${PREFIX}${name}`),
                 disallowedTools: input.sandbox === 'workspace-write' ? [] : WRITE_TOOLS,
+                additionalDirectories: this.readDirs,
                 model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
               }),
           resume: input.threadId ? this.sessions.get(input.threadId) : undefined,

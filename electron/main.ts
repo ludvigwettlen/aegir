@@ -16,7 +16,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstat
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
+import type { Agent, AppEvent, Approval, Snapshot, Task, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
@@ -48,6 +48,7 @@ let shuttingDown = false;
 let brain: { dir: string; inbox: string; exportDir: string } | null = null;
 let inboxTimer: NodeJS.Timeout | null = null;
 let exportTimer: NodeJS.Timeout | null = null;
+let pendingExport: Task[] | null = null;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
@@ -68,13 +69,21 @@ function syncInbox() {
     console.error('Aegir inbox import failed:', error);
   }
 }
-function scheduleExport() {
-  if (!brain || exportTimer) return;
+// Exports reuse the task list the latest snapshot already read, so quitting can flush without touching SQLite.
+function writeExport() {
+  const tasks = pendingExport;
+  pendingExport = null;
+  if (!brain || !tasks) return;
+  try { exportTasks(tasks, brain.exportDir); }
+  catch (error) { console.error('Aegir task export failed:', error); }
+}
+function scheduleExport(tasks: Task[]) {
+  if (!brain) return;
+  pendingExport = tasks;
+  if (exportTimer) return;
   exportTimer = setTimeout(() => {
     exportTimer = null;
-    if (!brain || shuttingDown || !store?.isOpen) return;
-    try { exportTasks(store.list('tasks'), brain.exportDir); }
-    catch (error) { console.error('Aegir task export failed:', error); }
+    if (!shuttingDown) writeExport();
   }, 2000);
 }
 
@@ -122,9 +131,10 @@ function emit(event: AppEvent) {
 }
 function refresh() {
   if (shuttingDown || !store?.isOpen) return;
-  emit({ type: 'snapshot', value: snapshot() });
+  const value = snapshot();
+  emit({ type: 'snapshot', value });
   app.setBadgeCount(approvals.size);
-  scheduleExport();
+  scheduleExport(value.tasks);
 }
 function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal }): Promise<boolean> {
   if (options?.signal.aborted) return Promise.resolve(false);
@@ -464,10 +474,16 @@ if (app.requestSingleInstanceLock()) {
     store.onMessage = (value) => emit({ type: 'message', value });
     const claudeBinary = findClaudeBinary(store.getSetting('claudeBinary'));
     engine = chooseEngine(store.getSetting('engine'), claudeBinary);
-    codex = engine === 'claude' && claudeBinary ? new ClaudeProvider(claudeBinary) : new CodexProvider();
+    const brainDir = process.env.AEGIR_BRAIN_DIR || store.getSetting('brainDir') || join(homedir(), 'brain');
+    codex = engine === 'claude' && claudeBinary ? new ClaudeProvider(claudeBinary, existsSync(brainDir) ? [brainDir] : []) : new CodexProvider();
     if (!(codex instanceof ClaudeProvider)) engine = 'codex';
+    // Seeded routines run hourly on the user's default model. On first start with Claude Code they
+    // begin paused, so background runs only happen once the user switches them on in the sidebar.
+    if (engine === 'claude' && !store.getSetting('claudeEngineSetup')) {
+      for (const routine of store.routines()) store.updateRoutine(routine.id, { enabled: false });
+      store.setSetting('claudeEngineSetup', 'true');
+    }
     connectors = new ConnectorManager(store);
-    const brainDir = store.getSetting('brainDir') || join(homedir(), 'brain');
     // The user's gbrain, when present: memory, the suggestion inbox and the task export live there.
     const gbrainBinary = findGbrainBinary(store.getSetting('gbrainBinary'));
     const useGbrain = store.getSetting('memoryProvider') !== 'mnemosyne' && !!gbrainBinary && existsSync(brainDir);
@@ -585,7 +601,10 @@ if (app.requestSingleInstanceLock()) {
     event?.preventDefault();
     shuttingDown = true;
     if (inboxTimer) clearInterval(inboxTimer);
-    if (exportTimer) clearTimeout(exportTimer);
+    if (exportTimer) {
+      clearTimeout(exportTimer);
+      writeExport(); // the brain copy should match what the user last saw
+    }
     for (const resolve of externalApprovalResolvers.values()) resolve(false);
     externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;

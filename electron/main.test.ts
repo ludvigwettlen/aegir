@@ -18,6 +18,8 @@ vi.mock('electron', async () => {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   fixture.root = mkdtempSync(join(tmpdir(), 'aegir-main-test-'));
+  // Never let this suite find the developer's real brain (inbox import, task export, memory).
+  process.env.AEGIR_BRAIN_DIR = join(fixture.root, 'no-brain');
   fixture.app = Object.assign(new EventEmitter(), {
     getPath: () => fixture.root,
     requestSingleInstanceLock: () => true,
