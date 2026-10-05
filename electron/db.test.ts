@@ -54,6 +54,25 @@ describe('store', () => {
     } finally { store.close(); }
   });
 
+  it('deletes a routine with its runs, run events and skill bindings', () => {
+    const store = new Store(path());
+    try {
+      const [routine] = store.routines();
+      const run = store.startRun(routine.id, 'manual');
+      store.addRunEvent(run.id, 'run', 'Started');
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec('CREATE TABLE IF NOT EXISTS skill_bindings(routineId TEXT PRIMARY KEY,ids TEXT NOT NULL)');
+      db.prepare('INSERT INTO skill_bindings VALUES (?,?)').run(routine.id, '[]');
+      db.prepare('INSERT INTO skill_bindings VALUES (?,?)').run('other', '[]');
+      store.deleteRoutine(routine.id);
+      expect(store.routine(routine.id)).toBeUndefined();
+      expect(store.routineRuns().filter(item => item.routineId === routine.id)).toEqual([]);
+      expect(store.runEvents(run.id)).toEqual([]);
+      expect(db.prepare('SELECT routineId FROM skill_bindings').all()).toEqual([{ routineId: 'other' }]);
+      expect(() => store.deleteRoutine(routine.id)).toThrow(/not found/);
+    } finally { store.close(); }
+  });
+
   it('seeds a shared group, one private group per agent and the discovery routine', () => {
     const store = new Store(path());
     const groups = store.groups();

@@ -45,6 +45,7 @@ const api: DesktopApi = {
   openTaskOutput: taskId => ipcRenderer.invoke('open-task-output', taskId),
   runRoutine: routineId => ipcRenderer.invoke('run-routine', routineId),
   setRoutineEnabled: (routineId, enabled) => ipcRenderer.invoke('set-routine-enabled', routineId, enabled),
+  deleteRoutine: routineId => ipcRenderer.invoke('delete-routine', routineId),
   resolveRoutineChange: (messageId, apply) => ipcRenderer.invoke('resolve-routine-change', messageId, apply),
   runEvents: runId => ipcRenderer.invoke('run-events', runId),
   resolveApproval: (id, approved) => ipcRenderer.invoke('resolve-approval', id, approved),

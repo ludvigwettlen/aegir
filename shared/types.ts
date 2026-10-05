@@ -217,6 +217,7 @@ export interface DesktopApi extends SkillsApi {
   openTaskOutput(taskId: string): Promise<void>;
   runRoutine(routineId: string): Promise<void>;
   setRoutineEnabled(routineId: string, enabled: boolean): Promise<void>;
+  deleteRoutine(routineId: string): Promise<void>;
   resolveRoutineChange(messageId: string, apply: boolean): Promise<void>;
   runEvents(runId: string): Promise<RunEvent[]>;
   resolveApproval(id: string, approved: boolean): Promise<void>;

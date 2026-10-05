@@ -87,6 +87,7 @@ export function App() {
             routine={routine}
             run={run}
             onDiscuss={() => discuss(routine.name)}
+            onDeleted={() => setRoute({ view: 'tasks', list: 'today' })}
           />
         )}
         {route.view === 'claude-routine' && (() => {

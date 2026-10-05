@@ -1,6 +1,6 @@
 import { RoutineSkillBindings } from './SkillBindings';
 import { useEffect, useState } from 'react';
-import { Check, Copy, MessageSquare, Pause, Play, Repeat2, X } from 'lucide-react';
+import { Check, Copy, MessageSquare, Pause, Play, Repeat2, Trash2, X } from 'lucide-react';
 import type { AppEvent, Routine, RunEvent, Snapshot } from '../../../shared/types';
 import { api, day, describeSchedule, routineStatus, time, type Run } from './common';
 
@@ -8,7 +8,7 @@ type Filter = 'all' | 'failed' | 'did';
 const didSomething = (summary: string) => /suggested|saved/.test(summary);
 const clock = (value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot; routine: Routine; run: Run; onDiscuss: () => void }) {
+export function RoutineView({ data, routine, run, onDiscuss, onDeleted }: { data: Snapshot; routine: Routine; run: Run; onDiscuss: () => void; onDeleted: () => void }) {
   const [filter, setFilter] = useState<Filter>('all');
   const runs = data.routineRuns.filter(item => item.routineId === routine.id);
   const shown = runs.filter(item => filter === 'failed' ? item.status === 'failed' : filter === 'did' ? didSomething(item.summary) : true);
@@ -36,6 +36,7 @@ export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot;
           <button className="ws-btn primary" onClick={onDiscuss}><MessageSquare size={13}/> Discuss</button>
           <button className="ws-btn" disabled={status.tone === 'running'} onClick={() => void run(() => api.runRoutine(routine.id))}><Play size={12}/> Run now</button>
           <button className="ws-btn" onClick={() => void run(() => api.setRoutineEnabled(routine.id, !routine.enabled))}>{routine.enabled ? <><Pause size={12}/> Pause</> : <><Play size={12}/> Resume</>}</button>
+          <button className="ws-btn" onClick={() => { if (window.confirm(`Delete ${routine.name}? Its run history goes too.`)) void run(async () => { await api.deleteRoutine(routine.id); onDeleted(); }); }}><Trash2 size={12}/> Delete</button>
         </div>
         <details className="ws-instructions"><summary>Instructions</summary><p>{routine.instructions}</p></details>
         <RoutineSkillBindings routine={routine} run={run}/>

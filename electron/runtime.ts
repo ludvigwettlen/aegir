@@ -625,6 +625,7 @@ ${memoryGuidance}`;
       )
         void this.runRoutine(routine.id, 'schedule');
   }
+  isRoutineRunning(routineId: string) { return this.runningRoutines.has(routineId); }
   async runRoutine(routineId: string, trigger: RoutineRun['trigger']) {
     if (!this.available) throw new Error('Runtime is stopped');
     const routine = this.store.routine(routineId);

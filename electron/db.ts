@@ -706,6 +706,17 @@ export class Store {
       this.db.prepare('SELECT * FROM routines ORDER BY createdAt ASC').all() as RoutineRow[]
     ).map(toRoutine);
   }
+  // The caller refuses while the routine runs; the runtime is what knows that.
+  deleteRoutine(id: string) {
+    if (!this.routine(id)) throw new Error('Routine not found');
+    const bindings = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='skill_bindings'").get();
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM run_events WHERE runId IN (SELECT id FROM routine_runs WHERE routineId=?)').run(id);
+      this.db.prepare('DELETE FROM routine_runs WHERE routineId=?').run(id);
+      if (bindings) this.db.prepare('DELETE FROM skill_bindings WHERE routineId=?').run(id);
+      this.db.prepare('DELETE FROM routines WHERE id=?').run(id);
+    })();
+  }
   routine(id: string): Routine | undefined {
     const row = this.db.prepare('SELECT * FROM routines WHERE id=?').get(id) as
       RoutineRow | undefined;

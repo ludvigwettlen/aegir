@@ -431,6 +431,11 @@ function registerIpc() {
     store.updateRoutine(routineId, { enabled });
     refresh();
   });
+  handle('delete-routine', (routineId: string) => {
+    if (runtime.isRoutineRunning(routineId)) throw new Error('Stop this routine before deleting it');
+    store.deleteRoutine(routineId);
+    refresh();
+  });
   handle('resolve-routine-change', (messageId: string, apply: boolean) =>
     runtime.resolveRoutineChange(messageId, apply),
   );
