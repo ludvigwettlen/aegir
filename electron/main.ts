@@ -345,7 +345,7 @@ function registerIpc() {
     store.messagePage(threadId, before),
   );
   handle('copy-chat-transcript', (threadId: string) => {
-    clipboard.writeText(chatTranscript(store, threadId, runtime.skills.proposals()));
+    return clipboard.writeText(chatTranscript(store, threadId, runtime.skills.proposals()));
   });
   handle('create-group', (title: string, agentIds: string[]) => {
     const group = store.createGroup(title.trim() || 'New group', agentIds);
@@ -495,7 +495,7 @@ function registerIpc() {
     scheduleReminders(0);
   });
   handle('launch-at-login', (enabled: boolean) => {
-    app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+    app.setLoginItemSettings({ openAtLogin: enabled });
     refresh();
   });
   // Read-only mirror of the Claude app's scheduler; concurrent requests share one read.
@@ -516,7 +516,6 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 20 },
     backgroundColor: '#111116',
-    show: !app.getLoginItemSettings().wasOpenedAsHidden,
     webPreferences: {
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,
@@ -728,7 +727,7 @@ if (app.requestSingleInstanceLock()) {
         if (store.isOpen) refresh();
       });
     if (app.isPackaged && !store.getSetting('legolasLoginConfigured')) {
-      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
+      app.setLoginItemSettings({ openAtLogin: true });
       store.setSetting('legolasLoginConfigured', 'true');
       refresh();
     }

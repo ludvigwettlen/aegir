@@ -57,6 +57,8 @@ Current follow-up work is tracked in [TODO.md](TODO.md). Shared agent behavior a
 
 `pnpm check` runs TypeScript validation. `pnpm test` covers the store migration, hand-off and routine runs against a fake Codex, the read-only tool policy, routine schedules and change validation, quick-add parsing and task lists. `pnpm build` compiles and packages the macOS app.
 
+Electron 44 no longer downloads its binary during install, and `better-sqlite3` 13 ships a Node-API prebuild that loads under both Node and Electron, so no native rebuild is needed. When Node cannot reach GitHub, fetch `electron-v<version>-darwin-arm64.zip` with curl, check it against the release's `SHASUMS256.txt`, unpack it with `ditto -x -k` into `node_modules/electron/dist`, and write `Electron.app/Contents/MacOS/Electron` to `node_modules/electron/path.txt`. Then package with `electron-builder --mac dir -c.electronDist=node_modules/electron/dist -c.npmRebuild=false`. After a dependency upgrade, run `tsc -b --force`: the incremental build does not notice changed library types.
+
 Tests should protect observable outcomes, permission boundaries, data preservation, and distinct failure paths. Avoid locking prompt wording or seed counts. Assertions for asynchronous failures must run outside error-catching application callbacks so a swallowed assertion cannot produce a passing test.
 
 ## Skills

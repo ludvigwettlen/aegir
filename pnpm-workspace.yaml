@@ -4,3 +4,6 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
+overrides:
+  # Build-time only (electron-builder > @electron/get > got); patched advisory, same major.
+  http-cache-semantics: ^4.3.0
