@@ -37,8 +37,11 @@ describe('suggestion inbox', () => {
     drop(dir, 'b.json', { title: 'Reply to Anna again', sourceKey: 'gmail-malcolm-1a0c3d33' });
     drop(dir, 'c.json', '{ not json');
     const young = drop(dir, 'd.json', { title: 'Still being written' }, 0);
-    expect(importInbox(store, dir)).toEqual({ created: 2, skipped: 1, rejected: 1 });
-    expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Anna', 'proposed'], ['Prep Nordvik', 'proposed']]);
+    drop(dir, 'e.md', '---\ntitle: "Prep for Greenfield, Tue 10:00"\nsourceKey: calendar-abc123def456\nlabel: Investor\ndueAt: 2026-10-06\n---\n#### Recommendation: enrich\n- Two partners have no brain page.\n');
+    drop(dir, 'f.md', 'no header here');
+    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2 });
+    expect(store.tasks[2]).toMatchObject({ title: 'Prep for Greenfield, Tue 10:00', label: 'investor', dueAt: '2026-10-06', notes: '#### Recommendation: enrich\n- Two partners have no brain page.', sourceKey: 'inbox:calendar-abc123def456' });
+    expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Anna', 'proposed'], ['Prep Nordvik', 'proposed'], ['Prep for Greenfield, Tue 10:00', 'proposed']]);
     expect(store.tasks[0].sourceKey).toBe('inbox:gmail-malcolm-1a0c3d33');
     expect(existsSync(join(dir, 'processed', 'a.json'))).toBe(true);
     expect(readFileSync(join(dir, 'rejected', 'c.json.error.txt'), 'utf8')).toMatch(/JSON/);

@@ -6,8 +6,10 @@ import type { Store } from './db.js';
 import { taskSourceKey } from './agent-tools.js';
 
 // ---- Inbox: suggestions written by scheduled jobs outside the app ------------------------
-// Each *.json file holds one suggestion or an array of them. Writers should write *.json.tmp and
-// rename, so the app never reads half a file; files younger than two seconds are left for later.
+// A *.json file holds one suggestion or an array of them. A *.md file holds one suggestion: a
+// front-matter header (title, sourceKey, sourceUrl, label, dueAt) and the notes as its body, which
+// is easier for agents to write than escaped JSON. Files younger than two seconds are left for
+// later so the app never reads half a file.
 export type InboxItem = { title: string; notes: string; sourceUrl: string | null; sourceKey: string | null; label: string | null; dueAt: string | null };
 
 export function parseInboxItem(raw: unknown): InboxItem {
@@ -27,14 +29,26 @@ export function parseInboxItem(raw: unknown): InboxItem {
   return { title, notes, sourceUrl, sourceKey, label, dueAt };
 }
 
+export function parseInboxMarkdown(text: string): Record<string, string> {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) throw new Error('A Markdown suggestion needs a front-matter header between --- lines');
+  const fields: Record<string, string> = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const pair = line.match(/^(\w+):\s*(.*)$/);
+    if (pair) fields[pair[1]] = pair[2].trim().replace(/^(["'])(.*)\1$/, '$2');
+  }
+  return { ...fields, notes: match[2].trim() };
+}
+
 export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask'>, dir: string, now = Date.now()) {
   const counts = { created: 0, skipped: 0, rejected: 0 };
   if (!existsSync(dir)) return counts;
-  for (const name of readdirSync(dir).filter((file) => file.endsWith('.json')).sort()) {
+  for (const name of readdirSync(dir).filter((file) => file.endsWith('.json') || file.endsWith('.md')).sort()) {
     const path = join(dir, name);
     if (now - statSync(path).mtimeMs < 2000) continue;
     try {
-      const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+      const text = readFileSync(path, 'utf8');
+      const raw: unknown = name.endsWith('.md') ? parseInboxMarkdown(text) : JSON.parse(text);
       const items = (Array.isArray(raw) ? raw : [raw]).map(parseInboxItem);
       for (const item of items) {
         // The same key never comes back, even after the task is dismissed or done.
