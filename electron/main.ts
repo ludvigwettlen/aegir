@@ -12,7 +12,8 @@ import {
   Tray,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
+import Database from 'better-sqlite3';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,7 @@ const approvalThreads = new Map<string, string>();
 
 function notifyApproval(title: string) {
   if (window?.isFocused() || !Notification.isSupported()) return;
-  const note = new Notification({ title: 'Aegir needs your approval', body: title });
+  const note = new Notification({ title: 'Legolas needs your approval', body: title });
   note.on('click', () => { window?.show(); window?.focus(); });
   note.show();
 }
@@ -148,10 +149,10 @@ function syncInbox() {
   if (!brain || shuttingDown || !store?.isOpen) return;
   try {
     const counts = importInbox(store, brain.inbox);
-    if (counts.rejected) console.warn(`Aegir inbox: ${counts.rejected} file(s) rejected, see ${join(brain.inbox, 'rejected')}`);
+    if (counts.rejected) console.warn(`Inbox: ${counts.rejected} file(s) rejected, see ${join(brain.inbox, 'rejected')}`);
     if (counts.created) refresh();
   } catch (error) {
-    console.error('Aegir inbox import failed:', error);
+    console.error('Inbox import failed:', error);
   }
 }
 // Exports reuse the task list the latest snapshot already read, so quitting can flush without touching SQLite.
@@ -160,7 +161,7 @@ function writeExport() {
   pendingExport = null;
   if (!brain || !tasks) return;
   try { exportTasks(tasks, brain.exportDir); }
-  catch (error) { console.error('Aegir task export failed:', error); }
+  catch (error) { console.error('Task export failed:', error); }
 }
 function scheduleExport(tasks: Task[]) {
   if (!brain) return;
@@ -172,6 +173,38 @@ function scheduleExport(tasks: Task[]) {
   }, 2000);
 }
 
+// Legolas keeps its data in Application Support/Legolas. Earlier builds of this fork ran as Aegir.
+app.setPath?.('userData', join(app.getPath('appData'), 'Legolas'));
+function processAlive(lockDir: string) {
+  try {
+    const pid = Number(readlinkSync(join(lockDir, 'SingletonLock')).split('-').pop());
+    if (!pid) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+// Moves the Aegir database over once. SQLite's backup API gives a consistent copy; it lands under a
+// temporary name and is renamed into place only when complete, so a failed move retries next start.
+// The Aegir folder is left untouched.
+async function migrateFromAegir(): Promise<'none' | 'migrated' | 'busy'> {
+  const currentDir = app.getPath('userData');
+  const currentDb = join(currentDir, 'aegir.sqlite');
+  const aegirDir = join(app.getPath('appData'), 'Aegir');
+  const source = join(aegirDir, 'aegir.sqlite');
+  if (existsSync(currentDb) || !existsSync(source)) return 'none';
+  if (processAlive(aegirDir)) return 'busy';
+  mkdirSync(currentDir, { recursive: true });
+  const temp = `${currentDb}.migrating`;
+  rmSync(temp, { force: true });
+  const old = new Database(source, { readonly: true, fileMustExist: true });
+  try { await old.backup(temp); } finally { old.close(); }
+  if (existsSync(join(aegirDir, 'skills')) && !existsSync(join(currentDir, 'skills')))
+    cpSync(join(aegirDir, 'skills'), join(currentDir, 'skills'), { recursive: true });
+  renameSync(temp, currentDb);
+  return 'migrated';
+}
 function migrateLegacyData() {
   const currentDir = app.getPath('userData');
   const currentDb = join(currentDir, 'aegir.sqlite');
@@ -513,7 +546,7 @@ function openSettings() {
 function createApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: 'Aegir',
+      label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -542,10 +575,10 @@ function createTray() {
       `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     ),
   );
-  tray.setToolTip('Aegir');
+  tray.setToolTip(app.name);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Open Aegir', click: () => window?.show() },
+      { label: `Open ${app.name}`, click: () => window?.show() },
       { label: 'Settings…', click: openSettings },
       { type: 'separator' },
       {
@@ -565,6 +598,14 @@ if (app.requestSingleInstanceLock()) {
     window?.focus();
   });
   app.whenReady().then(async () => {
+    let moved: 'none' | 'migrated' | 'busy' = 'none';
+    try { moved = await migrateFromAegir(); }
+    catch (error) { dialog.showErrorBox('Could not move your tasks from Aegir', `${String(error)}\n\nYour Aegir data is untouched. Quit Legolas and open it again to retry.`); }
+    if (moved === 'busy') {
+      dialog.showMessageBoxSync({ type: 'info', message: 'Quit Aegir first', detail: 'Legolas moves your tasks over from Aegir the first time it opens. Quit Aegir from its menu-bar icon, then open Legolas again.' });
+      app.exit(0);
+      return;
+    }
     migrateLegacyData();
     store = new Store();
     store.onMessage = (value) => emit({ type: 'message', value });
@@ -592,7 +633,7 @@ if (app.requestSingleInstanceLock()) {
     if (existsSync(brainDir)) {
       brain = {
         dir: brainDir,
-        inbox: store.getSetting('inboxDir') || join(brainDir, 'queues', 'aegir-inbox'),
+        inbox: store.getSetting('inboxDir') || join(brainDir, 'queues', 'legolas-inbox'),
         exportDir: store.getSetting('exportDir') || join(brainDir, 'queues'),
       };
       mkdirSync(brain.inbox, { recursive: true });
@@ -600,7 +641,7 @@ if (app.requestSingleInstanceLock()) {
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
-    const outputRoot = join(app.getPath('documents'), 'Aegir');
+    const outputRoot = join(app.getPath('documents'), 'Legolas');
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
       routineCwd: app.getPath('userData'),
@@ -687,9 +728,9 @@ if (app.requestSingleInstanceLock()) {
         console.error('Memory migration failed:', error);
         if (store.isOpen) refresh();
       });
-    if (app.isPackaged && !store.getSetting('loginConfigured')) {
+    if (app.isPackaged && !store.getSetting('legolasLoginConfigured')) {
       app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
-      store.setSetting('loginConfigured', 'true');
+      store.setSetting('legolasLoginConfigured', 'true');
       refresh();
     }
     powerMonitor.on('resume', () => {

@@ -386,7 +386,7 @@ Slack and Notion tools are read-only; use them to research. Do not write to exte
 ${collaboration}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
-    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Aegir.${purpose}
+    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Legolas.${purpose}
 Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 ${collaboration}
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.

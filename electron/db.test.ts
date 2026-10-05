@@ -307,6 +307,7 @@ describe('single-agent setup for Claude Code', () => {
     const after = store.list('agents');
     expect(after.find((agent) => agent.id === lead.id)?.name).toBe('Claude');
     expect(after.find((agent) => agent.id === lead.id)?.instructions).toContain('You are Claude,');
+    for (const name of ['Mimer', 'Saga', 'Freja', 'Aegir']) expect(after.find((agent) => agent.id === lead.id)?.instructions).not.toContain(name);
     expect(after.some((agent) => agent.id === helper.id)).toBe(false);
     expect(after.some((agent) => agent.id === chatty.id)).toBe(true);
     expect(store.groups().filter((group) => group.kind === 'group').every((group) => group.agentIds.length === 1 && group.agentIds[0] === lead.id)).toBe(true);

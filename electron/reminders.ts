@@ -14,6 +14,7 @@ export type Reminder = {
   notes: string;
   due?: string;
   dueTime?: string;
+  dueInstant?: string;
   created?: string;
   modified?: string;
   url?: string;
@@ -119,6 +120,7 @@ export function taskFromReminder(reminder: Reminder) {
     reminder.url && !reminder.notes.includes(reminder.url) && !raw.includes(reminder.url) ? `Link: ${reminder.url}` : '',
     reminder.locationAlarm ? 'This reminder has a location alert, so it stays in Apple Reminders too.' : '',
     !reminder.locationAlarm && reminder.dueTime ? `Reminder set for ${reminder.dueTime}. It stays in Apple Reminders until then so the alert can fire.` : '',
+    !reminder.locationAlarm && !reminder.dueTime && reminder.due ? 'It stays in Apple Reminders until the end of its day so the notification can fire.' : '',
     `Captured in Apple Reminders${when ? ` on ${when}` : ''}.`,
   ];
   return {
@@ -131,15 +133,23 @@ export function taskFromReminder(reminder: Reminder) {
   };
 }
 
-// When a reminder with an alert may be ticked off: five minutes after its due time, or never.
+// When a reminder may be ticked off without silencing its alert. null: right away (no alert).
+// 'never': it stays in Reminders. Otherwise an ISO time after which the alert has had its chance.
 export function alertDoneAt(reminder: Reminder): string | null | 'never' {
   if (reminder.locationAlarm) return 'never';
   if (reminder.due && reminder.dueTime) {
-    const at = new Date(`${reminder.due}T${reminder.dueTime}:00`);
-    return Number.isNaN(at.getTime()) ? 'never' : new Date(at.getTime() + 5 * 60_000).toISOString();
+    const instant = reminder.dueInstant ? new Date(reminder.dueInstant) : new Date(`${reminder.due}T${reminder.dueTime}:00`);
+    return Number.isNaN(instant.getTime()) ? 'never' : new Date(instant.getTime() + 5 * 60_000).toISOString();
   }
   // Alarms without a due time (absolute alarm dates) aren't exposed in a form we can schedule against.
-  return reminder.hasAlarms ? 'never' : null;
+  if (reminder.hasAlarms) return 'never';
+  // A date without a time still notifies on that day, at the time set in the Reminders settings.
+  if (reminder.due && /^\d{4}-\d{2}-\d{2}$/.test(reminder.due)) {
+    const [year, month, day] = reminder.due.split('-').map(Number);
+    const nextMorning = new Date(year, month - 1, day + 1, 0, 5);
+    return Number.isNaN(nextMorning.getTime()) ? 'never' : nextMorning.toISOString();
+  }
+  return null;
 }
 
 export type SyncResult = { imported: number; completed: number; skipped: number; settling: number; keptForAlert: number; failed: number };
@@ -179,8 +189,10 @@ export async function syncReminders(
       return false;
     }
   };
-  for (const reminder of await source.list(list)) {
-    if (!keepGoing()) break;
+  const listed = await source.list(list);
+  let stopped = false;
+  for (const reminder of listed) {
+    if (!keepGoing()) { stopped = true; break; }
     // Ticking off a repeating reminder would end or advance the series; those stay in Reminders.
     if (reminder.recurring) { result.skipped++; continue; }
     const capture = taskFromReminder(reminder);
@@ -195,10 +207,15 @@ export async function syncReminders(
       }
       remember(reminder);
       const alert = alertDoneAt(reminder);
-      if (alert === 'never') result.keptForAlert++;
-      else if (alert) { ledger.waiting[reminder.id] = alert; result.keptForAlert++; }
-      else ledger.pending.push(reminder.id);
       result.imported++;
+      if (alert === 'never' || (alert && now.toISOString() < alert)) {
+        if (alert !== 'never') ledger.waiting[reminder.id] = alert;
+        result.keptForAlert++;
+        save();
+        continue;
+      }
+      // No alert, or its moment has already passed (an old backlog item): tick it off now.
+      ledger.pending.push(reminder.id);
       save();
     } else if (!imported.has(reminder.id)) {
       // Imported before the ledger existed: remember it so a deleted task can't bring it back.
@@ -208,8 +225,28 @@ export async function syncReminders(
     if (ledger.pending.includes(reminder.id)) {
       if (await tickOff(reminder)) { ledger.pending = ledger.pending.filter((id) => id !== reminder.id); save(); }
     } else if (ledger.waiting[reminder.id]) {
-      if (now.toISOString() >= ledger.waiting[reminder.id] && await tickOff(reminder)) { delete ledger.waiting[reminder.id]; save(); }
+      // The user may have snoozed, moved or changed the alert since import: decide on today's data.
+      const alert = alertDoneAt(reminder);
+      if (alert === 'never' || alert === null) {
+        // A location alert now, or no alert left: either way it is the user's reminder again.
+        delete ledger.waiting[reminder.id];
+        save();
+        if (alert === 'never') result.keptForAlert++; else result.skipped++;
+      } else {
+        if (alert !== ledger.waiting[reminder.id]) { ledger.waiting[reminder.id] = alert; save(); }
+        if (now.toISOString() >= alert && await tickOff(reminder)) { delete ledger.waiting[reminder.id]; save(); }
+        else result.keptForAlert++;
+      }
     } else if (known) result.skipped++;
+  }
+  // Reminders the user ticked off or deleted on the phone drop out of the list. Forget their
+  // pending and waiting entries, so reopening one later doesn't get it ticked off straight away.
+  if (!stopped && keepGoing()) {
+    const seen = new Set(listed.map((reminder) => reminder.id));
+    const before = ledger.pending.length + Object.keys(ledger.waiting).length;
+    ledger.pending = ledger.pending.filter((id) => seen.has(id));
+    for (const id of Object.keys(ledger.waiting)) if (!seen.has(id)) delete ledger.waiting[id];
+    if (ledger.pending.length + Object.keys(ledger.waiting).length !== before) save();
   }
   return result;
 }

@@ -91,7 +91,13 @@ case "list":
     // Due dates are floating calendar dates; read the components, not an instant, so time zones can't shift the day.
     if let parts = reminder.dueDateComponents, let year = parts.year, let month = parts.month, let day = parts.day {
       row["due"] = String(format: "%04d-%02d-%02d", year, month, day)
-      if let hour = parts.hour, let minute = parts.minute { row["dueTime"] = String(format: "%02d:%02d", hour, minute) }
+      if let hour = parts.hour, let minute = parts.minute {
+        row["dueTime"] = String(format: "%02d:%02d", hour, minute)
+        // The exact moment the alert is due, in the reminder's own time zone when it has one.
+        var moment = parts
+        if moment.timeZone == nil { moment.timeZone = reminder.timeZone ?? TimeZone.current }
+        if let date = Calendar(identifier: .gregorian).date(from: moment) { row["dueInstant"] = iso.string(from: date) }
+      }
     }
     if let created = reminder.creationDate { row["created"] = iso.string(from: created) }
     if let modified = reminder.lastModifiedDate ?? reminder.creationDate { row["modified"] = iso.string(from: modified) }

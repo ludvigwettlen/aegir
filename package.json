@@ -52,8 +52,8 @@
   },
   "main": "dist-electron/main.js",
   "build": {
-    "appId": "dev.personal.aegir",
-    "productName": "Aegir",
+    "appId": "dev.personal.legolas",
+    "productName": "Legolas",
     "directories": {
       "output": "release"
     },
@@ -68,8 +68,8 @@
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
       "extendInfo": {
-        "NSRemindersFullAccessUsageDescription": "Aegir turns what you capture in Apple Reminders into tasks, then ticks the reminder off.",
-        "NSRemindersUsageDescription": "Aegir turns what you capture in Apple Reminders into tasks, then ticks the reminder off."
+        "NSRemindersFullAccessUsageDescription": "Legolas turns what you capture in Apple Reminders into tasks, then ticks the reminder off.",
+        "NSRemindersUsageDescription": "Legolas turns what you capture in Apple Reminders into tasks, then ticks the reminder off."
       }
     },
     "extraResources": [
@@ -79,5 +79,6 @@
       }
     ]
   },
-  "packageManager": "pnpm@11.24.0+sha512.bd27e345e976dcb0be0b7a1228217b049a817e21b1f355c90dbe7dc46671895a8bc1e6d06c24554505ea93ea0b45f489a27ec1bfbc8de6a9659fca0f16fa0000"
+  "packageManager": "pnpm@11.24.0+sha512.bd27e345e976dcb0be0b7a1228217b049a817e21b1f355c90dbe7dc46671895a8bc1e6d06c24554505ea93ea0b45f489a27ec1bfbc8de6a9659fca0f16fa0000",
+  "productName": "Legolas"
 }

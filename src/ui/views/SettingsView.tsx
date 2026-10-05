@@ -81,7 +81,7 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
             <div className="panel-heading">
               <div>
                 <h2>Startup</h2>
-                <p>Open Aegir automatically when you log in to your Mac.</p>
+                <p>Open Legolas automatically when you log in to your Mac.</p>
               </div>
               <Button
                 variant="outline"

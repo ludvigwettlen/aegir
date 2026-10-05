@@ -95,7 +95,7 @@ export function renderTaskExport(tasks: Task[], today = new Date()): string {
     ['Done in the last 7 days', tasksFor('completed', tasks, today).filter((task) => (task.completedAt || task.updatedAt) >= weekAgo)],
   ];
   const body = sections.map(([title, list]) => `## ${title} (${list.length})\n\n${list.map(line).join('\n') || '_None._'}\n`).join('\n');
-  return `---\ntitle: Aegir tasks\ntype: export\n---\n\n# Aegir tasks\n\nAegir rewrites this file whenever a task changes. Change tasks in Aegir, not here.\n\n${body}`;
+  return `---\ntitle: Legolas tasks\ntype: export\n---\n\n# Legolas tasks\n\nLegolas rewrites this file whenever a task changes. Change tasks in Legolas, not here.\n\n${body}`;
 }
 
 // Writes only when the content changed, so the brain's git history shows real task changes.
@@ -105,8 +105,8 @@ export function exportTasks(tasks: Task[], dir: string): boolean {
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const current = tasks.filter((task) => task.status !== 'dismissed' && (task.status !== 'done' || (task.completedAt || task.updatedAt) >= weekAgo));
   const json = `${JSON.stringify(current, null, 1)}\n`;
-  const mdPath = join(dir, 'aegir-tasks.md');
-  const jsonPath = join(dir, 'aegir-tasks.json');
+  const mdPath = join(dir, 'legolas-tasks.md');
+  const jsonPath = join(dir, 'legolas-tasks.json');
   let changed = false;
   if (!existsSync(mdPath) || readFileSync(mdPath, 'utf8') !== markdown) { writeFileSync(mdPath, markdown); changed = true; }
   if (!existsSync(jsonPath) || readFileSync(jsonPath, 'utf8') !== json) { writeFileSync(jsonPath, json); changed = true; }

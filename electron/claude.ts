@@ -223,7 +223,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
             const approved = await this.askUser(runId, toolName, toolInput, options);
             return approved
               ? { behavior: 'allow', updatedInput: toolInput }
-              : { behavior: 'deny', message: 'The user declined this action in Aegir.' };
+              : { behavior: 'deny', message: 'The user declined this action in Legolas.' };
           },
         },
       });

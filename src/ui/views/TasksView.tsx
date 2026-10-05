@@ -9,7 +9,7 @@ import {
 import { Check, ExternalLink, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
+import { isoDate, parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -45,12 +45,6 @@ const rank: Record<Task['status'], number> = {
 // The agent that takes hand-offs: the lead of the default group (Claude on the Claude Code engine).
 export function leadName(data: Snapshot) {
   return data.agents.find((agent) => agent.role.trim().toLowerCase() === 'lead')?.name || 'the agent';
-}
-// Grows a textarea to fit its text, so long titles and notes wrap instead of being cut off.
-function fitHeight(field: HTMLTextAreaElement | null, maxPx = 0) {
-  if (!field) return;
-  field.style.height = 'auto';
-  field.style.height = `${maxPx ? Math.min(field.scrollHeight, maxPx) : field.scrollHeight}px`;
 }
 
 function groupTasks(list: TaskView, tasks: Task[]) {
@@ -239,12 +233,15 @@ export function TasksView({
   });
 
   const add = () => {
-    const parsed = parseQuickAdd(draft);
-    if (!parsed.title || adding.current) return;
+    const quick = parseQuickAdd(draft);
+    if (!quick.title || adding.current) return;
+    // Adding from Today means today; elsewhere an undated task goes to the Inbox.
+    const parsed = list === 'today' && !quick.dueAt ? { ...quick, dueAt: isoDate(new Date()) } : quick;
     adding.current = true;
     void run(async () => {
       try {
         const task = await api.createTask(parsed);
+        if (!tasksFor(list, [task]).length) notify(`Added to ${tasksFor('inbox', [task]).length ? 'Inbox' : 'Upcoming'}`);
         setDraft('');
         setEditTarget(null);
         setCursor(task.id);
@@ -574,14 +571,22 @@ function TaskDetail({
   const [notes, setNotes] = useState(task.notes);
   const [label, setLabel] = useState(task.label || '');
   const cancelledTitle = useRef(false);
-  const titleField = useRef<HTMLTextAreaElement>(null);
-  const notesField = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => fitHeight(titleField.current), [title]);
-  useLayoutEffect(() => fitHeight(notesField.current, 420), [notes]);
+  const cancelledLabel = useRef(false);
   useEffect(() => setLabel(task.label || ''), [task.label]);
+  // The date field saves only complete dates: picking from the calendar, Enter, or leaving the field.
+  const [due, setDue] = useState(task.dueAt || '');
+  useEffect(() => setDue(task.dueAt || ''), [task.dueAt]);
+  const typingDue = useRef(false);
+  const validDue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number(value.slice(0, 4)) >= 2000 && Number(value.slice(0, 4)) <= 2100;
+  const commitDue = (value: string) => {
+    typingDue.current = false;
+    if (!validDue(value)) { setDue(task.dueAt || ''); return; }
+    if (value !== task.dueAt) void run(() => api.updateTask(task.id, { dueAt: value }));
+  };
   const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
   const agent = leadName(data);
   const saveLabel = () => {
+    if (cancelledLabel.current) { cancelledLabel.current = false; setLabel(task.label || ''); return; }
     const next = label.replace(/^#/, '').trim().toLowerCase() || null;
     if (next !== task.label) void run(() => api.updateTask(task.id, { label: next }));
   };
@@ -610,7 +615,6 @@ function TaskDetail({
         )}
       </div>}
       <textarea
-        ref={titleField}
         rows={1}
         className="ws-task-title-input"
         aria-label="Task title"
@@ -659,8 +663,18 @@ function TaskDetail({
         )}
         <label className="ws-inline-field">
           <span>Due</span>
-          <input type="date" aria-label="Due date" value={task.dueAt || ''}
-            onChange={(event) => void run(() => api.updateTask(task.id, { dueAt: event.target.value || null }))} />
+          <input type="date" aria-label="Due date" min="2000-01-01" max="2100-12-31" value={due}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { event.preventDefault(); commitDue(due); return; }
+              if (event.key === 'Escape') { event.preventDefault(); typingDue.current = false; setDue(task.dueAt || ''); event.currentTarget.blur(); onReturnToList(); return; }
+              typingDue.current = true;
+            }}
+            onChange={(event) => {
+              setDue(event.target.value);
+              // A change that didn't come from typing is the calendar picker: save it straight away.
+              if (!typingDue.current && validDue(event.target.value)) commitDue(event.target.value);
+            }}
+            onBlur={() => { if (typingDue.current) commitDue(due); }} />
           {task.dueAt && (
             <button type="button" aria-label="Clear due date" title="Clear due date"
               onClick={() => void run(() => api.updateTask(task.id, { dueAt: null }))}><X size={11} /></button>
@@ -673,7 +687,7 @@ function TaskDetail({
             onBlur={saveLabel}
             onKeyDown={(event) => {
               if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
-              if (event.key === 'Escape') { event.preventDefault(); setLabel(task.label || ''); event.currentTarget.blur(); onReturnToList(); }
+              if (event.key === 'Escape') { event.preventDefault(); cancelledLabel.current = true; event.currentTarget.blur(); onReturnToList(); }
             }} />
           <datalist id="ws-label-options">{labels.map((value) => <option key={value} value={value} />)}</datalist>
         </label>
@@ -686,7 +700,6 @@ function TaskDetail({
       <label className="ws-field">
         <span>Notes</span>
         <textarea
-          ref={notesField}
           aria-label="Task notes"
           rows={3}
           placeholder="Add context for this task"

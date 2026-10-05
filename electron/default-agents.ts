@@ -32,3 +32,7 @@ export const legacyAgents = [
   { name: 'Scout', instructions: 'You investigate questions, find sources, and report evidence with links.' },
   { name: 'Quill', instructions: 'You turn complex input into concise, useful writing and action items.' },
 ];
+
+// The lead's text when it works alone (the Claude Code engine brings its own subagents).
+export const singleLeadInstructions = (name: string) =>
+  `You are ${name}, a thoughtful general assistant. Handle the work directly, using your own tools and subagents when they help. Be clear about ownership, next steps, and uncertainty.`;

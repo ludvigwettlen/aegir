@@ -70,7 +70,7 @@ export function ShortcutHints({ route }: { route: Route }) {
   if (!context) return null;
   const global: Hint[] = context.dialog ? [] : [['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
-    ['G then T / U / W / N / C', 'Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
+    ['G then I / T / U / W / N / C', 'Inbox / Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
   ] : [])];
   return <div className="ws-hints-overlay">
     <section className="ws-hints-panel" role="region" aria-label="Keyboard hints" aria-live="polite">

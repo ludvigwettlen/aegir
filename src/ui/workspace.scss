@@ -387,8 +387,11 @@
 }
 
 // Legolas: visible controls for what used to be keyboard-only (done, due date, label), and wrapping titles.
-textarea.ws-task-title-input { display: block; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }
-.ws-field textarea[aria-label="Task notes"] { resize: vertical; overflow-y: auto; }
+// field-sizing grows the box with its text and re-measures on any width change (Chromium 123+).
+textarea.ws-task-title-input { display: block; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; field-sizing: content; }
+.ws-field textarea[aria-label="Task notes"] { resize: vertical; overflow-y: auto; field-sizing: content; min-height: 4.5em; max-height: 420px; }
+// Inside a task's conversation the header shares space with the thread and composer.
+.ws-conversation-head .ws-field textarea[aria-label="Task notes"] { max-height: 140px; }
 .ws-detail-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; }
 .ws-inline-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #596753;
   > span { font-weight: 700; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }

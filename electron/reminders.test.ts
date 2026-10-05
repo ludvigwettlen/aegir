@@ -43,7 +43,7 @@ describe('mapping a reminder to a task', () => {
   it('keeps the user\'s words and takes the date from the reminder', () => {
     expect(taskFromReminder(reminder('A', 'Call Rasmus about Harborlight fri', { due: '2026-10-09', created: '2026-10-05T07:00:00Z', notes: 'Pricing first' }))).toMatchObject({
       title: 'Call Rasmus about Harborlight fri',
-      notes: 'Pricing first\n\nCaptured in Apple Reminders on 5 Oct 2026.',
+      notes: 'Pricing first\n\nIt stays in Apple Reminders until the end of its day so the notification can fire.\n\nCaptured in Apple Reminders on 5 Oct 2026.',
       label: null,
       dueAt: '2026-10-09',
       sourceKey: 'reminders:A',
@@ -111,6 +111,51 @@ describe('syncing a Reminders list', () => {
     expect(source.completed).toEqual(['T']);
     expect(ledger.waiting).toEqual({});
     expect(store.tasks).toHaveLength(2);
+  });
+
+  it('follows a snoozed or moved alert instead of the time it had at import', async () => {
+    const store = fakeStore();
+    const list = [reminder('T', 'Call Bea', { due: '2026-10-05', dueTime: '16:00', hasAlarms: true })];
+    const source = fakeSource(list, store);
+    const ledger = empty();
+    await syncReminders(store, source, 'Reminders', ledger, { now: NOW });
+    list[0] = { ...list[0], due: '2026-10-06', dueTime: '09:00' };
+    expect(await syncReminders(store, source, 'Reminders', ledger, { now: new Date('2026-10-05T16:06:00') })).toMatchObject({ completed: 0 });
+    expect(ledger.waiting.T).toBe(new Date('2026-10-06T09:05:00').toISOString());
+    expect(await syncReminders(store, source, 'Reminders', ledger, { now: new Date('2026-10-06T09:06:00') })).toMatchObject({ completed: 1 });
+  });
+
+  it('keeps a reminder for good once its time is swapped for a location alert', async () => {
+    const store = fakeStore();
+    const list = [reminder('T', 'Buy flowers', { due: '2026-10-05', dueTime: '16:00', hasAlarms: true })];
+    const source = fakeSource(list, store);
+    const ledger = empty();
+    await syncReminders(store, source, 'Reminders', ledger, { now: NOW });
+    list[0] = { ...list[0], dueTime: undefined, locationAlarm: true };
+    expect(await syncReminders(store, source, 'Reminders', ledger, { now: new Date('2026-10-06T10:00:00') })).toMatchObject({ completed: 0 });
+    expect(ledger.waiting).toEqual({});
+  });
+
+  it('lets a date-only reminder notify on its day before ticking it off', async () => {
+    const store = fakeStore();
+    const source = fakeSource([reminder('D', 'Tennis court', { due: '2026-10-05' })], store);
+    const ledger = empty();
+    expect(await syncReminders(store, source, 'Reminders', ledger, { now: NOW })).toMatchObject({ imported: 1, completed: 0, keptForAlert: 1 });
+    expect(await syncReminders(store, source, 'Reminders', ledger, { now: new Date('2026-10-06T00:10:00') })).toMatchObject({ completed: 1 });
+    // A backlog item whose day is long gone is ticked off on import.
+    const old = fakeSource([reminder('O', 'Old capture', { due: '2026-06-12' })], store);
+    expect(await syncReminders(store, old, 'Reminders', empty(), { now: NOW })).toMatchObject({ imported: 1, completed: 1 });
+  });
+
+  it('forgets pending and waiting entries for reminders the user ticked off on the phone', async () => {
+    const store = fakeStore();
+    const ledger: CaptureLedger = { imported: ['A', 'B'], pending: ['A'], waiting: { B: '2026-10-05T14:05:00.000Z' } };
+    expect(await syncReminders(store, fakeSource([], store), 'Reminders', ledger, { now: NOW })).toMatchObject({ completed: 0 });
+    expect(ledger).toEqual({ imported: ['A', 'B'], pending: [], waiting: {} });
+    // A pass cut short keeps them, since it didn't see the whole list.
+    const kept: CaptureLedger = { imported: ['A'], pending: ['A'], waiting: {} };
+    await syncReminders(store, fakeSource([reminder('X', 'x')], store), 'Reminders', kept, { now: NOW, keepGoing: () => false });
+    expect(kept.pending).toEqual(['A']);
   });
 
   it('retries a failed tick-off without creating a second task', async () => {

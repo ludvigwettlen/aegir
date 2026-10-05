@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { api, isTyping, type Route, type Run } from '../views/common';
 
-const listShortcuts = { t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
+const listShortcuts = { i: 'inbox', t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
 
 export function useWorkspaceKeyboard(
   run: Run,

@@ -20,7 +20,7 @@ import type {
   ThreadSummary,
   MessagePage,
 } from '../shared/types.js';
-import { defaultAgents, legacyAgents } from './default-agents.js';
+import { defaultAgents, legacyAgents , singleLeadInstructions } from './default-agents.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import type { SkillProposal } from '../shared/skills.js';
 
@@ -115,7 +115,7 @@ export class Store {
       .run(now());
     this.db
       .prepare(
-        "UPDATE routine_runs SET status='failed',summary='Interrupted when Aegir quit',endedAt=? WHERE status='running'",
+        "UPDATE routine_runs SET status='failed',summary='Interrupted when the app quit',endedAt=? WHERE status='running'",
       )
       .run(now());
     this.db.prepare("UPDATE messages SET status='failed' WHERE status='streaming'").run();
@@ -317,8 +317,9 @@ export class Store {
       const lead = agents.find((agent) => agent.role.trim().toLowerCase() === 'lead');
       if (!lead) return;
       const seeded = defaultAgents[0];
+      // Seeded text names the old teammates, so it is replaced; customised text only gets the new name.
       if (lead.name === seeded.name)
-        this.updateAgent({ ...lead, name, instructions: lead.instructions === seeded.instructions ? lead.instructions.replace(`You are ${seeded.name},`, `You are ${name},`) : lead.instructions });
+        this.updateAgent({ ...lead, name, instructions: lead.instructions === seeded.instructions ? singleLeadInstructions(name) : lead.instructions.replace(`You are ${seeded.name},`, `You are ${name},`) });
       for (const agent of agents.filter((item) => item.id !== lead.id)) {
         for (const group of this.groups().filter((item) => item.kind === 'group' && item.agentIds.includes(agent.id))) {
           const agentIds = group.agentIds.filter((id) => id !== agent.id);

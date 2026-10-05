@@ -70,7 +70,7 @@ describe('task export', () => {
     const dir = mkdtempSync(join(tmpdir(), 'aegir-export-'));
     expect(exportTasks(tasks, dir)).toBe(true);
     expect(exportTasks(tasks, dir)).toBe(false);
-    expect(JSON.parse(readFileSync(join(dir, 'aegir-tasks.json'), 'utf8')).map((task: Task) => task.id)).toEqual(['1', '2']);
+    expect(JSON.parse(readFileSync(join(dir, 'legolas-tasks.json'), 'utf8')).map((task: Task) => task.id)).toEqual(['1', '2']);
     expect(exportTasks(tasks, join(dir, 'missing'))).toBe(false);
   });
 });

@@ -44,7 +44,7 @@ export function brainKeywords(text: string, max = 6): string {
 const SKIP = /^(queues|drafts)\//;
 
 // Memory backed by the user's gbrain (~/brain). Recall is read-only search; remember appends to
-// inbox/aegir-memories.md, which the brain's resolver treats as "file this properly later".
+// inbox/legolas-memories.md, which the brain's resolver treats as "file this properly later".
 export class GbrainMemoryService {
   constructor(private binary: string, private brainDir: string) {}
 
@@ -87,22 +87,22 @@ export class GbrainMemoryService {
     if (scope !== 'shared' && !/^agent-[0-9a-f-]+$/i.test(scope)) throw new Error('Invalid memory scope');
     const text = content.trim().replace(/\s+/g, ' ');
     if (!text || text.length > 2000) throw new Error('Memory must be 1–2000 characters');
-    const file = join(this.brainDir, 'inbox', 'aegir-memories.md');
+    const file = join(this.brainDir, 'inbox', 'legolas-memories.md');
     if (!existsSync(file)) {
       mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, '---\ntitle: Aegir memories\ntype: inbox\n---\n\n# Aegir memories\n\nThings Aegir\'s agents chose to remember. File the ones that matter onto the right brain page.\n\n');
+      writeFileSync(file, '---\ntitle: Legolas memories\ntype: inbox\n---\n\n# Legolas memories\n\nThings Legolas\'s agent chose to remember. File the ones that matter onto the right brain page.\n\n');
     }
     const createdAt = new Date().toISOString();
     const who = scope === 'shared' ? 'shared' : 'agent';
     appendFileSync(file, `- ${createdAt.slice(0, 10)} (${who}): ${text}${sourceUrl ? ` [source](${sourceUrl})` : ''}\n`);
-    return { id: `inbox/aegir-memories#${createdAt}`, scope, content: text, sourceUrl, createdAt };
+    return { id: `inbox/legolas-memories#${createdAt}`, scope, content: text, sourceUrl, createdAt };
   }
 
   async forget(): Promise<void> {
-    throw new Error('Brain pages are edited in Obsidian or with brain-ops, not from Aegir.');
+    throw new Error('Brain pages are edited in Obsidian or with brain-ops, not from Legolas.');
   }
 
   async correct(): Promise<void> {
-    throw new Error('Brain pages are edited in Obsidian or with brain-ops, not from Aegir.');
+    throw new Error('Brain pages are edited in Obsidian or with brain-ops, not from Legolas.');
   }
 }
