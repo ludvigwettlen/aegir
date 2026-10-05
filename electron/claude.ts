@@ -43,18 +43,57 @@ export function approvalTitle(toolName: string, title?: string, displayName?: st
   return displayName && displayName !== toolName ? displayName : `Use ${toolName}`;
 }
 
-export function describeToolRequest(toolName: string, input: Record<string, unknown>, reason?: string, blockedPath?: string): string {
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep', 'LS'];
+const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
+// Long free-text inputs (file contents, edit text) are shortened in the input listing only.
+// Paths, commands and URLs are always shown in full on their own lines.
+const MAX_VALUE = 600;
+
+function shorten(value: unknown): unknown {
+  if (typeof value === 'string')
+    return value.length > MAX_VALUE ? `${value.slice(0, MAX_VALUE)}… (${value.length - MAX_VALUE} more characters)` : value;
+  if (Array.isArray(value)) return value.map(shorten);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shorten(item)]));
+  return value;
+}
+
+export type ToolRequestContext = {
+  reason?: string; // Claude Code's explanation of why it is asking
+  blockedPath?: string;
+  description?: string; // Claude Code's sentence about what the action gives access to
+  mcpServer?: { name: string; source: string };
+  cwd?: string;
+};
+
+// Everything an approval grants, in plain lines. Approving runs this one call with exactly this input:
+// Legolas never returns permission updates, so nothing carries over to later calls.
+export function describeToolRequest(toolName: string, input: Record<string, unknown>, context: ToolRequestContext = {}): string {
   const lines: string[] = [];
-  if (toolName === 'Bash' && typeof input.command === 'string') {
-    lines.push(input.command);
-    if (typeof input.description === 'string') lines.push(input.description);
-  } else if (typeof input.file_path === 'string') lines.push(input.file_path);
-  else if (typeof input.notebook_path === 'string') lines.push(input.notebook_path);
-  else lines.push(JSON.stringify(input, null, 2));
-  if (blockedPath) lines.push(`Path: ${blockedPath}`);
-  if (reason) lines.push(`Why: ${reason}`);
-  const text = lines.join('\n');
-  return text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+  const mcp = toolName.match(/^mcp__(.+?)__(.+)$/);
+  lines.push(mcp ? `Tool: ${mcp[2]} on the ${context.mcpServer?.name || mcp[1]} MCP server (${toolName})` : `Tool: ${toolName}`);
+  if (typeof input.command === 'string') lines.push(`Command: ${input.command}`);
+  if (toolName === 'Bash' && context.cwd) lines.push(`Runs in: ${context.cwd}`);
+  for (const key of PATH_KEYS) if (typeof input[key] === 'string') lines.push(`Path: ${input[key]}`);
+  if (context.blockedPath) lines.push(`Path outside the allowed folders: ${context.blockedPath}`);
+  if (typeof input.url === 'string') lines.push(`URL: ${input.url}`);
+  if (toolName === 'Bash') lines.push('Network: open. The command runs as you, with your files and your network');
+  else if (toolName === 'WebFetch') lines.push(`Network: fetches ${typeof input.url === 'string' ? input.url : 'a web page'}`);
+  else if (toolName === 'WebSearch') lines.push(`Network: searches the web${typeof input.query === 'string' ? ` for "${input.query}"` : ''}`);
+  else if (FILE_TOOLS.includes(toolName)) lines.push('Network: none');
+  else if (mcp) lines.push(`Network: whatever the ${context.mcpServer?.name || mcp[1]} server does with this request`);
+  else lines.push('Network: not limited by Legolas');
+  lines.push('Grant: this one call only. Claude asks again next time.');
+  if (context.description) lines.push(`Claude Code: ${context.description}`);
+  if (context.reason) lines.push(`Why it asks: ${context.reason}`);
+  lines.push(`Input:\n${JSON.stringify(shorten(input), null, 2)}`);
+  return lines.join('\n');
+}
+
+// The answer to a permission prompt. Never includes updatedPermissions, so an approval grants only this call.
+export function permissionResult(approved: boolean, input: Record<string, unknown>): PermissionResult {
+  return approved
+    ? { behavior: 'allow', updatedInput: input }
+    : { behavior: 'deny', message: 'The user declined this action in Legolas.' };
 }
 
 // Aegir tool results use Codex's content items; the MCP transport wants MCP content blocks.
@@ -152,8 +191,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
     return server;
   }
 
-  private askUser(runId: string, toolName: string, input: Record<string, unknown>, options: {
+  private askUser(runId: string, toolName: string, input: Record<string, unknown>, cwd: string, options: {
     signal: AbortSignal; title?: string; displayName?: string; decisionReason?: string; blockedPath?: string;
+    description?: string; mcpServer?: { name: string; source: string };
   }): Promise<boolean> {
     if (options.signal.aborted) return Promise.resolve(false);
     const id = randomUUID();
@@ -161,7 +201,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
       id,
       method: `claude:${toolName}`,
       title: approvalTitle(toolName, options.title, options.displayName),
-      detail: describeToolRequest(toolName, input, options.decisionReason, options.blockedPath),
+      detail: describeToolRequest(toolName, input, {
+        reason: options.decisionReason, blockedPath: options.blockedPath, description: options.description, mcpServer: options.mcpServer, cwd,
+      }),
       agentId: null,
       threadId: runId,
       createdAt: new Date().toISOString(),
@@ -238,10 +280,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
             const writable = [...(input.sandbox === 'workspace-write' ? [input.cwd] : []), ...(input.kind === 'routine' ? [] : this.options.workDirs || [])];
             if (WRITE_TOOLS.includes(toolName) && typeof path === 'string' && writable.some((dir) => isInside(dir, path)))
               return { behavior: 'allow', updatedInput: toolInput };
-            const approved = await this.askUser(runId, toolName, toolInput, options);
-            return approved
-              ? { behavior: 'allow', updatedInput: toolInput }
-              : { behavior: 'deny', message: 'The user declined this action in Legolas.' };
+            return permissionResult(await this.askUser(runId, toolName, toolInput, input.cwd, options), toolInput);
           },
         },
       });

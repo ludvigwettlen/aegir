@@ -19,6 +19,69 @@ export interface ModelProvider {
   stop(threadId: string): Promise<void>;
 }
 
+
+// ---- Approval scope ------------------------------------------------------
+// An approval card must show everything the answer grants, not only the agent's stated reason.
+type FileChange = { path: string; kind?: { type?: string } };
+function sandboxPath(path: any): string {
+  if (path?.type === 'path') return String(path.path);
+  if (path?.type === 'glob_pattern') return String(path.pattern);
+  if (path?.type === 'special') {
+    const value = path.value || {};
+    const sub = value.subpath ? `/${value.subpath}` : '';
+    if (value.kind === 'root') return 'the whole disk (/)';
+    if (value.kind === 'project_roots') return `the project folder${sub}`;
+    if (value.kind === 'tmpdir') return 'the temporary folder ($TMPDIR)';
+    if (value.kind === 'slash_tmp') return '/tmp';
+    if (value.kind === 'minimal') return 'minimal system files';
+    return `${value.path ?? JSON.stringify(value)}${sub}`;
+  }
+  return JSON.stringify(path);
+}
+export function describePermissionProfile(profile: any, networkDefault: string): string[] {
+  const lines: string[] = [];
+  const fs = profile?.fileSystem;
+  for (const path of fs?.read || []) lines.push(`Files: read ${path}`);
+  for (const path of fs?.write || []) lines.push(`Files: read and write ${path}`);
+  for (const entry of fs?.entries || []) lines.push(`Files: ${entry.access === 'write' ? 'read and write' : entry.access} ${sandboxPath(entry.path)}`);
+  const network = profile?.network?.enabled;
+  lines.push(network === true ? 'Network: on' : network === false ? 'Network: off' : `Network: ${networkDefault}`);
+  return lines;
+}
+export function describeCodexApproval(method: string, params: any, changes: FileChange[] = []): { title: string; detail: string } {
+  const lines: string[] = [];
+  let title = 'Agent approval';
+  if (method === 'item/commandExecution/requestApproval') {
+    title = params.kind === 'writeStdin' ? 'Send input to a running command' : 'Run command';
+    lines.push(`Tool: ${params.kind === 'writeStdin' ? 'input to a running command' : 'shell command'}`);
+    if (params.command) lines.push(`Command: ${params.command}`);
+    if (params.cwd) lines.push(`Runs in: ${params.cwd}`);
+    const host = params.networkApprovalContext;
+    if (params.additionalPermissions) lines.push(...describePermissionProfile(params.additionalPermissions, host ? `${host.protocol}://${host.host}` : 'unchanged (off in the sandbox)'));
+    else if (host) lines.push(`Network: ${host.protocol}://${host.host}`);
+    else lines.push('Network: may be open. An approved command can run outside the sandbox, with your files and network');
+    lines.push('Grant: this command only');
+  } else if (method === 'item/fileChange/requestApproval') {
+    title = 'Change files';
+    lines.push('Tool: file change');
+    for (const change of changes) lines.push(`Files: ${change.kind?.type || 'change'} ${change.path}`);
+    if (!changes.length) lines.push('Files: not reported by Codex');
+    if (params.grantRoot) lines.push(`Asked for write access under: ${params.grantRoot} (not granted; only this change is)`);
+    lines.push('Network: none');
+    lines.push('Grant: this change only');
+  } else if (method === 'item/permissions/requestApproval') {
+    title = 'Extra permissions';
+    lines.push('Tool: sandbox permissions');
+    if (params.cwd) lines.push(`Folder: ${params.cwd}`);
+    lines.push(...describePermissionProfile(params.permissions, 'unchanged'));
+    lines.push('Grant: everything above, for the rest of this turn');
+  } else {
+    lines.push(`Tool: ${method}`, 'Network: not stated by Codex', 'Grant: what the request below asks for', `Request:\n${JSON.stringify(params, null, 2)}`);
+  }
+  if (params.reason) lines.push(`Why: ${params.reason}`);
+  return { title, detail: lines.join('\n') };
+}
+
 export class CodexProvider extends EventEmitter implements ModelProvider {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
@@ -27,6 +90,7 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
   private approvals = new Map<string, { rpcId: number | string; method: string; threadId: string; params: any }>();
   private toolCalls = new Map<string, { rpcId: number | string; threadId: string }>();
   private toolReadOnly = new Map<string, boolean>();
+  private fileChanges = new Map<string, FileChange[]>(); // file-change item id → its changes, for approval cards
   private lightweightModel: Promise<{ model: string; effort: string }> | null = null;
   private toolHandler: ToolHandler | null = null;
   status = 'Not started';
@@ -80,7 +144,8 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     if (message.method === 'item/agentMessage/delta') {
       const turn = this.turns.get(message.params.threadId); if (turn) { turn.text += message.params.delta; turn.onDelta(message.params.delta); }
     }
-    if (message.method === 'item/completed' && message.params?.item) this.turns.get(message.params.threadId)?.onItem?.(message.params.item);
+    if (message.method === 'item/started' && message.params?.item?.type === 'fileChange') this.fileChanges.set(message.params.item.id, message.params.item.changes || []);
+    if (message.method === 'item/completed' && message.params?.item) { this.fileChanges.delete(message.params.item.id); this.turns.get(message.params.threadId)?.onItem?.(message.params.item); }
     if (message.method === 'turn/completed') {
       const turn = this.turns.get(message.params.threadId);
       if (turn) { this.turns.delete(message.params.threadId); const items = message.params.turn?.items || []; const finalText = items.filter((x: any) => x.type === 'agentMessage').map((x: any) => x.text).join('\n'); turn.resolve({ text: finalText || turn.text, status: message.params.turn?.status || 'completed' }); }
@@ -102,7 +167,8 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     if (method.includes('requestApproval')) {
       const id = randomUUID();
       this.approvals.set(id, { rpcId: message.id!, method, threadId: params.threadId, params });
-      const approval: Approval = { id, method, title: method.includes('command') ? 'Run command' : method.includes('file') ? 'Change files' : 'Agent approval', detail: params.command || params.reason || JSON.stringify(params), agentId: null, threadId: params.threadId, createdAt: new Date().toISOString() };
+      const { title, detail } = describeCodexApproval(method, params, this.fileChanges.get(params.itemId));
+      const approval: Approval = { id, method, title, detail, agentId: null, threadId: params.threadId, createdAt: new Date().toISOString() };
       this.emit('approval', approval); return;
     }
     this.send({ id: message.id, error: { code: -32601, message: `Unsupported request: ${method}` } });
