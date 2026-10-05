@@ -25,6 +25,7 @@ export function ThreadView({
   run,
   header,
   compact = false,
+  beforeSend,
 }: {
   data: Snapshot;
   thread: Thread;
@@ -32,6 +33,8 @@ export function ThreadView({
   run: Run;
   header?: ReactNode;
   compact?: boolean;
+  // Called just before a message goes out, so the task panel can keep its task in view.
+  beforeSend?: () => void;
 }) {
   const { messages, hasOlder, loading, loadOlder } = useThreadMessages(thread.id, run);
   const [document, setDocument] = useState<WorkspaceDocument | null>(null);
@@ -165,6 +168,7 @@ export function ThreadView({
         onClearReference={() => setSelection(null)}
         onSend={async (text) => {
           if (documentEditor.current && !await documentEditor.current.save()) { setMobilePane('document'); return false; }
+          beforeSend?.();
           await api.sendMessage(thread.id, withDocumentReference(text, selection));
           setSelection(null);
           return true;

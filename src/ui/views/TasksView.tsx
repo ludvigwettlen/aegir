@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { AlarmClock, CalendarDays, Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
+import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -105,7 +105,15 @@ export function TasksView({
   const rows = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
   const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
-  const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
+  // The task you last sent to the agent, as it was then. It stays in this list until you move on (withHeld).
+  const [held, setHeld] = useState<{ list: TaskView; task: Task } | null>(null);
+  const heldTask = held?.list === list ? held.task : null;
+  const groups = useMemo(() => {
+    const grouped = groupTasks(list, withHeld(list, data.tasks, heldTask));
+    // The held row keeps the place it had when sent but shows the live task: working, then ready for review.
+    const live = heldTask && data.tasks.find(task => task.id === heldTask.id);
+    return live ? grouped.map(([name, tasks]) => [name, tasks.map(task => (task.id === live.id ? live : task))] as [string, Task[]]) : grouped;
+  }, [list, data.tasks, heldTask]);
   const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
   const previousLists = useRef<Partial<Record<TaskView, { order: string[]; selected?: string }>>>({});
@@ -115,6 +123,8 @@ export function TasksView({
   const current = order.find(task => task.id === currentId);
   useLayoutEffect(() => {
     previousLists.current[list] = { order: order.map(task => task.id), selected: currentId };
+    // Moving to another task or list lets a held task go, before the list is painted again.
+    if (held && (held.list !== list || held.task.id !== currentId)) setHeld(null);
     if (selectedId && selectedId !== currentId) {
       setCursors(previous => ({ ...previous, [list]: currentId }));
       // A removed row or detail button loses focus when React unmounts it.
@@ -124,6 +134,9 @@ export function TasksView({
     }
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
+  // Sending to the agent is work on this task, so it stays in front of you. A second reply keeps the first hold,
+  // so the row doesn't move.
+  const hold = (task: Task) => setHeld(previous => (previous?.list === list && previous.task.id === task.id ? previous : { list, task }));
   const modalTask = popover && popover.kind !== 'label' ? data.tasks.find((item) => item.id === popover.taskId) : undefined;
   const closePopover = () => {
     setPopover(null);
@@ -420,6 +433,7 @@ export function TasksView({
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
+          onSend={() => hold(open)}
           onSnooze={() => setPopover({ kind: 'snooze', taskId: open.id })}
           onSetDue={() => setPopover({ kind: 'due', taskId: open.id })}
         />
@@ -427,7 +441,7 @@ export function TasksView({
       {modalTask && popover && popover.kind !== 'label' && (
         <Modal onClose={closePopover}>
           {popover.kind === 'handoff'
-            ? <TaskPopover kind="handoff" task={modalTask} agent={leadName(data)} onClose={closePopover} run={run} />
+            ? <TaskPopover kind="handoff" task={modalTask} agent={leadName(data)} onClose={closePopover} onSend={() => hold(modalTask)} run={run} />
             : <WhenPicker kind={popover.kind} task={modalTask} onClose={closePopover} run={run} />}
         </Modal>
       )}
@@ -609,12 +623,14 @@ function TaskPopover({
   task,
   agent,
   onClose,
+  onSend,
   run,
 }: {
   kind: 'handoff' | 'label' | 'due';
   task: Task;
   agent: string;
   onClose: () => void;
+  onSend?: () => void;
   run: Run;
 }) {
   const [value, setValue] = useState(
@@ -638,6 +654,7 @@ function TaskPopover({
       void run(() => api.updateTask(task.id, { label: value.replace(/^#/, '').trim().toLowerCase() || null }));
     } else {
       submitted.current = true;
+      onSend?.();
       void run(() => api.handOff(task.id, value));
     }
     onClose();
@@ -729,6 +746,7 @@ function TaskDetail({
   onSetDue,
   onReturnToList,
   onHandOff,
+  onSend,
   onOpenThread,
 }: {
   task: Task;
@@ -742,6 +760,7 @@ function TaskDetail({
   onSetDue: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
+  onSend: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
@@ -751,6 +770,9 @@ function TaskDetail({
   const [label, setLabel] = useState(task.label || '');
   // Context folds away once there is a conversation, so the conversation gets the room.
   const [contextOpen, setContextOpen] = useState(!thread);
+  // The panel stays on a task you just sent to the agent, so fold the context once its conversation starts.
+  const hasThread = !!thread;
+  useEffect(() => { if (hasThread) setContextOpen(false); }, [hasThread]);
   const contextPreview = notes.split('\n').map((line) => line.replace(/^[#>*\-\s_]+/, '').trim()).find(Boolean) || '';
   const cancelledTitle = useRef(false);
   const cancelledLabel = useRef(false);
@@ -786,7 +808,7 @@ function TaskDetail({
           <span>Thread in {group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={12} />
         </Button> : task.sourceUrl && <span className="ws-crumb">From a source</span>}
         {task.status === 'running' && (
-          <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
+          <button className="ws-btn" onClick={() => { void run(() => api.stopTask(task.id)); onReturnToList(); }}>
             <Square size={12} /> Stop
           </button>
         )}
@@ -928,6 +950,7 @@ function TaskDetail({
           run={run}
           header={header}
           compact
+          beforeSend={onSend}
         />
       ) : (
         <div className="ws-detail-plain">

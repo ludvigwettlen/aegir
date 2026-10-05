@@ -87,6 +87,17 @@ export function taskCursor(order: string[], previousOrder: string[], selected?: 
   return order[0];
 }
 
+// A task you just sent to the agent stays in the list you sent it from until you move on, even when its new
+// status belongs elsewhere (an Inbox task becomes team work). `held` is the task as it was when you sent: the
+// list is worked out as if its status hadn't changed, so the row keeps its group and place, while a new date
+// or label applies as usual. Once it's done, dismissed or deleted it's an ordinary task again.
+export function withHeld(view: TaskView, tasks: Task[], held: Task | null | undefined, today = new Date()): Task[] {
+  const live = held && tasks.find(task => task.id === held.id);
+  if (!held || !live || live.status === 'done' || live.status === 'dismissed') return tasksFor(view, tasks, today);
+  const asSent: Task = { ...live, status: held.status, completedAt: held.completedAt };
+  return tasksFor(view, tasks.map(task => (task.id === live.id ? asSent : task)), today);
+}
+
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 // Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
 // suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue; Upcoming = later.

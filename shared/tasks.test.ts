@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor } from './tasks.js';
+import { parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld } from './tasks.js';
 import type { Task } from './types.js';
 
 const saturday = new Date(2026, 8, 26);
@@ -61,6 +61,40 @@ describe('task lists', () => {
     ];
     const after = tasksFor('needs', before.map(task => task.id === 'first-proposal' ? { ...task, status } : task));
     expect(taskCursor(after.map(task => task.id), before.map(task => task.id), 'first-proposal')).toBe('next-proposal');
+  });
+});
+
+describe('a task held after sending it to the agent', () => {
+  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
+  const sent: Task = { ...base, id: 'sent', label: 'board' };
+  const other: Task = { ...base, id: 'other' };
+  const ids = (view: Parameters<typeof withHeld>[0], tasks: Task[], held: Task | null) => withHeld(view, tasks, held, saturday).map(task => task.id);
+
+  it('stays in the list it was sent from, sorted as it was when sent', () => {
+    const working: Task = { ...sent, status: 'running', threadId: 't' };
+    expect(ids('inbox', [working, other], sent)).toEqual(['sent', 'other']);
+    expect(ids('inbox', [working, other], null)).toEqual(['other']);
+    expect(withHeld('inbox', [working], sent, saturday)[0].status).toBe('ready');
+  });
+  it('stays while the agent finishes, and while it is stopped', () => {
+    for (const status of ['review', 'blocked'] as const) expect(ids('inbox', [{ ...sent, status, threadId: 't' }], sent)).toEqual(['sent']);
+  });
+  it('stays in Needs you and Completed when a reply sets it working again', () => {
+    const review: Task = { ...sent, status: 'review', threadId: 't' };
+    expect(ids('needs', [{ ...review, status: 'running' }], review)).toEqual(['sent']);
+    const done: Task = { ...sent, status: 'done', threadId: 't', completedAt: '2026-09-25' };
+    expect(ids('completed', [{ ...done, status: 'running', completedAt: null }], done)).toEqual(['sent']);
+  });
+  it('drops out when it is finished or deleted', () => {
+    for (const status of ['done', 'dismissed'] as const) expect(ids('inbox', [{ ...sent, status, threadId: 't' }, other], sent)).toEqual(['other']);
+    expect(ids('inbox', [other], sent)).toEqual(['other']);
+  });
+  it('applies a new date or label as usual', () => {
+    const working: Task = { ...sent, status: 'running', threadId: 't' };
+    expect(ids('inbox', [{ ...working, dueAt: '2026-10-02' }, other], sent)).toEqual(['other']);
+    const review: Task = { ...sent, status: 'review', threadId: 't' };
+    expect(ids('needs', [{ ...review, status: 'running', dueAt: '2026-10-02' }], review)).toEqual(['sent']);
+    expect(withHeld('inbox', [{ ...working, label: 'ops' }], sent, saturday)[0].label).toBe('ops');
   });
 });
 
