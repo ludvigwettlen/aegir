@@ -5,11 +5,13 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from 'react';
-import { Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlarmClock, CalendarDays, Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { isoDate, parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
+import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -31,7 +33,7 @@ const titles: Record<TaskView, string> = {
   needs: 'Needs you',
   completed: 'Completed',
 };
-type Popover = { kind: 'handoff' | 'label' | 'due'; taskId: string } | null;
+type Popover = { kind: 'handoff' | 'label' | 'due' | 'snooze'; taskId: string } | null;
 const rank: Record<Task['status'], number> = {
   review: 0,
   blocked: 1,
@@ -56,13 +58,16 @@ function groupTasks(list: TaskView, tasks: Task[]) {
       a.createdAt.localeCompare(b.createdAt),
   );
   const groups = new Map<string, Task[]>();
+  const today = isoDate(new Date());
   for (const task of sorted) {
     const key =
-      list === 'needs' ? taskStatusText[task.status] : task.label ? `#${task.label}` : 'No label';
+      list === 'needs' ? taskStatusText[task.status]
+        : list === 'today' && task.dueAt && task.dueAt < today ? 'Overdue'
+          : task.label ? `#${task.label}` : 'No label';
     groups.set(key, [...(groups.get(key) || []), task]);
   }
   return [...groups].sort(([a], [b]) =>
-    list === 'needs' ? 0 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
+    list === 'needs' ? 0 : a === 'Overdue' ? -1 : b === 'Overdue' ? 1 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
   );
 }
 
@@ -116,6 +121,11 @@ export function TasksView({
     }
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
+  const modalTask = popover && popover.kind !== 'label' ? data.tasks.find((item) => item.id === popover.taskId) : undefined;
+  const closePopover = () => {
+    setPopover(null);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus());
+  };
   const open = current;
   const openId = open?.id;
   const focused = focus && !!open;
@@ -235,6 +245,7 @@ export function TasksView({
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
       else if (key === 'D') void update(current, { dueAt: null });
+      else if (key === 's' && current.status === 'ready') setPopover({ kind: 'snooze', taskId: current.id });
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
       else if (key === 'Backspace' || key === 'Delete') {
@@ -323,7 +334,7 @@ export function TasksView({
                   key={task.id}
                   task={task}
                   data={data}
-                  showLabel={list === 'needs'}
+                  showLabel={list === 'needs' || name === 'Overdue'}
                   hasAttachedLink={linkedTaskIds.has(task.id)}
                   selected={task.id === current?.id}
                   opened={task.id === openId}
@@ -376,9 +387,16 @@ export function TasksView({
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
-          asking={popover?.kind === 'handoff' && popover.taskId === open.id}
-          onCloseAsk={() => setPopover(null)}
+          onSnooze={() => setPopover({ kind: 'snooze', taskId: open.id })}
+          onSetDue={() => setPopover({ kind: 'due', taskId: open.id })}
         />
+      )}
+      {modalTask && popover && popover.kind !== 'label' && (
+        <Modal onClose={closePopover}>
+          {popover.kind === 'handoff'
+            ? <TaskPopover kind="handoff" task={modalTask} agent={leadName(data)} onClose={closePopover} run={run} />
+            : <WhenPicker kind={popover.kind} task={modalTask} onClose={closePopover} run={run} />}
+        </Modal>
       )}
     </div>
   );
@@ -417,7 +435,7 @@ function TaskRow({
   opened: boolean;
   onClick: () => void;
   onFocus: () => void;
-  popover: 'handoff' | 'label' | 'due' | null;
+  popover: 'handoff' | 'label' | 'due' | 'snooze' | null;
   onClosePopover: () => void;
   run: Run;
 }) {
@@ -477,7 +495,78 @@ function TaskRow({
       >
         {dueLabel(task.dueAt)}
       </span>
-      {popover && popover !== 'handoff' && <TaskPopover kind={popover} task={task} agent={leadName(data)} onClose={onClosePopover} run={run} />}
+      {popover === 'label' && <TaskPopover kind="label" task={task} agent={leadName(data)} onClose={onClosePopover} run={run} />}
+    </div>
+  );
+}
+
+const shortDate = (iso: string) => {
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', ...(year !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  });
+};
+function whenText(iso: string, today: Date) {
+  const [year, month, day] = iso.split('-').map(Number);
+  const days = Math.round((new Date(year, month - 1, day).getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86_400_000);
+  const relative = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days === -1 ? 'yesterday' : days > 0 ? `in ${days} days` : `${-days} days ago`;
+  return `${shortDate(iso)} · ${relative}`;
+}
+
+// Centred on top of everything, so neither the list nor the task panel can cover it.
+function Modal({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return createPortal(
+    <div className="ws-modal-backdrop"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
+      <div className="ws-modal">{children}</div>
+    </div>,
+    document.body,
+  );
+}
+
+const quickDates: Array<[string, string]> = [['Tomorrow', 'tomorrow'], ['This weekend', 'weekend'], ['Next week', 'next week'], ['Next month', 'next month']];
+
+// Snooze and the due date share one box: type a phrase (3 days, 2 weeks, fri, 20 oct) or pick a quick date.
+function WhenPicker({ kind, task, onClose, run }: { kind: 'due' | 'snooze'; task: Task; onClose: () => void; run: Run }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const today = new Date();
+  const typed = value.trim();
+  const parsed = typed ? parseWhen(typed, today) : null;
+  const save = (dueAt: string | null) => { void run(() => api.updateTask(task.id, { dueAt })); onClose(); };
+  const submit = () => {
+    if (parsed) save(parsed);
+    else setError('Try “3 days”, “2 weeks”, “fri”, “next month” or “20 oct”.');
+  };
+  return (
+    <div className="ws-popover ws-popover-when" role="dialog" aria-label={kind === 'snooze' ? 'Snooze' : 'Set due date'}>
+      <div className="ws-popover-title">
+        {kind === 'snooze' ? <AlarmClock size={13} aria-hidden="true" /> : <CalendarDays size={13} aria-hidden="true" />}
+        {kind === 'snooze' ? 'SNOOZE UNTIL' : 'DUE DATE'}
+      </div>
+      <input autoFocus aria-label="When" aria-invalid={!!error || undefined} value={value}
+        placeholder="tomorrow, fri, 3 days, 2 weeks, 1 month, 20 oct"
+        onChange={(event) => { setValue(event.target.value); setError(''); }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+          if (event.key === 'Enter') { event.preventDefault(); submit(); }
+        }} />
+      <p className={error ? 'ws-field-error' : 'ws-when-preview'} role={error ? 'alert' : undefined}>
+        {error || (parsed ? whenText(parsed, today) : typed ? 'Keep typing…' : task.dueAt ? `Due now: ${whenText(task.dueAt, today)}` : 'No date yet.')}
+      </p>
+      <div className="ws-when-quick">
+        {quickDates.map(([label, phrase]) => {
+          const date = parseWhen(phrase, today) as string;
+          return <button key={phrase} type="button" className="ws-btn" onClick={() => save(date)}>{label}<span>{shortDate(date)}</span></button>;
+        })}
+      </div>
+      <div className="ws-popover-foot">
+        <span className="grow">Enter saves · Esc cancels</span>
+        {kind === 'due' && task.dueAt && <button type="button" className="ws-btn" onClick={() => save(null)}>Clear date</button>}
+        <button type="button" className="ws-btn primary" disabled={!parsed} onClick={submit}>{kind === 'snooze' ? 'Snooze' : 'Save'}</button>
+      </div>
     </div>
   );
 }
@@ -534,7 +623,7 @@ function TaskPopover({
   };
   return (
     <div
-      className={`ws-popover ${kind}`}
+      className={`ws-popover ws-popover-${kind}`}
       role="dialog"
       aria-label={
         kind === 'handoff'
@@ -603,8 +692,8 @@ function TaskDetail({
   focused,
   onToggleFocus,
   notify,
-  asking,
-  onCloseAsk,
+  onSnooze,
+  onSetDue,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -616,8 +705,8 @@ function TaskDetail({
   focused: boolean;
   onToggleFocus: () => void;
   notify: (message: string) => void;
-  asking: boolean;
-  onCloseAsk: () => void;
+  onSnooze: () => void;
+  onSetDue: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
@@ -633,16 +722,6 @@ function TaskDetail({
   const cancelledTitle = useRef(false);
   const cancelledLabel = useRef(false);
   useEffect(() => setLabel(task.label || ''), [task.label]);
-  // The date field saves only complete dates: picking from the calendar, Enter, or leaving the field.
-  const [due, setDue] = useState(task.dueAt || '');
-  useEffect(() => setDue(task.dueAt || ''), [task.dueAt]);
-  const typingDue = useRef(false);
-  const validDue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number(value.slice(0, 4)) >= 2000 && Number(value.slice(0, 4)) <= 2100;
-  const commitDue = (value: string) => {
-    typingDue.current = false;
-    if (!validDue(value)) { setDue(task.dueAt || ''); return; }
-    if (value !== task.dueAt) void run(() => api.updateTask(task.id, { dueAt: value }));
-  };
   const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
   const agent = leadName(data);
   const setStatus = (status: Task['status']) => void run(() => api.updateTask(task.id, { status }));
@@ -737,6 +816,9 @@ function TaskDetail({
         {(task.status === 'ready' || task.status === 'review' || task.status === 'blocked') && (
           <button type="button" className="ws-btn primary" onClick={() => setStatus('done')}><Check size={13} /> Mark done</button>
         )}
+        {task.status === 'ready' && (
+          <button type="button" className="ws-btn" onClick={onSnooze} title="Move it to a later date (S)"><AlarmClock size={13} /> Snooze</button>
+        )}
         {(task.status === 'ready' || task.status === 'proposed') && !thread && (
           <button type="button" className="ws-btn" onClick={onHandOff} title={`${agent} starts working on it now`}>
             <Sparkles size={13} /> Ask {agent}
@@ -751,31 +833,18 @@ function TaskDetail({
           <button type="button" className="ws-btn" onClick={() => setStatus('ready')}><RotateCcw size={13} /> {task.status === 'done' ? 'Reopen' : 'Restore'}</button>
         )}
       </div>
-      {asking && (
-        <div className="ws-detail-ask">
-          <TaskPopover kind="handoff" task={task} agent={agent} onClose={onCloseAsk} run={run} />
-        </div>
-      )}
       <div className="ws-detail-controls">
-        <label className="ws-inline-field">
+        <div className="ws-inline-field">
           <span>Due</span>
-          <input type="date" aria-label="Due date" min="2000-01-01" max="2100-12-31" value={due}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') { event.preventDefault(); commitDue(due); return; }
-              if (event.key === 'Escape') { event.preventDefault(); typingDue.current = false; setDue(task.dueAt || ''); event.currentTarget.blur(); onReturnToList(); return; }
-              typingDue.current = true;
-            }}
-            onChange={(event) => {
-              setDue(event.target.value);
-              // A change that didn't come from typing is the calendar picker: save it straight away.
-              if (!typingDue.current && validDue(event.target.value)) commitDue(event.target.value);
-            }}
-            onBlur={() => { if (typingDue.current) commitDue(due); }} />
+          <button type="button" className={`ws-due-button ${task.dueAt && task.dueAt < isoDate(new Date()) ? 'overdue' : ''}`}
+            onClick={onSetDue} title="Set the due date (D)">
+            {task.dueAt ? shortDate(task.dueAt) : 'No date'}
+          </button>
           {task.dueAt && (
             <button type="button" aria-label="Clear due date" title="Clear due date"
               onClick={() => void run(() => api.updateTask(task.id, { dueAt: null }))}><X size={11} /></button>
           )}
-        </label>
+        </div>
         <label className="ws-inline-field">
           <span>Label</span>
           <input aria-label="Label" list="ws-label-options" placeholder="none" value={label}

@@ -131,7 +131,7 @@
 .ws-popover {
   position: absolute; z-index: 20; left: 34px; top: 36px; width: 440px; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #d4dccb; border-radius: 12px; background: #fff; box-shadow: 0 16px 40px rgba(31, 43, 29, 0.18); cursor: auto;
-  &.label, &.due { width: 280px; padding: 8px; }
+  &.ws-popover-label, &.ws-popover-due { width: 280px; padding: 8px; }
   textarea, input { width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 13.5px; line-height: 1.5; resize: none; }
 }
 .ws-popover-title { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: #6b7866; }
@@ -447,4 +447,10 @@ body.ws-focus-mode .ws-sidebar { display: none; }
   .ws-detail-top { padding-left: 64px; }
 }
 .ws-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-.ws-detail-ask .ws-popover { position: static; width: 100%; box-shadow: 0 6px 18px rgba(31, 43, 29, 0.12); }
+.ws-modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: flex-start; padding: 18vh 16px 16px; background: rgba(23, 31, 21, 0.28); -webkit-app-region: no-drag; }
+.ws-modal { width: min(540px, 100%); }
+.ws-modal .ws-popover { position: static; width: 100%; margin: 0; box-shadow: 0 24px 60px rgba(31, 43, 29, 0.28); }
+.ws-when-preview { margin: 0; font-size: 12.5px; color: #596753; }
+.ws-when-quick { display: flex; flex-wrap: wrap; gap: 6px; .ws-btn span { margin-left: 6px; color: #8a9784; font-weight: 400; } }
+.ws-inline-field .ws-due-button { height: 28px; padding: 3px 10px; border: 1px solid #d4dccb; border-radius: 8px; background: #fff; color: var(--ds-color-ink); font-size: 12.5px;
+  &.overdue { color: var(--ds-color-danger); border-color: currentColor; } }

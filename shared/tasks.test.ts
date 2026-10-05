@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDue, parseQuickAdd, taskCursor, tasksFor } from './tasks.js';
+import { parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor } from './tasks.js';
 import type { Task } from './types.js';
 
 const saturday = new Date(2026, 8, 26);
@@ -17,6 +17,20 @@ describe('quick add', () => {
   it('leaves ordinary words alone', () => {
     expect(parseQuickAdd('Monitor #ops dashboards', saturday)).toEqual({ title: 'Monitor dashboards', label: 'ops', dueAt: null });
   });
+});
+
+describe('snooze and due-date phrases', () => {
+  const monday = new Date(2026, 9, 5);
+  it.each([
+    ['3 days', '2026-10-08'], ['in 3 days', '2026-10-08'], ['+3d', '2026-10-08'], ['2 weeks', '2026-10-19'], ['a week', '2026-10-12'],
+    ['1 month', '2026-11-05'], ['in 2 months', '2026-12-05'], ['1y', '2027-10-05'], ['tomorrow', '2026-10-06'], ['fri', '2026-10-09'],
+    ['next fri', '2026-10-09'], ['next mon', '2026-10-12'], ['next week', '2026-10-12'], ['next month', '2026-11-01'], ['weekend', '2026-10-10'],
+    ['20 oct', '2026-10-20'], ['Oct 20', '2026-10-20'], ['1 okt', '2027-10-01'], ['3 maj', '2027-05-03'], ['20/10', '2026-10-20'], ['20.10.2027', '2027-10-20'], ['2026-11-03', '2026-11-03'],
+  ])('reads %s', (phrase, date) => expect(parseWhen(phrase, monday)).toBe(date));
+  it('rejects what it cannot read', () => {
+    for (const phrase of ['', 'banana', '31 feb', '13/13', 'inbox']) expect(parseWhen(phrase, monday)).toBeNull();
+  });
+  it('keeps month-end dates inside the month', () => expect(parseWhen('1 month', new Date(2027, 0, 31))).toBe('2027-02-28'));
 });
 
 describe('task lists', () => {

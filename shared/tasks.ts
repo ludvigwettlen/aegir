@@ -14,6 +14,51 @@ export function parseDue(word: string, today: Date): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
+const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const swedishMonths: Record<string, number> = { maj: 4, okt: 9 };
+function addMonths(date: Date, count: number) {
+  const target = new Date(date.getFullYear(), date.getMonth() + count, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return new Date(target.getFullYear(), target.getMonth(), Math.min(date.getDate(), last));
+}
+const monthIndex = (word: string) => (word.length < 3 ? -1 : swedishMonths[word.slice(0, 3)] ?? months.indexOf(word.slice(0, 3)));
+// A day and month without a year means the next time that date comes round.
+function nextDate(today: Date, month: number, day: number, year?: number) {
+  const date = new Date(year ?? today.getFullYear(), month, day);
+  if (month < 0 || date.getMonth() !== month) return null;
+  if (year === undefined && isoDate(date) < isoDate(today)) date.setFullYear(date.getFullYear() + 1);
+  return isoDate(date);
+}
+
+// Resolves a snooze or due-date phrase to YYYY-MM-DD: today, tomorrow, fri, next fri, next week (Monday),
+// next month (the 1st), weekend, 3 days, 2w, 1 month, in 2 months, 20 oct, oct 20, 20/10 (day first), 2026-10-20.
+export function parseWhen(text: string, today: Date): string | null {
+  const value = text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/^(in |\+ ?)/, '');
+  if (!value) return null;
+  const word = parseDue(value, today);
+  if (word) return word;
+  if (value === 'next week') return isoDate(addDays(today, ((8 - today.getDay()) % 7) || 7));
+  if (value === 'next month') return isoDate(new Date(today.getFullYear(), today.getMonth() + 1, 1));
+  if (value === 'weekend' || value === 'this weekend') return isoDate(addDays(today, (6 - today.getDay() + 7) % 7));
+  const next = value.match(/^next ([a-z]{3,})$/);
+  const nextDay = next ? weekdays.findIndex(name => name.startsWith(next[1])) : -1;
+  if (nextDay >= 0) return isoDate(addDays(today, ((nextDay - today.getDay() + 7) % 7) || 7));
+  const span = value.match(/^(\d+|a|an|one) ?(d|days?|w|weeks?|m|mos?|months?|y|years?)$/);
+  if (span) {
+    const count = /^\d+$/.test(span[1]) ? Number(span[1]) : 1;
+    if (span[2][0] === 'd') return isoDate(addDays(today, count));
+    if (span[2][0] === 'w') return isoDate(addDays(today, count * 7));
+    return isoDate(addMonths(today, span[2][0] === 'm' ? count : count * 12));
+  }
+  const dayFirst = value.match(/^(\d{1,2})(?:st|nd|rd|th)? ([a-zåäö]+)(?: (\d{4}))?$/);
+  if (dayFirst && monthIndex(dayFirst[2]) >= 0) return nextDate(today, monthIndex(dayFirst[2]), Number(dayFirst[1]), dayFirst[3] ? Number(dayFirst[3]) : undefined);
+  const monthFirst = value.match(/^([a-zåäö]+) (\d{1,2})(?:st|nd|rd|th)?(?:,? (\d{4}))?$/);
+  if (monthFirst && monthIndex(monthFirst[1]) >= 0) return nextDate(today, monthIndex(monthFirst[1]), Number(monthFirst[2]), monthFirst[3] ? Number(monthFirst[3]) : undefined);
+  const numeric = value.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2}|\d{4}))?$/);
+  if (numeric) return nextDate(today, Number(numeric[2]) - 1, Number(numeric[1]), numeric[3] ? Number(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3]) : undefined);
+  return null;
+}
+
 // "Summarise calls #customers fri" → title, label and due date. Only the first label and date are used.
 export function parseQuickAdd(text: string, today = new Date()): { title: string; label: string | null; dueAt: string | null } {
   let label: string | null = null; let dueAt: string | null = null;
