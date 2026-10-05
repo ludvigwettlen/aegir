@@ -387,7 +387,7 @@ function Empty({ list }: { list: TaskView }) {
     today: 'Nothing due today. Give a task a date to see it here.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
     inbox: 'Inbox zero. Undated tasks and phone captures land here.',
-    team: 'Nothing with the agent. Press A on a task, or use Ask Claude, to have the agent do it.',
+    team: 'The agent has nothing right now. Press A on a task to give it one.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
     completed: 'No completed tasks yet.',
   }[list];
