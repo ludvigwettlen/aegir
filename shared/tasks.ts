@@ -88,15 +88,15 @@ export function taskCursor(order: string[], previousOrder: string[], selected?: 
 }
 
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
-// Inbox = intake: your own undated tasks that nobody has picked up (phone captures land here). Work with the agent
-// sits in the team list and anything waiting on you in Needs you, never in the Inbox. Today = due today or overdue; Upcoming = later.
+// Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
+// suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue; Upcoming = later.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
   const open = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
-  if (view === 'inbox') return open.filter(task => task.status === 'ready' && !task.dueAt);
+  if (view === 'inbox') return open.filter(task => task.status === 'proposed' || (task.status === 'ready' && !task.dueAt));
   if (view === 'today') return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now);
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }

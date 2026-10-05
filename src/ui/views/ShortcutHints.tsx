@@ -35,7 +35,7 @@ function contextFor(route: Route): Context {
     ['N', 'Edit context'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'], ['S', 'Snooze: move the task to a later date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Ask the agent to do the task, or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
-    ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
+    ...(route.list === 'needs' || route.list === 'inbox' ? [['Y', 'Accept suggestion'] as Hint] : []),
   );
   else if (route.view === 'group') hints.push(['Enter', 'Start thread from the new-thread field'], ['Enter / ⇧Enter', 'Send / new line in the composer'], ['@', 'Mention an agent or routine in the composer']);
   return { title: target?.closest('.ws-sidebar') ? 'Sidebar' : titles[route.view], hints, editing: false, dialog: false };

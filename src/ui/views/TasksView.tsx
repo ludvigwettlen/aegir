@@ -64,12 +64,13 @@ function groupTasks(list: TaskView, tasks: Task[]) {
   for (const task of sorted) {
     const key =
       list === 'needs' ? taskStatusText[task.status]
-        : list === 'today' && task.dueAt && task.dueAt < today ? 'Overdue'
+        : list === 'inbox' && task.status === 'proposed' ? 'Suggested'
+          : list === 'today' && task.dueAt && task.dueAt < today ? 'Overdue'
           : task.label ? `#${task.label}` : 'No label';
     groups.set(key, [...(groups.get(key) || []), task]);
   }
   return [...groups].sort(([a], [b]) =>
-    list === 'needs' ? 0 : a === 'Overdue' ? -1 : b === 'Overdue' ? 1 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
+    list === 'needs' ? 0 : a === 'Overdue' || a === 'Suggested' ? -1 : b === 'Overdue' || b === 'Suggested' ? 1 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
   );
 }
 
