@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { Check, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
+import { Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { isoDate, parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
@@ -138,8 +138,10 @@ export function TasksView({
         ? '.ws-task-detail [aria-label="Message"]'
         : editTarget === 'title'
         ? '.ws-task-detail [aria-label="Task title"]'
-        : '.ws-task-detail [aria-label="Task notes"]',
+        : '.ws-task-detail [aria-label="Task context"]',
     );
+    // N opens a folded context field before editing it.
+    field?.closest('details')?.setAttribute('open', '');
     field?.focus();
     if (editTarget === 'title' && field) field.select();
     setEditTarget(null);
@@ -616,6 +618,9 @@ function TaskDetail({
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const [label, setLabel] = useState(task.label || '');
+  // Context folds away once there is a conversation, so the conversation gets the room.
+  const [contextOpen, setContextOpen] = useState(!thread);
+  const contextPreview = notes.split('\n').map((line) => line.replace(/^[#>*\-\s_]+/, '').trim()).find(Boolean) || '';
   const cancelledTitle = useRef(false);
   const cancelledLabel = useRef(false);
   useEffect(() => setLabel(task.label || ''), [task.label]);
@@ -753,12 +758,17 @@ function TaskDetail({
           </button>
         )}
       </div>
-      <label className="ws-field">
-        <span>Notes</span>
+      <details className="ws-context" open={contextOpen} onToggle={(event) => setContextOpen(event.currentTarget.open)}>
+        <summary>
+          <ChevronRight size={13} aria-hidden="true" />
+          <span>Context</span>
+          {!contextOpen && <small>{contextPreview || 'Add context'}</small>}
+        </summary>
+        <p className="ws-context-help">What {agent} reads about this task every time it works on it. Edit it to steer the next run.</p>
         <textarea
-          aria-label="Task notes"
+          aria-label="Task context"
           rows={3}
-          placeholder="Add context for this task"
+          placeholder={`Background, links and what good looks like. ${agent} reads this every run.`}
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           onBlur={() => {
@@ -772,7 +782,7 @@ function TaskDetail({
             }
           }}
         />
-      </label>
+      </details>
     </header>
   );
   return (

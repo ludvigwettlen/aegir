@@ -21,7 +21,7 @@ function contextFor(route: Route): Context {
     else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['Esc', 'Clear and leave quick add']);
     else if (label === 'Start a thread') hints.unshift(['Enter', 'Start thread']);
     else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit and return to list']);
-    if (target?.closest('.ws-task-detail')) { hints.push(['⌘O', 'Open task output or attachment']); if (label === 'Task notes') hints.push(['Esc', 'Cancel notes edit and return to list']); }
+    if (target?.closest('.ws-task-detail')) { hints.push(['⌘O', 'Open task output or attachment']); if (label === 'Task context') hints.push(['Esc', 'Leave the context field and return to list']); }
     return { title: label || 'Editing', hints, editing: true, dialog: false };
   }
   const titles = { tasks: 'Tasks', group: 'Chat', routine: 'Routine', skills: 'Skills', settings: 'Settings', memory: 'Memory' };
@@ -30,7 +30,7 @@ function contextFor(route: Route): Context {
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Leave full screen or return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['N', 'Edit notes'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
+    ['N', 'Edit context'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),

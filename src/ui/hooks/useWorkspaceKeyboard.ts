@@ -149,7 +149,7 @@ export function useWorkspaceKeyboard(
           window.requestAnimationFrame(() => {
             const detail = document.querySelector<HTMLElement>('[data-keyboard-pane="detail"]');
             const chat = detail?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]:not(:disabled)');
-            (chat || detail?.querySelector<HTMLElement>('[aria-label="Task notes"]') || detail)?.focus();
+            (chat || detail?.querySelector<HTMLElement>('details[open] > [aria-label="Task context"]') || detail)?.focus();
           });
         } else return;
         event.preventDefault();
