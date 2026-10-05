@@ -45,6 +45,15 @@ describe('store', () => {
     }
   });
 
+  it('finds a task by its source key', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'From the inbox', status: 'proposed', sourceKey: 'inbox:slack-1' });
+      expect(store.taskBySource('inbox:slack-1')?.id).toBe(task.id);
+      expect(store.taskBySource('inbox:slack-2')).toBeUndefined();
+    } finally { store.close(); }
+  });
+
   it('seeds a shared group, one private group per agent and the discovery routine', () => {
     const store = new Store(path());
     const groups = store.groups();

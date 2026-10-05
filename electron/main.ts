@@ -150,7 +150,7 @@ function syncInbox() {
   try {
     const counts = importInbox(store, brain.inbox);
     if (counts.rejected) console.warn(`Inbox: ${counts.rejected} file(s) rejected, see ${join(brain.inbox, 'rejected')}`);
-    if (counts.created) refresh();
+    if (counts.created || counts.closed) refresh();
   } catch (error) {
     console.error('Inbox import failed:', error);
   }

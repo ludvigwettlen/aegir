@@ -10,6 +10,9 @@ import { taskSourceKey } from './agent-tools.js';
 // front-matter header (title, sourceKey, sourceUrl, label, dueAt) and the notes as its body, which
 // is easier for agents to write than escaped JSON. Files younger than two seconds are left for
 // later so the app never reads half a file.
+// A close entry ({ close: <sourceKey>, reason? }, or front matter with close: and no title) marks the
+// suggestion with that key done when the user already acted at the source. Closes run after every
+// suggestion in the same pass, and only touch tasks that are still suggested or to do.
 export type InboxItem = { title: string; notes: string; sourceUrl: string | null; sourceKey: string | null; label: string | null; dueAt: string | null };
 
 export function parseInboxItem(raw: unknown): InboxItem {
@@ -29,6 +32,18 @@ export function parseInboxItem(raw: unknown): InboxItem {
   return { title, notes, sourceUrl, sourceKey, label, dueAt };
 }
 
+export type InboxClose = { close: string; reason: string | null };
+
+export function parseInboxClose(value: Record<string, unknown>): InboxClose {
+  if (value.title !== undefined) throw new Error('A close entry must not have a title');
+  const close = typeof value.close === 'string' ? value.close.trim() : '';
+  if (!/^[\w:.\-/]{1,200}$/.test(close)) throw new Error('close must be a sourceKey of letters, digits and : . - _ /');
+  const reason = typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim().split(/\r?\n/)[0].slice(0, 240) : null;
+  return { close, reason };
+}
+
+const isClose = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw) && 'close' in raw;
+
 export function parseInboxMarkdown(text: string): Record<string, string> {
   const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) throw new Error('A Markdown suggestion needs a front-matter header between --- lines');
@@ -40,16 +55,19 @@ export function parseInboxMarkdown(text: string): Record<string, string> {
   return { ...fields, notes: match[2].trim() };
 }
 
-export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask'>, dir: string, now = Date.now()) {
-  const counts = { created: 0, skipped: 0, rejected: 0 };
+export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 'taskBySource' | 'updateTask'>, dir: string, now = Date.now()) {
+  const counts = { created: 0, skipped: 0, rejected: 0, closed: 0 };
   if (!existsSync(dir)) return counts;
+  const closes: InboxClose[] = [];
   for (const name of readdirSync(dir).filter((file) => file.endsWith('.json') || file.endsWith('.md')).sort()) {
     const path = join(dir, name);
     if (now - statSync(path).mtimeMs < 2000) continue;
     try {
       const text = readFileSync(path, 'utf8');
       const raw: unknown = name.endsWith('.md') ? parseInboxMarkdown(text) : JSON.parse(text);
-      const items = (Array.isArray(raw) ? raw : [raw]).map(parseInboxItem);
+      const entries = Array.isArray(raw) ? raw : [raw];
+      const fileCloses = entries.filter(isClose).map(parseInboxClose);
+      const items = entries.filter((entry) => !isClose(entry)).map(parseInboxItem);
       for (const item of items) {
         // The same key never comes back, even after the task is dismissed or done.
         const key = item.sourceKey ? `inbox:${item.sourceKey}` : taskSourceKey('inbox', item.sourceUrl || '', item.title);
@@ -57,6 +75,7 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask'>, 
         store.createTask({ title: item.title, notes: item.notes, label: item.label, dueAt: item.dueAt, status: 'proposed', sourceUrl: item.sourceUrl, sourceKey: key });
         counts.created++;
       }
+      closes.push(...fileCloses);
       mkdirSync(join(dir, 'processed'), { recursive: true });
       renameSync(path, join(dir, 'processed', name));
     } catch (error) {
@@ -65,6 +84,12 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask'>, 
       renameSync(path, join(dir, 'rejected', name));
       counts.rejected++;
     }
+  }
+  for (const { close, reason } of closes) {
+    const task = store.taskBySource(`inbox:${close}`);
+    if (!task || (task.status !== 'proposed' && task.status !== 'ready')) { counts.skipped++; continue; }
+    store.updateTask(task.id, { status: 'done', notes: `${task.notes ? `${task.notes}\n\n` : ''}Closed automatically: ${reason || 'acted on at the source'}` });
+    counts.closed++;
   }
   return counts;
 }

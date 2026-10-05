@@ -835,6 +835,9 @@ export class Store {
   hasTaskSource(sourceKey: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM tasks WHERE sourceKey=?').get(sourceKey);
   }
+  taskBySource(sourceKey: string): Task | undefined {
+    return this.db.prepare('SELECT * FROM tasks WHERE sourceKey=? ORDER BY createdAt LIMIT 1').get(sourceKey) as Task | undefined;
+  }
   deleteSetting(key: string) {
     this.db.prepare('DELETE FROM settings WHERE key=?').run(key);
   }

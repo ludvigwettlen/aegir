@@ -6,11 +6,17 @@ import type { Task } from '../shared/types.js';
 import { exportTasks, importInbox, parseInboxItem, renderTaskExport } from './brain-bridge.js';
 
 function fakeStore() {
-  const tasks: Array<Parameters<import('./db.js').Store['createTask']>[0]> = [];
+  const tasks: Task[] = [];
   return {
     tasks,
     hasTaskSource: (key: string) => tasks.some((task) => task.sourceKey === key),
-    createTask: (input: (typeof tasks)[number]) => { tasks.push(input); return input as unknown as Task; },
+    taskBySource: (key: string) => tasks.find((task) => task.sourceKey === key),
+    createTask: (input: Parameters<import('./db.js').Store['createTask']>[0]) => {
+      const task = { id: String(tasks.length + 1), notes: '', status: 'ready', ...input } as Task;
+      tasks.push(task);
+      return task;
+    },
+    updateTask: (id: string, change: Partial<Task>) => { Object.assign(tasks.find((task) => task.id === id)!, change); },
   };
 }
 function drop(dir: string, name: string, value: unknown, ageMs = 10_000) {
@@ -39,13 +45,42 @@ describe('suggestion inbox', () => {
     const young = drop(dir, 'd.json', { title: 'Still being written' }, 0);
     drop(dir, 'e.md', '---\ntitle: "Prep for Greenfield, Tue 10:00"\nsourceKey: calendar-abc123def456\nlabel: Investor\ndueAt: 2026-10-06\n---\n#### Recommendation: enrich\n- Two partners have no brain page.\n');
     drop(dir, 'f.md', 'no header here');
-    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2 });
+    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2, closed: 0 });
     expect(store.tasks[2]).toMatchObject({ title: 'Prep for Greenfield, Tue 10:00', label: 'investor', dueAt: '2026-10-06', notes: '#### Recommendation: enrich\n- Two partners have no brain page.', sourceKey: 'inbox:calendar-abc123def456' });
     expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Anna', 'proposed'], ['Prep Nordvik', 'proposed'], ['Prep for Greenfield, Tue 10:00', 'proposed']]);
     expect(store.tasks[0].sourceKey).toBe('inbox:gmail-malcolm-1a0c3d33');
     expect(existsSync(join(dir, 'processed', 'a.json'))).toBe(true);
     expect(readFileSync(join(dir, 'rejected', 'c.json.error.txt'), 'utf8')).toMatch(/JSON/);
     expect(existsSync(young)).toBe(true);
+  });
+
+  it('closes suggestions the user already acted on, after importing the same pass', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
+    const store = fakeStore();
+    drop(dir, 'a-close.md', '---\nclose: slack-C1-123\nreason: Replied in the thread\n---\n');
+    drop(dir, 'b.json', [{ title: 'Reply to Maja', sourceKey: 'slack-C1-123', notes: 'Context' }, { title: 'Prep Nordvik', sourceKey: 'cal-nordvik' }, { title: 'Read memo', sourceKey: 'gmail-9' }]);
+    drop(dir, 'c-close.json', [{ close: 'cal-nordvik' }, { close: 'never-seen', reason: 'gone' }]);
+    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 0, closed: 2 });
+    expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Maja', 'done'], ['Prep Nordvik', 'done'], ['Read memo', 'proposed']]);
+    expect(store.tasks[0].notes).toBe('Context\n\nClosed automatically: Replied in the thread');
+    expect(store.tasks[1].notes).toBe('Closed automatically: acted on at the source');
+    expect(existsSync(join(dir, 'processed', 'a-close.md'))).toBe(true);
+    expect(existsSync(join(dir, 'processed', 'c-close.json'))).toBe(true);
+    expect(store.tasks).toHaveLength(3);
+  });
+
+  it('leaves tasks the user or an agent has moved on, and rejects malformed closes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
+    const store = fakeStore();
+    for (const [key, status] of [['r', 'running'], ['v', 'review'], ['b', 'blocked'], ['d', 'dismissed'], ['t', 'ready']] as const)
+      store.tasks.push({ id: key, title: key, notes: '', status, sourceKey: `inbox:${key}` } as Task);
+    drop(dir, 'a.json', ['r', 'v', 'b', 'd', 't'].map((close) => ({ close })));
+    drop(dir, 'b.json', { close: 'x', title: 'Both' });
+    drop(dir, 'c.md', '---\nclose: bad key\n---\n');
+    expect(importInbox(store, dir)).toEqual({ created: 0, skipped: 4, rejected: 2, closed: 1 });
+    expect(store.tasks.map((task) => task.status)).toEqual(['running', 'review', 'blocked', 'dismissed', 'done']);
+    expect(readFileSync(join(dir, 'rejected', 'b.json.error.txt'), 'utf8')).toMatch(/title/);
+    expect(readFileSync(join(dir, 'rejected', 'c.md.error.txt'), 'utf8')).toMatch(/close/);
   });
 });
 
