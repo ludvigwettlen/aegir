@@ -7,9 +7,11 @@ import type {
   Message,
   Routine,
   RoutineRun,
+  Step,
   Task,
   Thread,
 } from '../shared/types.js';
+import { addStep, describeStep } from './steps.js';
 import type { Store } from './db.js';
 import type { ModelProvider, Tool } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
@@ -48,6 +50,8 @@ type Context = {
   initialTitle?: string;
   runId?: string;
   counts?: { tasks: number; memories: number };
+  // The reply being written in a chat or task run, so tool steps and approvals can be filed under it.
+  reply?: { note: (step: Step) => void };
 };
 
 // Runs agents in threads (chat and handed-off tasks) and routines, and keeps the mapping from Codex threads back to them.
@@ -79,6 +83,13 @@ export class Runtime {
 
   contextFor(codexThreadId: string) {
     return this.active.get(codexThreadId);
+  }
+  // Files an answered approval under the reply that asked for it. False when that run has ended.
+  recordApproval(codexThreadId: string, label: string, approved: boolean) {
+    const reply = this.active.get(codexThreadId)?.reply;
+    if (!reply) return false;
+    reply.note({ kind: 'approval', label, at: new Date().toISOString(), outcome: approved ? 'approved' : 'declined' });
+    return true;
   }
   appThreadFor(codexThreadId: string) {
     return this.active.get(codexThreadId)?.threadId;
@@ -262,6 +273,19 @@ export class Runtime {
     this.refresh();
     let streamed = '';
     let activeId: string | undefined;
+    // Steps are saved on the reply at most every 1.5s while it works, and once more when it finishes.
+    const steps: Step[] = [];
+    let flushTimer: NodeJS.Timeout | null = null;
+    const flushSteps = () => {
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      if (this.available && steps.length) this.store.setMessageMeta(message.id, { type: 'steps', steps: [...steps] });
+    };
+    const reply = {
+      note: (step: Step) => {
+        addStep(steps, step);
+        if (!flushTimer) flushTimer = setTimeout(flushSteps, 1500);
+      },
+    };
     try {
       const agents = this.store.list('agents');
       const page = this.store.messagePage(thread.id, message.id, 30);
@@ -317,7 +341,11 @@ export class Runtime {
         onThreadStarted: (codexThreadId) => {
           if (!this.available) return;
           activeId = codexThreadId;
-          this.active.set(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')) });
+          this.active.set(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')), reply });
+        },
+        onItem: (item) => {
+          const label = describeStep(item);
+          if (label) reply.note({ kind: 'tool', label, at: new Date().toISOString() });
         },
         onDelta: (delta) => {
           if (!this.available) return;
@@ -330,6 +358,7 @@ export class Runtime {
       if (!this.available) return false;
       const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
       this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
+      flushSteps();
       this.store.moveMessageToEnd(message.id);
       this.refresh();
       if (depth === 0 && ok) {
@@ -365,10 +394,12 @@ export class Runtime {
         streamed ? `${streamed}\n\n${String(error)}` : String(error),
         'failed',
       );
+      flushSteps();
       this.store.moveMessageToEnd(message.id);
       this.refresh();
       throw error;
     } finally {
+      if (flushTimer) clearTimeout(flushTimer);
       if (activeId) {
         this.active.delete(activeId);
         await this.browser?.finish(activeId);

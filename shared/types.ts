@@ -36,7 +36,12 @@ export type RoutineChange = {
   schedule?: RoutineSchedule;
   enabled?: boolean;
 };
+// One thing an agent did while working on a reply: a tool it used, or an approval you answered.
+export type Step = { kind: 'tool' | 'approval'; label: string; at: string; outcome?: 'approved' | 'declined' };
 export type MessageMeta = {
+  type: 'steps';
+  steps: Step[];
+} | {
   type: 'routine-change';
   routineId: string;
   change: RoutineChange;

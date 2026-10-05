@@ -436,10 +436,11 @@ function registerIpc() {
   handle('run-events', (runId: string) => store.runEvents(runId));
   handle('resolve-approval', (id: string, approved: boolean) => {
     const threadId = approvalThreads.get(id);
-    if (threadId) {
-      store.addMessage(threadId, null, 'system', `${approved ? 'Approved' : 'Declined'}: ${approvals.get(id)?.title || 'agent action'}`);
-      approvalThreads.delete(id);
-    }
+    const approval = approvals.get(id);
+    // Engine approvals go into the reply's folded steps; anything else is logged in the thread.
+    const filed = !!approval?.threadId && runtime.recordApproval(approval.threadId, approval.title, approved);
+    if (threadId && !filed) store.addMessage(threadId, null, 'system', `${approved ? 'Approved' : 'Declined'}: ${approval?.title || 'agent action'}`);
+    if (threadId) approvalThreads.delete(id);
     if (externalApprovalResolvers.has(id)) {
       externalApprovalResolvers.get(id)!(approved);
       externalApprovalResolvers.delete(id);

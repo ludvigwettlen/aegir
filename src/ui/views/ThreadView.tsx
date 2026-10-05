@@ -4,7 +4,7 @@ import { withDocumentReference, type DocumentReference, type WorkspaceDocument }
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
 import { ArrowDownRight, ChevronRight, FileText, FolderSearch, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
-import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
+import type { Agent, Group, Message, Routine, Snapshot, Step, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
@@ -142,9 +142,9 @@ export function ThreadView({
             Load earlier messages
           </button>
         )}
-        {messages.map((message) => (
-          <MessageRow key={message.id} message={message} data={data} run={run} onOpenDocument={openDocument} />
-        ))}
+        {foldEvents(messages).map((item) => item.kind === 'events'
+          ? <EventFold key={item.messages[0].id} messages={item.messages} />
+          : <MessageRow key={item.message.id} message={item.message} data={data} run={run} onOpenDocument={openDocument} />)}
       </ConversationList>
       {busy && (
         <div className="ws-chat-activity" role="status">
@@ -185,6 +185,47 @@ export function ThreadView({
   );
 }
 
+// Runs of two or more plain system lines (approvals and hand-offs in older threads) fold into one toggle.
+type ThreadItem = { kind: 'message'; message: Message } | { kind: 'events'; messages: Message[] };
+function foldEvents(messages: Message[]): ThreadItem[] {
+  const items: ThreadItem[] = [];
+  for (const message of messages) {
+    const last = items[items.length - 1];
+    const event = message.role === 'system' && !message.meta;
+    if (event && last?.kind === 'events') last.messages.push(message);
+    else if (event && last?.kind === 'message' && last.message.role === 'system' && !last.message.meta) items[items.length - 1] = { kind: 'events', messages: [last.message, message] };
+    else items.push({ kind: 'message', message });
+  }
+  return items;
+}
+function EventFold({ messages }: { messages: Message[] }) {
+  return (
+    <details className="ws-steps ws-event-fold">
+      <summary>{messages.length} agent steps</summary>
+      <ol>{messages.map((message) => <li key={message.id}><span>{message.content}</span><time>{time(message.createdAt)}</time></li>)}</ol>
+    </details>
+  );
+}
+// What the agent did for this reply, folded by default so the answer comes first.
+function StepsFold({ steps, working }: { steps: Step[]; working: boolean }) {
+  const approved = steps.filter((step) => step.kind === 'approval' && step.outcome === 'approved').length;
+  const declined = steps.filter((step) => step.kind === 'approval' && step.outcome === 'declined').length;
+  const summary = [`${steps.length} step${steps.length === 1 ? '' : 's'}`, approved ? `${approved} approved` : '', declined ? `${declined} declined` : ''].filter(Boolean).join(' · ');
+  return (
+    <details className="ws-steps">
+      <summary>{working ? `Working · ${summary}` : summary}</summary>
+      <ol>
+        {steps.map((step, index) => (
+          <li key={index} className={step.kind === 'approval' ? `approval ${step.outcome || ''}` : undefined}>
+            <span>{step.kind === 'approval' ? `${step.outcome === 'declined' ? 'Declined' : 'Approved'}: ${step.label}` : step.label}</span>
+            <time>{time(step.at)}</time>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 function MessageRow({ message, data, run, onOpenDocument }: { message: Message; data: Snapshot; run: Run; onOpenDocument: (path: string) => void }) {
   if (message.meta?.type === 'skill-change')
     return <SkillChangeCard meta={message.meta} reason={message.content} />;
@@ -211,6 +252,9 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
           <time>{time(message.createdAt)}</time>
           {message.status === 'failed' && <span className="ws-failed">Failed</span>}
         </div>
+        {message.meta?.type === 'steps' && message.meta.steps.length > 0 && (
+          <StepsFold steps={message.meta.steps} working={message.status === 'streaming'} />
+        )}
         <div className="ws-message-text">
           {message.content ? (
             <ChatMarkdown content={message.content} onOpenDocument={onOpenDocument} onOpenLink={url => void run(() => api.openExternal(url))} />

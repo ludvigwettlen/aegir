@@ -261,8 +261,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           }
         } else if (message.type === 'assistant' && message.parent_tool_use_id === null) {
           for (const block of message.message.content as Array<{ type: string; text?: string; name?: string; input?: unknown }>) {
-            if (block.type === 'tool_use' && block.name && !block.name.startsWith(PREFIX))
-              input.onItem?.({ type: 'toolUse', name: block.name, input: block.input });
+            // Aegir's own tools are logged by its tool handler in routines, so they get the type routine logs skip.
+            if (block.type === 'tool_use' && block.name)
+              input.onItem?.({ type: block.name.startsWith(PREFIX) ? 'mcpToolCall' : 'toolUse', name: block.name, input: block.input });
             if (block.type === 'text' && block.text && !sawStream) streamed += `${streamed ? '\n\n' : ''}${block.text}`;
           }
         } else if (message.type === 'result') {
