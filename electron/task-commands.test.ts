@@ -55,12 +55,15 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and i
     await page.screenshot({ path: '/tmp/aegir-group-skills.png' });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.goto(`${server.resolvedUrls!.local[0]}task-commands?failSkills`);
+    // A reload starts on Today; the fixture task is undated and waiting for review.
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
     await composer.fill('/');
     await page.getByText('Could not load skills.', { exact: false }).waitFor();
     await page.evaluate(() => { (window as any).fixture.failSkills = false; });
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await page.getByRole('option', { name: '/research' }).waitFor();
     await page.goto(`${server.resolvedUrls!.local[0]}task-commands?loading`);
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
     await composer.fill('/');
     await page.getByText('Loading skills…', { exact: true }).waitFor();
     await page.keyboard.press('Escape');
