@@ -107,8 +107,10 @@ export function ThreadView({
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
   // Asks the agent to open one file in human-review, the browser surface for editing and commenting on drafts.
-  // Task conversations only: chats work in the app's own folder, read-only. Needs Claude Code for the skill.
-  const reviewTask = thread.kind === 'task' && data.engine === 'Claude Code' ? data.tasks.find(task => task.id === thread.taskId) : undefined;
+  // Task conversations only: chats work in the app's own folder, read-only. Needs Claude Code for the skill, and
+  // not on finished tasks, which a message would reopen.
+  const threadTask = thread.kind === 'task' && data.engine === 'Claude Code' ? data.tasks.find(task => task.id === thread.taskId) : undefined;
+  const reviewTask = threadTask && threadTask.status !== 'done' && threadTask.status !== 'dismissed' ? threadTask : undefined;
   const reviewDocument = (path: string) => {
     if (!reviewTask) return;
     setShowFiles(false);
