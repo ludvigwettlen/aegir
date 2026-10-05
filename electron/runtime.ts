@@ -356,8 +356,13 @@ export class Runtime {
       this.active.delete(result.threadId);
       await this.browser?.finish(result.threadId);
       if (!this.available) return false;
-      const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
-      this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
+      const cancelled = !!this.runningThreads.get(thread.id)?.cancelled;
+      const ok = result.status === 'completed' && !cancelled;
+      // A run that ends with nothing to show still says why, so a stopped task never looks like a silent crash.
+      const text = result.text || streamed || (cancelled || result.status === 'interrupted'
+        ? 'Stopped before Claude wrote anything. Reply here to pick it up again.'
+        : 'Claude Code ended without an answer. Reply here to try again.');
+      this.store.updateMessage(message.id, text, ok ? 'complete' : 'failed');
       flushSteps();
       this.store.moveMessageToEnd(message.id);
       this.refresh();

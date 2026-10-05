@@ -207,6 +207,8 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
     let sawStream = false;
     let finalText = '';
     let status = 'failed';
+    // The last of the engine's error output, shown when a run ends without a result.
+    let stderrTail = '';
     try {
       const session = query({
         prompt: input.prompt,
@@ -229,7 +231,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           resume: input.threadId ? this.sessions.get(input.threadId) : undefined,
           includePartialMessages: true,
           abortController: run.abort,
-          stderr: (data) => this.emit('log', data),
+          stderr: (data) => { this.emit('log', data); stderrTail = (stderrTail + data).slice(-1500); },
           canUseTool: async (toolName, toolInput, options): Promise<PermissionResult> => {
             if (options.mcpServer?.source === 'sdk') return { behavior: 'allow', updatedInput: toolInput };
             const path = toolInput.file_path ?? toolInput.notebook_path;
@@ -283,7 +285,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
       this.runs.delete(runId);
       void server?.close().catch(() => {});
     }
-    return { threadId: runId, text: finalText || streamed, status };
+    if (run.abort.signal.aborted) status = 'interrupted';
+    const failure = status === 'failed' && stderrTail.trim() ? `Claude Code stopped with this error:\n${stderrTail.trim().slice(-800)}` : '';
+    return { threadId: runId, text: finalText || streamed || failure, status };
   }
 
   // Stopping a run also withdraws any approval it is still waiting on.
