@@ -97,7 +97,7 @@ const urlsIn = (text: string) => (text.match(URL_PATTERN) || []).map(cleanUrl).f
 
 // A capture keeps the user's own words. Only a typed #label is lifted out; the due date comes from
 // the reminder itself, never from guessing at words like "fri" (also Swedish for "free").
-export function taskFromReminder(reminder: Reminder) {
+export function taskFromReminder(reminder: Reminder, now = new Date()) {
   const raw = reminder.title.replace(/\s+/g, ' ').trim();
   let label: string | null = null;
   const words = raw.split(' ').filter((word) => {
@@ -118,9 +118,7 @@ export function taskFromReminder(reminder: Reminder) {
     reminder.notes.trim(),
     text.length > 240 ? `Full capture: ${text}` : '',
     reminder.url && !reminder.notes.includes(reminder.url) && !raw.includes(reminder.url) ? `Link: ${reminder.url}` : '',
-    reminder.locationAlarm ? 'This reminder has a location alert, so it stays in Apple Reminders too.' : '',
-    !reminder.locationAlarm && reminder.dueTime ? `Reminder set for ${reminder.dueTime}. It stays in Apple Reminders until then so the alert can fire.` : '',
-    !reminder.locationAlarm && !reminder.dueTime && reminder.due ? 'It stays in Apple Reminders until the end of its day so the notification can fire.' : '',
+    ...stayNote(reminder, now),
     `Captured in Apple Reminders${when ? ` on ${when}` : ''}.`,
   ];
   return {
@@ -131,6 +129,17 @@ export function taskFromReminder(reminder: Reminder) {
     sourceKey: `reminders:${reminder.id}`,
     links,
   };
+}
+
+// What to tell the user about the reminder staying on the phone. Nothing once its alert has passed,
+// because then it is ticked off on import.
+function stayNote(reminder: Reminder, now: Date): string[] {
+  const alert = alertDoneAt(reminder);
+  if (alert === null || (alert !== 'never' && now.toISOString() >= alert)) return [];
+  if (reminder.locationAlarm) return ['This reminder has a location alert, so it stays in Apple Reminders too.'];
+  if (alert === 'never') return ['This reminder has an alert, so it stays in Apple Reminders too.'];
+  if (reminder.dueTime) return [`Reminder set for ${reminder.dueTime}. It stays in Apple Reminders until then so the alert can fire.`];
+  return ['It stays in Apple Reminders until the end of its day so the notification can fire.'];
 }
 
 // When a reminder may be ticked off without silencing its alert. null: right away (no alert).
@@ -195,7 +204,7 @@ export async function syncReminders(
     if (!keepGoing()) { stopped = true; break; }
     // Ticking off a repeating reminder would end or advance the series; those stay in Reminders.
     if (reminder.recurring) { result.skipped++; continue; }
-    const capture = taskFromReminder(reminder);
+    const capture = taskFromReminder(reminder, now);
     const known = imported.has(reminder.id) || (!!reminder.externalId && imported.has(`ext:${reminder.externalId}`)) || store.hasTaskSource(capture.sourceKey);
     if (!known) {
       // Give the user time to finish typing notes or a date on the phone before taking it.

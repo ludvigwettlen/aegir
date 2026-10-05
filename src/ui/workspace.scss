@@ -446,3 +446,4 @@ body.ws-focus-mode .ws-sidebar { display: none; }
   .ws-thread.compact .ws-message-text { font-size: 14.5px; }
   .ws-detail-top { padding-left: 64px; }
 }
+.ws-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }

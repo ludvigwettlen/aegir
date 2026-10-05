@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
+import { Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { isoDate, parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
@@ -370,6 +370,7 @@ export function TasksView({
           width={focused ? undefined : clampWidth(detailWidth)}
           focused={focused}
           onToggleFocus={() => setFocus((value) => !value)}
+          notify={notify}
           onOpenThread={onOpenThread}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
@@ -386,7 +387,7 @@ function Empty({ list }: { list: TaskView }) {
     today: 'Nothing due today. Give a task a date to see it here.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
     inbox: 'Inbox zero. Undated tasks and phone captures land here.',
-    team: 'Nothing handed off. Press A on a task, or use the hand-off button, to give it to the agent.',
+    team: 'Nothing with the agent. Press A on a task, or use Ask Claude, to have the agent do it.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
     completed: 'No completed tasks yet.',
   }[list];
@@ -535,7 +536,7 @@ function TaskPopover({
       role="dialog"
       aria-label={
         kind === 'handoff'
-          ? `Hand off to ${agent}`
+          ? `Ask ${agent}`
           : kind === 'label'
             ? 'Set label'
             : 'Set due date'
@@ -545,21 +546,21 @@ function TaskPopover({
       {kind === 'handoff' ? (
         <>
           <div className="ws-popover-title">
-            <Users size={13} aria-hidden="true" />
-            HAND OFF TO {agent.toUpperCase()}
+            <Sparkles size={13} aria-hidden="true" />
+            ASK {agent.toUpperCase()}
           </div>
           <textarea
             autoFocus
             rows={3}
             aria-label="Instruction"
-            placeholder={`What should ${agent} do? Leave empty to use “${task.title}”.`}
+            placeholder={`What should ${agent} do? Leave empty and ${agent} works from the title and context.`}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={onKeyDown}
           />
           <div className="ws-popover-foot">
-            <span className="grow">Results are saved as files in the task folder</span>
-            <button type="button" className="ws-btn primary" onClick={submit}>Hand off</button>
+            <span className="grow">{agent} starts now. The answer comes back here for your review.</span>
+            <button type="button" className="ws-btn primary" onClick={submit}>Start</button>
           </div>
         </>
       ) : (
@@ -599,6 +600,7 @@ function TaskDetail({
   width,
   focused,
   onToggleFocus,
+  notify,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -609,6 +611,7 @@ function TaskDetail({
   width?: number;
   focused: boolean;
   onToggleFocus: () => void;
+  notify: (message: string) => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
@@ -636,6 +639,11 @@ function TaskDetail({
   };
   const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
   const agent = leadName(data);
+  const setStatus = (status: Task['status']) => void run(() => api.updateTask(task.id, { status }));
+  const dismiss = () => void run(async () => {
+    await api.updateTask(task.id, { status: 'dismissed' });
+    notify('Dismissed · ⌘Z to undo');
+  });
   const saveLabel = () => {
     if (cancelledLabel.current) { cancelledLabel.current = false; setLabel(task.label || ''); return; }
     const next = label.replace(/^#/, '').trim().toLowerCase() || null;
@@ -715,13 +723,29 @@ function TaskDetail({
       {task.status === 'blocked' && (
         <p className="ws-detail-hint">{agent} stopped before finishing. Reply below to have it carry on.</p>
       )}
-      <div className="ws-detail-controls">
-        {task.status !== 'running' && (
-          <button type="button" className={`ws-btn ${task.status === 'done' || task.status === 'proposed' ? '' : 'primary'}`}
-            onClick={() => void run(() => api.updateTask(task.id, { status: task.status === 'done' ? 'ready' : 'done' }))}>
-            {task.status === 'done' ? <><RotateCcw size={13} /> Reopen</> : <><Check size={13} /> Mark done</>}
+      {/* What you can do with this task, by status. Running tasks have Stop in the top row. */}
+      <div className="ws-detail-actions">
+        {task.status === 'proposed' && (
+          <button type="button" className="ws-btn primary" onClick={() => setStatus('ready')}><Check size={13} /> Accept</button>
+        )}
+        {(task.status === 'ready' || task.status === 'review' || task.status === 'blocked') && (
+          <button type="button" className="ws-btn primary" onClick={() => setStatus('done')}><Check size={13} /> Mark done</button>
+        )}
+        {(task.status === 'ready' || task.status === 'proposed') && !thread && (
+          <button type="button" className="ws-btn" onClick={onHandOff} title={`${agent} starts working on it now`}>
+            <Sparkles size={13} /> Ask {agent}
           </button>
         )}
+        {task.status !== 'done' && task.status !== 'dismissed' && task.status !== 'running' && (
+          <button type="button" className="ws-btn" onClick={dismiss} title="Take it off your lists without marking it done (⌘Z to undo)">
+            <X size={13} /> Dismiss
+          </button>
+        )}
+        {(task.status === 'done' || task.status === 'dismissed') && (
+          <button type="button" className="ws-btn" onClick={() => setStatus('ready')}><RotateCcw size={13} /> {task.status === 'done' ? 'Reopen' : 'Restore'}</button>
+        )}
+      </div>
+      <div className="ws-detail-controls">
         <label className="ws-inline-field">
           <span>Due</span>
           <input type="date" aria-label="Due date" min="2000-01-01" max="2100-12-31" value={due}
@@ -752,11 +776,6 @@ function TaskDetail({
             }} />
           <datalist id="ws-label-options">{labels.map((value) => <option key={value} value={value} />)}</datalist>
         </label>
-        {task.status !== 'done' && task.status !== 'running' && !thread && (
-          <button type="button" className="ws-btn" onClick={onHandOff}>
-            <Users size={13} /> Hand off to {agent}
-          </button>
-        )}
       </div>
       <details className="ws-context" open={contextOpen} onToggle={(event) => setContextOpen(event.currentTarget.open)}>
         <summary>
@@ -800,26 +819,6 @@ function TaskDetail({
       ) : (
         <div className="ws-detail-plain">
           {header}
-          <div className="ws-row-actions">
-            {task.status === 'proposed' ? (
-              <>
-                <button
-                  className="ws-btn primary"
-                  onClick={() => void run(() => api.updateTask(task.id, { status: 'ready' }))}
-                >
-                  Accept
-                </button>
-                <button
-                  className="ws-btn"
-                  onClick={() => void run(() => api.updateTask(task.id, { status: 'dismissed' }))}
-                >
-                  Dismiss
-                </button>
-              </>
-            ) : (
-              null
-            )}
-          </div>
         </div>
       )}
     </aside>

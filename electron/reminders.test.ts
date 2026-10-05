@@ -41,7 +41,7 @@ const empty = (): CaptureLedger => ({ imported: [], pending: [], waiting: {} });
 
 describe('mapping a reminder to a task', () => {
   it('keeps the user\'s words and takes the date from the reminder', () => {
-    expect(taskFromReminder(reminder('A', 'Call Rasmus about Harborlight fri', { due: '2026-10-09', created: '2026-10-05T07:00:00Z', notes: 'Pricing first' }))).toMatchObject({
+    expect(taskFromReminder(reminder('A', 'Call Rasmus about Harborlight fri', { due: '2026-10-09', created: '2026-10-05T07:00:00Z', notes: 'Pricing first' }), NOW)).toMatchObject({
       title: 'Call Rasmus about Harborlight fri',
       notes: 'Pricing first\n\nIt stays in Apple Reminders until the end of its day so the notification can fire.\n\nCaptured in Apple Reminders on 5 Oct 2026.',
       label: null,
@@ -68,8 +68,10 @@ describe('mapping a reminder to a task', () => {
   });
 
   it('says when a reminder stays on the phone for its alert', () => {
-    expect(taskFromReminder(reminder('G', 'Call Bea', { due: '2026-10-05', dueTime: '16:00', hasAlarms: true })).notes).toContain('Reminder set for 16:00');
-    expect(taskFromReminder(reminder('H', 'Buy milk', { locationAlarm: true, hasAlarms: true })).notes).toContain('location alert');
+    expect(taskFromReminder(reminder('G', 'Call Bea', { due: '2026-10-05', dueTime: '16:00', hasAlarms: true }), NOW).notes).toContain('Reminder set for 16:00');
+    expect(taskFromReminder(reminder('H', 'Buy milk', { locationAlarm: true, hasAlarms: true }), NOW).notes).toContain('location alert');
+    // An alert already in the past: the reminder is ticked off on import, so the note says nothing about staying.
+    expect(taskFromReminder(reminder('J', 'Tweet', { due: '2026-08-31' }), NOW).notes).toBe('Captured in Apple Reminders.');
   });
 });
 

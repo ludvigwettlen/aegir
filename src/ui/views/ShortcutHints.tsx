@@ -32,7 +32,7 @@ function contextFor(route: Route): Context {
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
     ['N', 'Edit context'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
-    ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
+    ['A', 'Ask the agent to do the task, or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
   );
   else if (route.view === 'group') hints.push(['Enter', 'Start thread from the new-thread field'], ['Enter / ⇧Enter', 'Send / new line in the composer'], ['@', 'Mention an agent or routine in the composer']);
