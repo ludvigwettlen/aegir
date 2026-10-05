@@ -12,7 +12,8 @@ type RpcMessage = { id?: number | string; method?: string; params?: any; result?
 export type Tool = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
 export type ToolHandler = (provider: string, tool: string, args: Record<string, unknown>, readOnly: boolean, threadId: string) => Promise<unknown>;
 // sandbox: chat and routines stay read-only; handed-off tasks may write inside their own output folder (cwd).
-export type RunInput = { threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void };
+// kind: what the run is for; engines that enforce their own permissions use it (Codex ignores it).
+export type RunInput = { kind?: 'chat' | 'task' | 'routine' | 'route'; threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void };
 export interface ModelProvider {
   run(input: RunInput): Promise<{ threadId: string; text: string; status: string }>;
   stop(threadId: string): Promise<void>;

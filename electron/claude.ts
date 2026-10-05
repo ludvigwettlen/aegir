@@ -99,8 +99,22 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
   private sessions = new Map<string, string>();
   private pending = new Map<string, Pending>();
 
-  // readDirs: folders agents may read without asking (the user's brain). Edits there still need approval.
-  constructor(private binary: string, private readDirs: string[] = []) { super(); }
+  // workDirs: folders agents read and edit without asking (the user's brain, which git versions).
+  // approvals: 'auto' follows the user's Claude Code auto mode (Claude approves safe actions and asks
+  // through an approval card only when unsure); 'ask' sends every gated action to an approval card.
+  // Malcolm chose 'auto' as the default on 2026-10-05.
+  constructor(private binary: string, private options: { workDirs?: string[]; approvals?: () => 'auto' | 'ask' } = {}) { super(); }
+
+  allowRules(toolNames: string[]) {
+    const home = homedir();
+    const rules = toolNames.map((name) => `${PREFIX}${name}`);
+    for (const dir of this.options.workDirs || []) {
+      const path = dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : `/${dir}`;
+      rules.push(`Read(${path}/**)`, `Edit(${path}/**)`, `Write(${path}/**)`);
+    }
+    rules.push('Bash(gbrain:*)', `Bash(${join(home, '.bun', 'bin', 'gbrain')}:*)`);
+    return rules;
+  }
 
   setToolHandler(handler: ToolHandler) { this.toolHandler = handler; }
 
@@ -201,14 +215,15 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           pathToClaudeCodeExecutable: this.binary,
           env: childEnv(),
           systemPrompt: quick ? input.instructions : { type: 'preset', preset: 'claude_code', append: input.instructions },
-          permissionMode: 'default',
+          permissionMode: this.options.approvals?.() === 'ask' ? 'default' : 'auto',
           ...(quick
             ? { settingSources: [], tools: [], mcpServers: {}, strictMcpConfig: true, model: 'haiku' }
             : {
                 mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
-                allowedTools: [...tools.keys()].map((name) => `${PREFIX}${name}`),
-                disallowedTools: input.sandbox === 'workspace-write' ? [] : WRITE_TOOLS,
-                additionalDirectories: this.readDirs,
+                allowedTools: this.allowRules([...tools.keys()]),
+                // Unattended routines stay read-only; chats and tasks behave like the user's own Claude Code.
+                disallowedTools: input.kind === 'routine' ? WRITE_TOOLS : [],
+                additionalDirectories: this.options.workDirs || [],
                 model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
               }),
           resume: input.threadId ? this.sessions.get(input.threadId) : undefined,
@@ -218,7 +233,8 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           canUseTool: async (toolName, toolInput, options): Promise<PermissionResult> => {
             if (options.mcpServer?.source === 'sdk') return { behavior: 'allow', updatedInput: toolInput };
             const path = toolInput.file_path ?? toolInput.notebook_path;
-            if (input.sandbox === 'workspace-write' && WRITE_TOOLS.includes(toolName) && typeof path === 'string' && isInside(input.cwd, path))
+            const writable = [...(input.sandbox === 'workspace-write' ? [input.cwd] : []), ...(input.kind === 'routine' ? [] : this.options.workDirs || [])];
+            if (WRITE_TOOLS.includes(toolName) && typeof path === 'string' && writable.some((dir) => isInside(dir, path)))
               return { behavior: 'allow', updatedInput: toolInput };
             const approved = await this.askUser(runId, toolName, toolInput, options);
             return approved

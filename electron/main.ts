@@ -612,7 +612,9 @@ if (app.requestSingleInstanceLock()) {
     const claudeBinary = findClaudeBinary(store.getSetting('claudeBinary'));
     engine = chooseEngine(store.getSetting('engine'), claudeBinary);
     const brainDir = process.env.AEGIR_BRAIN_DIR || store.getSetting('brainDir') || join(homedir(), 'brain');
-    codex = engine === 'claude' && claudeBinary ? new ClaudeProvider(claudeBinary, existsSync(brainDir) ? [brainDir] : []) : new CodexProvider();
+    codex = engine === 'claude' && claudeBinary
+      ? new ClaudeProvider(claudeBinary, { workDirs: existsSync(brainDir) ? [brainDir] : [], approvals: () => (store.getSetting('approvalMode') === 'ask' ? 'ask' : 'auto') })
+      : new CodexProvider();
     if (!(codex instanceof ClaudeProvider)) engine = 'codex';
     // Seeded routines run hourly on the user's default model. On first start with Claude Code they
     // begin paused, so background runs only happen once the user switches them on in the sidebar.

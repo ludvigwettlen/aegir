@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,7 +10,7 @@ import { findClaudeBinary } from './engine.js';
 const binary = findClaudeBinary();
 describe.skipIf(!process.env.AEGIR_CLAUDE_SMOKE || !binary)('Claude Code engine (live)', () => {
   it('serves Aegir tools, routes permission prompts and streams the answer', async () => {
-    const provider = new ClaudeProvider(binary!);
+    const provider = new ClaudeProvider(binary!, { approvals: () => 'ask' });
     await provider.start();
     expect(provider.status).toMatch(/^Connected/);
     const calls: unknown[][] = [];
@@ -41,5 +41,25 @@ describe.skipIf(!process.env.AEGIR_CLAUDE_SMOKE || !binary)('Claude Code engine 
     expect(result.text).toMatch(/DONE/);
     expect(result.text).toMatch(/42/);
     expect(deltas.join('')).toMatch(/DONE/);
+  }, 180_000);
+
+  it('in auto mode, edits the brain folder without asking', async () => {
+    const brain = mkdtempSync(join(tmpdir(), 'aegir-brain-'));
+    const provider = new ClaudeProvider(binary!, { workDirs: [brain], approvals: () => 'auto' });
+    provider.setToolHandler(async () => ({}));
+    const approvals: Approval[] = [];
+    provider.on('approval', (approval: Approval) => { approvals.push(approval); provider.resolveApproval(approval.id, false); });
+    const result = await provider.run({
+      kind: 'chat',
+      cwd: mkdtempSync(join(tmpdir(), 'aegir-cwd-')),
+      sandbox: 'read-only',
+      instructions: 'You are running an automated smoke test. Follow the steps exactly and keep the reply short.',
+      prompt: `Use the Write tool to create the file ${join(brain, 'note.md')} containing exactly the word ok. Then reply DONE.`,
+      tools: [{ name: 'tasks__list', description: 'List tasks (unused).', inputSchema: { type: 'object', properties: {} }, readOnly: true }],
+      onDelta: () => {},
+    });
+    expect(result.status).toBe('completed');
+    expect(approvals).toEqual([]);
+    expect(readFileSync(join(brain, 'note.md'), 'utf8').trim()).toBe('ok');
   }, 180_000);
 });

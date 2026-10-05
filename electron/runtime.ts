@@ -229,6 +229,7 @@ export class Runtime {
       .join('\n');
     try {
       const result = await this.codex.run({
+        kind: 'route',
         cwd: this.paths.routineCwd,
         instructions:
           'You route tasks to the best-suited group of agents. Reply with JSON only: {"groupId": "<id>"}.',
@@ -306,6 +307,7 @@ export class Runtime {
         return false;
       }
       const result = await this.codex.run({
+        kind: kind === 'task' ? 'task' : 'chat',
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
         instructions: `${this.instructionsFor(kind, agent, group, depth)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}\n${suggestTitle ? threadTitleInstructions : ''}`,
@@ -632,6 +634,7 @@ Connected tools are read-only. Never send messages or write to external systems.
 Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
       const prompt = `Now: ${new Date().toString()}\nPrevious run: ${previous ? `${previous.startedAt} (${previous.status}) — ${previous.summary}` : 'none'}\nConnected sources: ${connected.join(', ') || 'none'}\n\nRelevant memory:\n${recalled || '(none)'}`;
       const result = await this.codex.run({
+        kind: 'routine',
         cwd: this.paths.routineCwd,
         sandbox: 'read-only',
         instructions,
