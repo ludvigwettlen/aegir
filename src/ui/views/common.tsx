@@ -38,7 +38,7 @@ export function YouAvatar({ size = 26 }: { size?: number }) {
 }
 export function Kbd({ children }: { children: ReactNode }) { return <kbd className="ws-kbd">{children}</kbd>; }
 
-export const taskStatusText: Record<Task['status'], string> = { proposed: 'Suggested', ready: 'Open', running: 'Working', review: 'Ready for review', blocked: 'Needs you', done: 'Done', dismissed: 'Dismissed' };
+export const taskStatusText: Record<Task['status'], string> = { proposed: 'Suggested', ready: 'Open', running: 'Working', review: 'Ready for your review', blocked: 'Stopped', done: 'Done', dismissed: 'Dismissed' };
 
 export function TaskGlyph({ task }: { task: Task }) {
   if (task.status === 'running') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Team working"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-line)" strokeWidth="2"/><circle className="ws-glyph-spin" cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-lime-strong)" strokeWidth="2" strokeDasharray="14 41" strokeLinecap="round"/></svg>;

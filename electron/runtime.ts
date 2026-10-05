@@ -330,6 +330,7 @@ export class Runtime {
       if (!this.available) return false;
       const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
       this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
+      this.store.moveMessageToEnd(message.id);
       this.refresh();
       if (depth === 0 && ok) {
         const next = agents.find(
@@ -364,6 +365,7 @@ export class Runtime {
         streamed ? `${streamed}\n\n${String(error)}` : String(error),
         'failed',
       );
+      this.store.moveMessageToEnd(message.id);
       this.refresh();
       throw error;
     } finally {

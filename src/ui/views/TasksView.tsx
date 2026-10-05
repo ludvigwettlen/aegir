@@ -654,6 +654,12 @@ function TaskDetail({
           </span>
         ))}
       </div>
+      {task.status === 'review' && (
+        <p className="ws-detail-hint">{agent} has finished. Its answer is the last message below; files are in the task folder (⌘O). Mark done, or reply to ask for changes.</p>
+      )}
+      {task.status === 'blocked' && (
+        <p className="ws-detail-hint">{agent} stopped before finishing. Reply below to have it carry on.</p>
+      )}
       <div className="ws-detail-controls">
         {task.status !== 'running' && (
           <button type="button" className={`ws-btn ${task.status === 'done' || task.status === 'proposed' ? '' : 'primary'}`}

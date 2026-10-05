@@ -317,3 +317,19 @@ describe('single-agent setup for Claude Code', () => {
     store.close();
   });
 });
+
+describe('reply ordering', () => {
+  it('moves a finished reply below messages logged while it ran', () => {
+    const store = new Store(path());
+    const group = store.groups().find((item) => item.kind === 'group')!;
+    const thread = store.createThread(group.id, 'Harborlight');
+    store.addMessage(thread.id, null, 'user', 'Check Harborlight');
+    const reply = store.addMessage(thread.id, group.leadAgentId, 'agent', '', 'streaming');
+    store.addMessage(thread.id, null, 'system', 'Approved: Search the web');
+    store.updateMessage(reply.id, 'Reach out to Elin', 'complete');
+    store.moveMessageToEnd(reply.id);
+    const order = store.messagePage(thread.id).messages.map((message) => message.content);
+    expect(order).toEqual(['Check Harborlight', 'Approved: Search the web', 'Reach out to Elin']);
+    store.close();
+  });
+});

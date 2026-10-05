@@ -267,15 +267,8 @@ function approvalForExternal(detail: string, threadId: string | undefined, optio
     threadId,
     createdAt: new Date().toISOString(),
   });
-  if (threadId) {
-    store.addMessage(
-      threadId,
-      null,
-      'system',
-      options ? `${options.title} requested. Review the approval.` : 'An agent wants to write to an external system. Review the approval.',
-    );
-    approvalThreads.set(id, threadId);
-  }
+  // The approval bar shows what is pending; the thread only records the decision (see resolve-approval).
+  if (threadId) approvalThreads.set(id, threadId);
   notifyApproval(options?.title || 'An agent wants to write to an external system');
   return new Promise((resolve) => {
     const cancel = () => {
@@ -444,7 +437,7 @@ function registerIpc() {
   handle('resolve-approval', (id: string, approved: boolean) => {
     const threadId = approvalThreads.get(id);
     if (threadId) {
-      store.addMessage(threadId, null, 'system', `Approval ${approved ? 'granted' : 'declined'}.`);
+      store.addMessage(threadId, null, 'system', `${approved ? 'Approved' : 'Declined'}: ${approvals.get(id)?.title || 'agent action'}`);
       approvalThreads.delete(id);
     }
     if (externalApprovalResolvers.has(id)) {
@@ -658,15 +651,7 @@ if (app.requestSingleInstanceLock()) {
         return;
       }
       approvals.set(approval.id, approval);
-      if (context?.threadId) {
-        store.addMessage(
-          context.threadId,
-          null,
-          'system',
-          `${approval.title} requested. Review the approval.`,
-        );
-        approvalThreads.set(approval.id, context.threadId);
-      }
+      if (context?.threadId) approvalThreads.set(approval.id, context.threadId);
       notifyApproval(approval.title);
       refresh();
     });

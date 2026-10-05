@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { Message } from '../../../shared/types';
 import { api, type Run } from '../views/common';
 
+// Ordered by createdAt: a finished reply is re-stamped and moves below the approvals logged while it ran.
 function merge(older: Message[], newer: Message[]) {
   const messages = new Map(older.map((message) => [message.id, message]));
   for (const message of newer) messages.set(message.id, message);
-  return [...messages.values()];
+  return [...messages.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export function useThreadMessages(threadId: string, run: Run) {

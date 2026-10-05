@@ -521,6 +521,13 @@ export class Store {
     const message = this.message(id);
     if (message) this.onMessage?.(message);
   }
+  // A reply is created when the agent starts and filled in as it streams. When it finishes, it moves
+  // below anything logged meanwhile (approvals), so the answer is the last thing in the thread.
+  moveMessageToEnd(id: string) {
+    this.db.prepare('UPDATE messages SET rowid=(SELECT MAX(rowid)+1 FROM messages), createdAt=? WHERE id=?').run(now(), id);
+    const message = this.message(id);
+    if (message) this.onMessage?.(message);
+  }
   setMessageMeta(id: string, meta: MessageMeta) {
     this.db.prepare('UPDATE messages SET meta=? WHERE id=?').run(JSON.stringify(meta), id);
     const message = this.message(id);
