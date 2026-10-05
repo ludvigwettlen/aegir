@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { query, type PermissionResult, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -124,40 +123,7 @@ function childEnv(): Record<string, string | undefined> {
   // Started from inside another Claude Code session (development), these would leak into the child.
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
-  // The user's claude.ai connectors (Slack, Gmail, Notion…) would otherwise load into every run.
-  env.ENABLE_CLAUDEAI_MCP_SERVERS = 'false';
   return env;
-}
-
-// Built-in Claude Code tools an agent run gets. Anything that reaches Slack, Notion or other services
-// goes through Legolas's own MCP server, where its connector policy applies.
-export const BUILTIN_TOOLS = ['Task', 'Bash', 'Read', 'Edit', 'Write', 'NotebookEdit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite', 'ToolSearch'];
-
-// Runs never inherit the user's Claude Code setup: no settings files (their allow rules auto-approve
-// connector writes, hooks, enabled plugins), no host or claude.ai MCP servers, no plugins or host skills.
-// Legolas's own MCP server, the brain folder and the gbrain CLI are granted explicitly by the caller.
-export function isolationOptions() {
-  return { settingSources: [] as [], strictMcpConfig: true, plugins: [] as [], skills: [] as string[], tools: BUILTIN_TOOLS };
-}
-
-// What in a session's tool inventory came from the host rather than from Legolas. Empty when isolated.
-// Plugins bundled inside Claude Code itself (path 'builtin') are part of the engine, not the user's setup.
-export function hostTools(init: { tools: string[]; mcp_servers: { name: string; source?: string }[]; plugins?: { name: string; path?: string }[] }): string[] {
-  return [
-    ...init.mcp_servers.filter((server) => server.name !== SERVER || (server.source && server.source !== 'sdk')).map((server) => `MCP server ${server.name}`),
-    ...init.tools.filter((tool) => tool.startsWith('mcp__') && !tool.startsWith(PREFIX)),
-    ...(init.plugins || []).filter((plugin) => plugin.path !== 'builtin').map((plugin) => `plugin ${plugin.name}`),
-  ];
-}
-
-// The user's own Claude Code instructions, which runs used to pick up from their settings. Text only: it grants no tools.
-function userInstructions(): string {
-  try {
-    const text = readFileSync(join(homedir(), '.claude', 'CLAUDE.md'), 'utf8').trim();
-    return text ? `\n\nThe user's own Claude Code instructions (~/.claude/CLAUDE.md):\n${text.slice(0, 40_000)}` : '';
-  } catch {
-    return '';
-  }
 }
 
 type Run = { abort: AbortController; sessionId?: string };
@@ -285,7 +251,6 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
     let status = 'failed';
     // The last of the engine's error output, shown when a run ends without a result.
     let stderrTail = '';
-    let hostLeak = '';
     try {
       const session = query({
         prompt: input.prompt,
@@ -293,13 +258,11 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           cwd: input.cwd,
           pathToClaudeCodeExecutable: this.binary,
           env: childEnv(),
-          systemPrompt: quick ? input.instructions : { type: 'preset', preset: 'claude_code', append: `${input.instructions}${userInstructions()}` },
+          systemPrompt: quick ? input.instructions : { type: 'preset', preset: 'claude_code', append: input.instructions },
           permissionMode: this.options.approvals?.() === 'ask' ? 'default' : 'auto',
-          ...isolationOptions(),
           ...(quick
-            ? { tools: [], mcpServers: {}, model: 'haiku' }
+            ? { settingSources: [], tools: [], mcpServers: {}, strictMcpConfig: true, model: 'haiku' }
             : {
-                // Legolas's MCP server is the only one; strictMcpConfig drops the user's own.
                 mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
                 allowedTools: this.allowRules([...tools.keys()]),
                 // Unattended routines stay read-only; chats and tasks behave like the user's own Claude Code.
@@ -312,9 +275,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           abortController: run.abort,
           stderr: (data) => { this.emit('log', data); stderrTail = (stderrTail + data).slice(-1500); },
           canUseTool: async (toolName, toolInput, options): Promise<PermissionResult> => {
-            if (options.mcpServer?.source === 'sdk' && options.mcpServer.name === SERVER) return { behavior: 'allow', updatedInput: toolInput };
-            // Backstop: a host MCP tool should never be loaded; if one is, it never runs.
-            if (toolName.startsWith('mcp__')) return { behavior: 'deny', message: 'Only Legolas tools are available in Legolas.' };
+            if (options.mcpServer?.source === 'sdk') return { behavior: 'allow', updatedInput: toolInput };
             const path = toolInput.file_path ?? toolInput.notebook_path;
             const writable = [...(input.sandbox === 'workspace-write' ? [input.cwd] : []), ...(input.kind === 'routine' ? [] : this.options.workDirs || [])];
             if (WRITE_TOOLS.includes(toolName) && typeof path === 'string' && writable.some((dir) => isInside(dir, path)))
@@ -327,17 +288,6 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
         if ('session_id' in message && typeof message.session_id === 'string' && !run.sessionId) {
           run.sessionId = message.session_id;
           this.sessions.set(runId, message.session_id);
-        }
-        if (message.type === 'system' && message.subtype === 'init') {
-          // Verify the effective tool inventory before the agent can act.
-          this.emit('inventory', { runId, tools: message.tools, mcpServers: message.mcp_servers, plugins: message.plugins });
-          const foreign = hostTools(message);
-          if (foreign.length) {
-            hostLeak = `Legolas stopped this run because Claude Code loaded tools from outside Legolas: ${foreign.slice(0, 10).join(', ')}`;
-            this.emit('log', hostLeak);
-            run.abort.abort();
-            break;
-          }
         }
         if (message.type === 'stream_event' && message.parent_tool_use_id === null) {
           const event = message.event as { type: string; delta?: { type: string; text?: string } };
@@ -375,7 +325,6 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
       void server?.close().catch(() => {});
     }
     if (run.abort.signal.aborted) status = 'interrupted';
-    if (hostLeak) return { threadId: runId, text: hostLeak, status: 'failed' };
     const failure = status === 'failed' && stderrTail.trim() ? `Claude Code stopped with this error:\n${stderrTail.trim().slice(-800)}` : '';
     return { threadId: runId, text: finalText || streamed || failure, status };
   }
