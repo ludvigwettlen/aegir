@@ -199,6 +199,8 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await page.keyboard.press('Meta+K');
     expect(await palette.count()).toBe(0);
     await page.keyboard.press('Escape');
+    // Closing the Ask box moves focus back to the row on the next frame; wait for it, as a person would.
+    await page.waitForFunction(() => !!document.activeElement?.closest('[data-task-row]'));
 
     // New group opens its box, and Escape closes that box.
     await page.keyboard.press('Meta+K');
