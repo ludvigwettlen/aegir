@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users, Archive as Tray } from 'lucide-react';
-import type { Snapshot } from '../../../shared/types';
+import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
+import { claudeRoutineName } from '../../../shared/cron';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
 
@@ -47,8 +48,10 @@ export function Sidebar({
   route,
   go,
   onNewGroup,
+  claude,
 }: {
   data: Snapshot;
+  claude?: ClaudeRoutines;
   route: Route;
   go: (route: Route) => void;
   onNewGroup: () => void;
@@ -155,6 +158,18 @@ export function Sidebar({
           />
         );
       })}
+      {!!claude?.tasks.length && <div className="ws-nav-sublabel">Claude Code</div>}
+      {claude?.tasks.map((task) => (
+        <Item
+          key={`claude:${task.id}`}
+          active={route.view === 'claude-routine' && route.id === task.id}
+          onClick={() => go({ view: 'claude-routine', id: task.id })}
+          icon={<Repeat2 size={15} />}
+          label={claudeRoutineName(task.name)}
+          count={task.enabled ? 'On' : 'Paused'}
+          tone={`routine ${task.enabled ? 'ok' : 'paused'}`}
+        />
+      ))}
     </nav>
   );
 }

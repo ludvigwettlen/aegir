@@ -454,3 +454,15 @@ body.ws-focus-mode .ws-sidebar { display: none; }
 .ws-when-quick { display: flex; flex-wrap: wrap; gap: 6px; .ws-btn span { margin-left: 6px; color: #8a9784; font-weight: 400; } }
 .ws-inline-field .ws-due-button { height: 28px; padding: 3px 10px; border: 1px solid #d4dccb; border-radius: 8px; background: #fff; color: var(--ds-color-ink); font-size: 12.5px;
   &.overdue { color: var(--ds-color-danger); border-color: currentColor; } }
+
+/* Claude Code scheduled tasks (read-only) */
+.ws-claude-note { margin: 0; font-size: 12.5px; color: #596753; }
+.ws-run-item .needs { color: #9a7c00; flex: none; }
+.ws-run-item .unknown { color: #8a9582; flex: none; }
+.ws-claude-run { padding: 14px 22px; font-size: 13px; line-height: 1.55; color: #33412f; user-select: text; overflow: auto;
+  p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+.ws-claude-needs { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: #fdf6d8; color: #4a3f00;
+  strong { display: block; font-size: 12px; margin-bottom: 2px; }
+}
+.ws-nav-sublabel { padding: 8px 10px 2px; font-size: 11px; font-weight: 500; color: #8a9582; }

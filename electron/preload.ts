@@ -56,6 +56,7 @@ const api: DesktopApi = {
   correctMemory: (id, scope, content) => ipcRenderer.invoke('correct-memory', id, scope, content),
   setLaunchAtLogin: enabled => ipcRenderer.invoke('launch-at-login', enabled),
   setReminders: (enabled, list) => ipcRenderer.invoke('reminders-settings', enabled, list),
-  openExternal: url => ipcRenderer.invoke('open-external', url)
+  openExternal: url => ipcRenderer.invoke('open-external', url),
+  claudeRoutines: () => ipcRenderer.invoke('claude-routines')
 };
 contextBridge.exposeInMainWorld('aegir', api);

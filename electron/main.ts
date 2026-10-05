@@ -28,6 +28,7 @@ import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
 import { exportTasks, importInbox } from './brain-bridge.js';
+import { readClaudeRoutines } from './claude-schedule.js';
 import { findRemindersHelper, parseLedger, RemindersError, RemindersHelper, syncReminders } from './reminders.js';
 import { Runtime } from './runtime.js';
 import { BrowserManager } from './browser.js';
@@ -491,6 +492,9 @@ function registerIpc() {
     app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
     refresh();
   });
+  // Read-only mirror of the Claude app's scheduler; concurrent requests share one read.
+  let claudeRead: Promise<unknown> | null = null;
+  handle('claude-routines', () => claudeRead ||= readClaudeRoutines(join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions')).finally(() => { claudeRead = null; }));
   handle('open-external', (url: string) => {
     const safe = normalizeTaskLink(url);
     if (!safe) throw new Error('Invalid URL');

@@ -4,6 +4,8 @@ import type { Snapshot } from '../../shared/types';
 import { ApprovalDock } from './views/ApprovalDock';
 import { api, type Route, type Run } from './views/common';
 import { useWorkspaceKeyboard } from './hooks/useWorkspaceKeyboard';
+import { useClaudeRoutines } from './hooks/useClaudeRoutines';
+import { ClaudeRoutineView } from './views/ClaudeRoutineView';
 import { GroupView } from './views/GroupView';
 import { MemoryView } from './views/MemoryView';
 import { NewGroupModal } from './views/NewGroupModal';
@@ -41,6 +43,7 @@ export function App() {
     }
   }, []);
   useWorkspaceKeyboard(run, setRoute, setNotice);
+  const claude = useClaudeRoutines();
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 3500);
@@ -60,7 +63,7 @@ export function App() {
   return (
     <div className="ws-shell">
       <ShortcutHints route={route} />
-      <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} />
+      <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} claude={claude} />
       <div className="ws-main">
         {route.view === 'tasks' && (
           <TasksView data={data} run={run} list={route.list} notify={setNotice}
@@ -86,6 +89,10 @@ export function App() {
             onDiscuss={() => discuss(routine.name)}
           />
         )}
+        {route.view === 'claude-routine' && (() => {
+          const task = claude.tasks.find((item) => item.id === route.id);
+          return task ? <ClaudeRoutineView key={task.id} task={task} /> : null;
+        })()}
         {route.view === 'memory' && (
           <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
             <MemoryView data={data} run={run} />

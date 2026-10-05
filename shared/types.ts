@@ -105,6 +105,10 @@ export type RoutineRun = {
   startedAt: string;
   endedAt: string | null;
 };
+// Claude Code scheduled tasks, read from the Claude app's own files and shown read-only.
+export type ClaudeRun = { startedAt: string; endedAt: string | null; status: 'completed' | 'failed' | 'needs_action' | 'unknown'; detail: string; needsAction: string | null };
+export type ClaudeRoutine = { id: string; name: string; description: string; schedule: string; cron: string | null; enabled: boolean; lastRunAt: string | null; runs: ClaudeRun[] };
+export type ClaudeRoutines = { tasks: ClaudeRoutine[]; source: string | null };
 export type RunEvent = {
   id: string;
   runId: string;
@@ -232,4 +236,5 @@ export interface DesktopApi extends SkillsApi {
   openBrowser(): Promise<void>;
   stopBrowser(): Promise<void>;
   openExternal(url: string): Promise<void>;
+  claudeRoutines(): Promise<ClaudeRoutines>;
 }

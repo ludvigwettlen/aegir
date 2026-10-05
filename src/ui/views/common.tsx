@@ -9,6 +9,7 @@ export type Route =
   | { view: 'tasks'; list: TaskView }
   | { view: 'group'; groupId: string; threadId?: string; draft?: string }
   | { view: 'routine'; routineId: string }
+  | { view: 'claude-routine'; id: string }
   | { view: 'skills'; agentId?: string }
   | { view: 'memory' } | { view: 'settings' };
 
