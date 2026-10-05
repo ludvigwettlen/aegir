@@ -20,6 +20,25 @@ export interface ModelProvider {
 }
 
 
+// ---- Isolation from the user's own Codex setup ---------------------------
+// Runs get only Legolas's dynamic tools. The user's MCP servers (whose tools may be set to auto-approve),
+// ChatGPT apps/connectors, plugins and hooks would bypass Legolas's connector policy, so all are off.
+// An empty mcp_servers override merges rather than replaces, so each configured server is disabled by name.
+export type McpServerStatus = { name: string; runtimeStatus?: string | null; pluginId?: string | null; tools?: Record<string, unknown> };
+export function isolationConfig(configRead: any): Record<string, unknown> {
+  const servers = Object.keys(configRead?.config?.mcp_servers || {});
+  return {
+    ...Object.fromEntries(servers.map(name => [`mcp_servers.${name}.enabled`, false])),
+    'features.apps': false,
+    'features.plugins': false,
+    'features.hooks': false,
+  };
+}
+// Servers in a thread's inventory that could still serve tools. Disabled entries are listed but inert.
+export function hostMcpServers(servers: McpServerStatus[]): string[] {
+  return servers.filter(server => server.runtimeStatus !== 'disabled' || Object.keys(server.tools || {}).length > 0).map(server => server.name);
+}
+
 // ---- Approval scope ------------------------------------------------------
 // An approval card must show everything the answer grants, not only the agent's stated reason.
 type FileChange = { path: string; kind?: { type?: string } };
@@ -203,13 +222,17 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     for (const tool of input.tools) this.toolReadOnly.set(tool.name, tool.readOnly);
     const dynamicTools = input.tools.map(tool => ({ type: 'function', name: tool.name, description: /^(slack|notion)__/.test(tool.name) ? `${tool.description}${tool.readOnly ? ' (read only)' : ' (requires approval to write)'}` : tool.description, inputSchema: tool.inputSchema }));
     const skillConfig = disabledHostSkills(await this.request('skills/list', { cwds: [input.cwd], forceReload: true }));
+    const config = { 'skills.config': skillConfig, ...isolationConfig(await this.request('config/read', { cwd: input.cwd })) };
     let threadId = input.threadId;
-    if (threadId) { try { await this.request('thread/resume', { threadId, baseInstructions: input.instructions, config: { 'skills.config': skillConfig } }); } catch { threadId = undefined; } }
+    if (threadId) { try { await this.request('thread/resume', { threadId, baseInstructions: input.instructions, config }); } catch { threadId = undefined; } }
     if (!threadId) {
-      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: input.sandbox || 'read-only', baseInstructions: input.instructions, config: { 'skills.config': skillConfig }, dynamicTools, ...(route || {}) });
+      const started = await this.request('thread/start', { cwd: input.cwd, approvalPolicy: 'on-request', sandbox: input.sandbox || 'read-only', baseInstructions: input.instructions, config, dynamicTools, ...(route || {}) });
       threadId = started.thread.id;
     }
     const id = threadId!;
+    // Verify the thread's effective MCP inventory before the agent can act.
+    const leaked = hostMcpServers(await this.mcpInventory(id));
+    if (leaked.length) throw new Error(`Legolas stopped this run because Codex loaded tools from outside Legolas: ${leaked.join(', ')}`);
     input.onThreadStarted?.(id);
     const done = new Promise<{ text: string; status: string }>(resolve => this.turns.set(id, { resolve, onDelta: input.onDelta, onItem: input.onItem, text: '', turnId: '' }));
     try {
@@ -217,6 +240,17 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
       const turn = this.turns.get(id); if (turn) turn.turnId = started.turn.id;
       const result = await done; return { threadId: id, ...result };
     } catch (error) { this.turns.delete(id); throw error; }
+  }
+  private async mcpInventory(threadId: string) {
+    const servers: McpServerStatus[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page++) {
+      const result = await this.request('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly', ...(cursor ? { cursor } : {}) }) as { data?: McpServerStatus[]; nextCursor?: string | null };
+      servers.push(...(result.data || []));
+      cursor = result.nextCursor || null;
+      if (!cursor) break;
+    }
+    return servers;
   }
   async stop(threadId: string) { const turn = this.turns.get(threadId); if (turn?.turnId) await this.request('turn/interrupt', { threadId, turnId: turn.turnId }); }
   close() { this.child?.kill(); this.child = null; }

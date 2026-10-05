@@ -128,3 +128,45 @@ describe('approval scope', () => {
     expect(lines).toContain('Grant: this change only');
   });
 });
+
+describe('isolation from host Codex tools', () => {
+  // A fake app-server whose user config has a synthetic host write tool set to auto-approve.
+  function fakeServer(threadInventory: (config: Record<string, unknown>) => unknown[]) {
+    const codex = new CodexProvider();
+    const internal = codex as unknown as { child: unknown; receive: (message: unknown) => void };
+    const requests: Array<{ method: string; params: any }> = [];
+    let threadConfig: Record<string, unknown> = {};
+    const reply = (id: number, result: unknown) => queueMicrotask(() => internal.receive({ id, result }));
+    internal.child = { kill: vi.fn(), stdin: { write: (data: string) => {
+      const message = JSON.parse(data);
+      requests.push(message);
+      if (message.id === undefined) return;
+      if (message.method === 'skills/list') reply(message.id, { data: [] });
+      else if (message.method === 'config/read') reply(message.id, { config: { mcp_servers: { hostwrite: { command: 'node', tools: { send_message: { approval_mode: 'approve' } } } } } });
+      else if (message.method === 'thread/start') { threadConfig = message.params.config; reply(message.id, { thread: { id: 'th1' } }); }
+      else if (message.method === 'mcpServerStatus/list') reply(message.id, { data: threadInventory(threadConfig), nextCursor: null });
+      else if (message.method === 'turn/start') {
+        reply(message.id, { turn: { id: 'tu1' } });
+        queueMicrotask(() => internal.receive({ method: 'turn/completed', params: { threadId: 'th1', turn: { status: 'completed', items: [{ type: 'agentMessage', text: 'Done' }] } } }));
+      }
+    } } };
+    return { codex, requests };
+  }
+  const input = { kind: 'routine' as const, cwd: '/tmp', instructions: 'Run', prompt: 'Go', tools: [], onDelta: () => {} };
+
+  it('disables every host MCP server, ChatGPT apps, plugins and hooks for the thread', async () => {
+    // Behaves like the real app-server: a disabled server is listed but serves no tools.
+    const { codex, requests } = fakeServer(config => [{ name: 'hostwrite', runtimeStatus: config['mcp_servers.hostwrite.enabled'] === false ? 'disabled' : 'connected', tools: config['mcp_servers.hostwrite.enabled'] === false ? {} : { send_message: {} } }]);
+    const result = await codex.run(input);
+    expect(result.status).toBe('completed');
+    const start = requests.find(request => request.method === 'thread/start')!;
+    expect(start.params.config).toMatchObject({ 'mcp_servers.hostwrite.enabled': false, 'features.apps': false, 'features.plugins': false, 'features.hooks': false });
+    expect(requests.find(request => request.method === 'mcpServerStatus/list')?.params.threadId).toBe('th1');
+  });
+
+  it('refuses to start a turn when the thread still has a host write tool', async () => {
+    const { codex, requests } = fakeServer(() => [{ name: 'codex_apps', runtimeStatus: 'connected', tools: { slack_send_message: {} } }]);
+    await expect(codex.run(input)).rejects.toThrow('codex_apps');
+    expect(requests.some(request => request.method === 'turn/start')).toBe(false);
+  });
+});
