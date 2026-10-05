@@ -23,6 +23,7 @@ vi.mock('electron', async () => {
     requestSingleInstanceLock: () => true,
     whenReady: () => Promise.resolve(),
     getLoginItemSettings: () => ({}),
+    setBadgeCount: () => true,
   });
   class BrowserWindow extends EventEmitter {
     webContents = Object.assign(new EventEmitter(), {
@@ -33,13 +34,17 @@ vi.mock('electron', async () => {
     async loadURL() {}
   }
   class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} }
+  class Notification extends EventEmitter { static isSupported() { return false; } show() {} }
   return {
-    app: fixture.app, BrowserWindow, Tray,
+    app: fixture.app, BrowserWindow, Tray, Notification,
     ipcMain: { handle: vi.fn() }, powerMonitor: new EventEmitter(),
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
     nativeImage: { createFromDataURL: () => ({}) }, clipboard: {}, dialog: {}, shell: {},
   };
 });
+// This suite covers the Codex engine and Mnemosyne memory, whatever is installed on the machine.
+vi.mock('./engine.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('./engine.js')>()), findClaudeBinary: () => null }));
+vi.mock('./gbrain-memory.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('./gbrain-memory.js')>()), findGbrainBinary: () => null }));
 vi.mock('./codex.js', async () => {
   const { EventEmitter } = await import('node:events');
   return { CodexProvider: class extends EventEmitter {

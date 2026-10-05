@@ -6,21 +6,27 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   powerMonitor,
   shell,
   Tray,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
+import { ClaudeProvider } from './claude.js';
+import { chooseEngine, engineNames, findClaudeBinary, type EngineId, type EngineProvider } from './engine.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
+import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
+import { exportTasks, importInbox } from './brain-bridge.js';
 import { Runtime } from './runtime.js';
 import { BrowserManager } from './browser.js';
 import { createBrowserBackend } from './browser-backend.js';
@@ -32,15 +38,45 @@ const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let store: Store;
-let codex: CodexProvider;
+let codex: EngineProvider;
+let engine: EngineId = 'codex';
 let connectors: ConnectorManager;
-let memory: MemoryService;
+let memory: MemoryService | GbrainMemoryService;
 let runtime: Runtime;
 let browser: BrowserManager;
 let shuttingDown = false;
+let brain: { dir: string; inbox: string; exportDir: string } | null = null;
+let inboxTimer: NodeJS.Timeout | null = null;
+let exportTimer: NodeJS.Timeout | null = null;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
+
+function notifyApproval(title: string) {
+  if (window?.isFocused() || !Notification.isSupported()) return;
+  const note = new Notification({ title: 'Aegir needs your approval', body: title });
+  note.on('click', () => { window?.show(); window?.focus(); });
+  note.show();
+}
+function syncInbox() {
+  if (!brain || shuttingDown || !store?.isOpen) return;
+  try {
+    const counts = importInbox(store, brain.inbox);
+    if (counts.rejected) console.warn(`Aegir inbox: ${counts.rejected} file(s) rejected, see ${join(brain.inbox, 'rejected')}`);
+    if (counts.created) refresh();
+  } catch (error) {
+    console.error('Aegir inbox import failed:', error);
+  }
+}
+function scheduleExport() {
+  if (!brain || exportTimer) return;
+  exportTimer = setTimeout(() => {
+    exportTimer = null;
+    if (!brain || shuttingDown || !store?.isOpen) return;
+    try { exportTasks(store.list('tasks'), brain.exportDir); }
+    catch (error) { console.error('Aegir task export failed:', error); }
+  }, 2000);
+}
 
 function migrateLegacyData() {
   const currentDir = app.getPath('userData');
@@ -68,6 +104,8 @@ function snapshot(): Snapshot {
     legacyMemoryCount: store.legacyMemoryCount(),
     memoryInstructions: store.getSetting('memoryInstructions') || '',
     codexStatus: codex.status,
+    engine: engineNames[engine],
+    memoryProvider: memory instanceof GbrainMemoryService ? 'gbrain' : 'Mnemosyne',
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
     browser: browser.state,
     mcpSettings: {
@@ -85,6 +123,8 @@ function emit(event: AppEvent) {
 function refresh() {
   if (shuttingDown || !store?.isOpen) return;
   emit({ type: 'snapshot', value: snapshot() });
+  app.setBadgeCount(approvals.size);
+  scheduleExport();
 }
 function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal }): Promise<boolean> {
   if (options?.signal.aborted) return Promise.resolve(false);
@@ -107,6 +147,7 @@ function approvalForExternal(detail: string, threadId: string | undefined, optio
     );
     approvalThreads.set(id, threadId);
   }
+  notifyApproval(options?.title || 'An agent wants to write to an external system');
   return new Promise((resolve) => {
     const cancel = () => {
       externalApprovalResolvers.delete(id);
@@ -421,9 +462,24 @@ if (app.requestSingleInstanceLock()) {
     migrateLegacyData();
     store = new Store();
     store.onMessage = (value) => emit({ type: 'message', value });
-    codex = new CodexProvider();
+    const claudeBinary = findClaudeBinary(store.getSetting('claudeBinary'));
+    engine = chooseEngine(store.getSetting('engine'), claudeBinary);
+    codex = engine === 'claude' && claudeBinary ? new ClaudeProvider(claudeBinary) : new CodexProvider();
+    if (!(codex instanceof ClaudeProvider)) engine = 'codex';
     connectors = new ConnectorManager(store);
-    memory = new MemoryService(store);
+    const brainDir = store.getSetting('brainDir') || join(homedir(), 'brain');
+    // The user's gbrain, when present: memory, the suggestion inbox and the task export live there.
+    const gbrainBinary = findGbrainBinary(store.getSetting('gbrainBinary'));
+    const useGbrain = store.getSetting('memoryProvider') !== 'mnemosyne' && !!gbrainBinary && existsSync(brainDir);
+    memory = useGbrain ? new GbrainMemoryService(gbrainBinary!, brainDir) : new MemoryService(store);
+    if (existsSync(brainDir)) {
+      brain = {
+        dir: brainDir,
+        inbox: store.getSetting('inboxDir') || join(brainDir, 'queues', 'aegir-inbox'),
+        exportDir: store.getSetting('exportDir') || join(brainDir, 'queues'),
+      };
+      mkdirSync(brain.inbox, { recursive: true });
+    }
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
@@ -451,6 +507,7 @@ if (app.requestSingleInstanceLock()) {
         );
         approvalThreads.set(approval.id, context.threadId);
       }
+      notifyApproval(approval.title);
       refresh();
     });
     codex.on('approval-resolved', (id: string) => {
@@ -498,6 +555,10 @@ if (app.requestSingleInstanceLock()) {
     createTray();
     connectors.start();
     runtime.start();
+    if (brain) {
+      syncInbox();
+      inboxTimer = setInterval(syncInbox, 30_000);
+    }
     void memory
       .migrateLegacy()
       .then(() => {
@@ -523,6 +584,8 @@ if (app.requestSingleInstanceLock()) {
     if (shuttingDown) return;
     event?.preventDefault();
     shuttingDown = true;
+    if (inboxTimer) clearInterval(inboxTimer);
+    if (exportTimer) clearTimeout(exportTimer);
     for (const resolve of externalApprovalResolvers.values()) resolve(false);
     externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;

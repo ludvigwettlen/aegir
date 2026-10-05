@@ -16,6 +16,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
   const [searched, setSearched] = useState(false);
   useEffect(() => setInstructions(data.memoryInstructions), [data.memoryInstructions]);
   const refreshResults = async () => setResults(await api.searchMemories(query));
+  const brain = data.memoryProvider === 'gbrain';
   return (
     <div className="page-scroll supporting-page">
       <PageHeader
@@ -37,7 +38,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
           <div className="panel-heading">
             <div>
               <h2>Search memories</h2>
-              <p>Results come directly from Mnemosyne’s shared and agent banks.</p>
+              <p>{brain ? 'Results come from your brain (gbrain).' : 'Results come directly from Mnemosyne’s shared and agent banks.'}</p>
             </div>
             <MemoryStick size={19} />
           </div>
@@ -82,7 +83,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
               <p>
                 {searched
                   ? 'Try a different phrase.'
-                  : 'Search across shared and agent memories stored in Mnemosyne.'}
+                  : brain ? 'Search the pages in your brain.' : 'Search across shared and agent memories stored in Mnemosyne.'}
               </p>
             </div>
           )}
@@ -108,8 +109,9 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
             Save instructions
           </Button>
           <div className="subtle-note">
-            <CircleHelp size={14} /> Memories are stored in Mnemosyne. If it is unavailable, memory
-            operations report an error.
+            <CircleHelp size={14} /> {brain
+              ? 'Agents read your brain with gbrain. What they choose to remember lands in inbox/aegir-memories.md for you to file.'
+              : 'Memories are stored in Mnemosyne. If it is unavailable, memory operations report an error.'}
           </div>
         </Card>
       </div>
@@ -172,7 +174,7 @@ function MemoryRow({
           )}
         </small>
       </div>
-      <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+      {item.scope !== 'brain' && <><Button variant="outline" size="sm" onClick={() => setEditing(true)}>
         Correct
       </Button>
       <Button
@@ -188,7 +190,7 @@ function MemoryRow({
         }
       >
         <X size={15} />
-      </Button>
+      </Button></>}
     </div>
   );
 }

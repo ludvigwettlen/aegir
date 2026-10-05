@@ -254,7 +254,7 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
                   <small>
                     {agent.role} ·{' '}
                     {modelTierForRole(agent.role) === 'default'
-                      ? 'Codex default model'
+                      ? `${data.engine} default model`
                       : 'Lightweight model'}
                   </small>
                 </div>

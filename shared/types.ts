@@ -150,6 +150,9 @@ export type Snapshot = {
   legacyMemoryCount: number;
   memoryInstructions: string;
   codexStatus: string;
+  // Display names of the agent engine (Codex or Claude Code) and memory backend (Mnemosyne or gbrain).
+  engine: string;
+  memoryProvider: string;
   launchAtLogin: boolean;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
