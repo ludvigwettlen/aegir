@@ -137,6 +137,37 @@ describe('runtime', () => {
     expect(store.get('threads', thread.id)?.title).toBe('Original');
   });
 
+  // Pending connector approvals listen to this signal, so they expire with the run (see external-write.ts).
+  it('aborts a run signal when the user stops the run', async () => {
+    let signal: AbortSignal | undefined;
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      signal = rt.runSignal(id);
+      expect(signal?.aborted).toBe(false);
+      await rt.stopThread(rt.appThreadFor(id)!);
+      expect(signal?.aborted).toBe(true);
+      return 'Stopped';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Stop me');
+    await runtime.sendMessage(thread.id, 'Post to Slack');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it.each(['chat', 'task', 'routine'] as const)('aborts the run signal when a %s run completes', async kind => {
+    let signal: AbortSignal | undefined;
+    let codexId = '';
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      codexId = id;
+      signal = rt.runSignal(id);
+      return 'Done';
+    });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Finish me' }).id, 'Research');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Finish me').id, 'Hello');
+    expect(signal).toBeDefined();
+    expect(signal!.aborted).toBe(true);
+    expect(runtime.runSignal(codexId)).toBeUndefined();
+  });
+
   it.each(['task', 'routine'] as const)('does not offer or accept chat titles in %s runs', async kind => {
     const { store, runtime } = setup(async (input, id, rt) => {
       expect(input.tools.some(tool => tool.name === 'threads__set_title')).toBe(false);

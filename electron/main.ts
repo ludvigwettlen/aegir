@@ -24,6 +24,7 @@ import { CodexProvider } from './codex.js';
 import { ClaudeProvider } from './claude.js';
 import { chooseEngine, engineNames, findClaudeBinary, type EngineId, type EngineProvider } from './engine.js';
 import { ConnectorManager } from './connectors.js';
+import { approveExternalWrite } from './external-write.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
@@ -256,12 +257,12 @@ function refresh() {
   app.setBadgeCount(approvals.size);
   scheduleExport(value.tasks);
 }
-function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal }): Promise<boolean> {
+function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal; method?: string }): Promise<boolean> {
   if (options?.signal.aborted) return Promise.resolve(false);
   const id = randomUUID();
   approvals.set(id, {
     id,
-    method: options ? 'browser-control' : 'external-write',
+    method: options?.method || (options ? 'browser-control' : 'external-write'),
     title: options?.title || 'External write',
     detail,
     agentId: null,
@@ -686,14 +687,15 @@ if (app.requestSingleInstanceLock()) {
         // Tasks and routines only receive read-only tools; this is the backstop if one is called anyway.
         if (!readOnly && context && context.kind !== 'chat')
           throw new Error('Handed-off tasks and routines cannot write to external systems');
-        if (
-          !readOnly &&
-          !(await approvalForExternal(
-            `${provider}: ${tool}\n${JSON.stringify(args, null, 2)}`,
-            context?.threadId,
-          ))
-        )
-          throw new Error('External write declined');
+        if (!readOnly)
+          await approveExternalWrite(
+            { signal: runtime.runSignal(codexThreadId), isCurrent: () => !!context && runtime.contextFor(codexThreadId) === context },
+            (signal) => approvalForExternal(
+              `${provider}: ${tool}\n${JSON.stringify(args, null, 2)}\nGrant: this one write only`,
+              context?.threadId,
+              { title: `Write to ${provider}`, signal, method: 'external-write' },
+            ),
+          );
         if (shuttingDown || !store.isOpen) throw new Error('App is shutting down');
         const result = await connectors.call(provider, tool, args);
         runtime.logToolResult(codexThreadId, result);

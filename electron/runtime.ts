@@ -52,6 +52,8 @@ type Context = {
   counts?: { tasks: number; memories: number };
   // The reply being written in a chat or task run, so tool steps and approvals can be filed under it.
   reply?: { note: (step: Step) => void };
+  // Aborted when the run is stopped or ends, so its pending approvals and external writes expire with it.
+  abort?: AbortController;
 };
 
 // Runs agents in threads (chat and handed-off tasks) and routines, and keeps the mapping from Codex threads back to them.
@@ -83,6 +85,18 @@ export class Runtime {
 
   contextFor(codexThreadId: string) {
     return this.active.get(codexThreadId);
+  }
+  // The run's cancellation signal. Missing once the run has ended.
+  runSignal(codexThreadId: string): AbortSignal | undefined {
+    return this.active.get(codexThreadId)?.abort?.signal;
+  }
+  private track(codexThreadId: string, context: Context) {
+    this.active.get(codexThreadId)?.abort?.abort();
+    this.active.set(codexThreadId, { ...context, abort: new AbortController() });
+  }
+  private untrack(codexThreadId: string) {
+    this.active.get(codexThreadId)?.abort?.abort();
+    this.active.delete(codexThreadId);
   }
   // Files an answered approval under the reply that asked for it. False when that run has ended.
   recordApproval(codexThreadId: string, label: string, approved: boolean) {
@@ -161,6 +175,7 @@ export class Runtime {
     if (execution) execution.cancelled = true;
     for (const [codexThreadId, context] of this.active)
       if (context.threadId === threadId) {
+        context.abort?.abort();
         await this.browser?.finish(codexThreadId);
         await this.codex.stop(codexThreadId);
       }
@@ -341,7 +356,7 @@ export class Runtime {
         onThreadStarted: (codexThreadId) => {
           if (!this.available) return;
           activeId = codexThreadId;
-          this.active.set(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')), reply });
+          this.track(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')), reply });
         },
         onItem: (item) => {
           const label = describeStep(item);
@@ -353,7 +368,7 @@ export class Runtime {
           this.store.updateMessage(message.id, streamed, 'streaming');
         },
       });
-      this.active.delete(result.threadId);
+      this.untrack(result.threadId);
       await this.browser?.finish(result.threadId);
       if (!this.available) return false;
       const cancelled = !!this.runningThreads.get(thread.id)?.cancelled;
@@ -406,7 +421,7 @@ export class Runtime {
     } finally {
       if (flushTimer) clearTimeout(flushTimer);
       if (activeId) {
-        this.active.delete(activeId);
+        this.untrack(activeId);
         await this.browser?.finish(activeId);
       }
     }
@@ -612,7 +627,7 @@ ${memoryGuidance}`;
     this.timer = null;
     this.startupTimer = null;
     for (const execution of this.runningThreads.values()) execution.cancelled = true;
-    this.active.clear();
+    for (const id of [...this.active.keys()]) this.untrack(id);
   }
   tick() {
     if (!this.available) return;
@@ -681,12 +696,12 @@ Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
         tools,
         modelTier: modelTierForRole(agent.role),
         onThreadStarted: (codexThreadId) => {
-          if (this.available) this.active.set(codexThreadId, { kind: 'routine', runId: run.id, counts, skills: skillContext.session });
+          if (this.available) this.track(codexThreadId, { kind: 'routine', runId: run.id, counts, skills: skillContext.session });
         },
         onDelta: () => {},
         onItem: (item) => this.logItem(run.id, item),
       });
-      this.active.delete(result.threadId);
+      this.untrack(result.threadId);
       if (!this.available) return;
       if (result.text) this.log(run.id, 'agent', result.text);
       status = result.status === 'completed' ? 'ok' : 'failed';
@@ -712,7 +727,7 @@ Routine instructions:\n${routine.instructions}\n${skillContext.instructions}`;
         `finished · status=${status} · ${Math.round((Date.now() - started) / 1000)}s`,
       );
       if (this.available) this.store.finishRun(run.id, status, summary);
-      for (const [id, context] of this.active) if (context.runId === run.id) this.active.delete(id);
+      for (const [id, context] of this.active) if (context.runId === run.id) this.untrack(id);
       this.runningRoutines.delete(routineId);
       if (this.available) {
         this.store.pruneRuns();
