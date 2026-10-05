@@ -408,13 +408,28 @@ textarea.ws-task-title-input { display: block; resize: none; overflow: hidden; w
 .ws-steps { margin: 3px 0 6px; font-size: 12.5px; color: #596753;
   > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; padding: 2px 8px 2px 6px; border-radius: 6px; user-select: none;
     &::-webkit-details-marker { display: none; }
-    &::before { content: '▸'; font-size: 10px; transition: transform 0.12s ease; }
+    &::marker { content: ''; }
+    svg { flex: none; transition: transform 0.12s ease; }
     &:hover { background: var(--ds-color-surface); color: #2f3a2b; }
   }
-  &[open] > summary::before { transform: rotate(90deg); }
+  &[open] > summary svg { transform: rotate(90deg); }
   ol { margin: 4px 0 2px; padding: 6px 10px 6px 26px; border-left: 2px solid var(--ds-color-line); list-style: decimal; max-height: 320px; overflow-y: auto; }
   li { padding: 1px 0; display: flex; gap: 10px; justify-content: space-between; span { overflow-wrap: anywhere; } time { flex: none; font-size: 11px; color: #8a9585; } }
   li.approval.approved span { color: #3d6b2a; }
   li.approval.declined span { color: var(--ds-color-danger); }
 }
 .ws-event-fold { margin-left: 44px; }
+// Resizable task panel and full-screen task.
+.ws-detail-resizer { flex: none; width: 6px; margin-right: -6px; position: relative; z-index: 2; cursor: col-resize; background: transparent; transition: background 0.12s ease;
+  &:hover, &:focus-visible, &:active { background: var(--ds-color-lime-soft); outline: none; }
+}
+.ws-detail-top .ws-focus-toggle { margin-left: auto; }
+body.ws-focus-mode .ws-sidebar { display: none; }
+.ws-tasks-focus {
+  > .ws-task-list { display: none; }
+  > .ws-task-detail { flex: 1; width: auto; border-left: 0; }
+  // A centred reading column; tables still get up to 1040px.
+  .ws-detail-head, .ws-messages, .ws-chat-activity, .ws-composer-wrap { padding-inline: max(24px, calc((100% - 1040px) / 2)) !important; }
+  .ws-thread.compact .ws-message-text { font-size: 14.5px; }
+  .ws-detail-top { padding-left: 64px; }
+}

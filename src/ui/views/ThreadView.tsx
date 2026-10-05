@@ -159,7 +159,7 @@ export function ThreadView({
         busy={busy}
         kind={thread.kind}
         placeholder={
-          thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'
+          thread.kind === 'task' ? `Reply to ${data.agents.find((agent) => agent.id === group.leadAgentId)?.name || 'the agent'} on this task…` : 'Reply in thread…'
         }
         reference={selection}
         onClearReference={() => setSelection(null)}
@@ -201,7 +201,7 @@ function foldEvents(messages: Message[]): ThreadItem[] {
 function EventFold({ messages }: { messages: Message[] }) {
   return (
     <details className="ws-steps ws-event-fold">
-      <summary>{messages.length} agent steps</summary>
+      <summary><ChevronRight size={13} aria-hidden="true" />{messages.length} agent steps</summary>
       <ol>{messages.map((message) => <li key={message.id}><span>{message.content}</span><time>{time(message.createdAt)}</time></li>)}</ol>
     </details>
   );
@@ -213,7 +213,7 @@ function StepsFold({ steps, working }: { steps: Step[]; working: boolean }) {
   const summary = [`${steps.length} step${steps.length === 1 ? '' : 's'}`, approved ? `${approved} approved` : '', declined ? `${declined} declined` : ''].filter(Boolean).join(' · ');
   return (
     <details className="ws-steps">
-      <summary>{working ? `Working · ${summary}` : summary}</summary>
+      <summary><ChevronRight size={13} aria-hidden="true" />{working ? `Working · ${summary}` : summary}</summary>
       <ol>
         {steps.map((step, index) => (
           <li key={index} className={step.kind === 'approval' ? `approval ${step.outcome || ''}` : undefined}>

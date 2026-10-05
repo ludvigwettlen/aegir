@@ -27,12 +27,12 @@ function contextFor(route: Route): Context {
   const titles = { tasks: 'Tasks', group: 'Chat', routine: 'Routine', skills: 'Skills', settings: 'Settings', memory: 'Memory' };
   const hints: Hint[] = [['J / K · ↓ / ↑', 'Move through items'], ...(route.view === 'tasks' && !target?.closest('.ws-sidebar') ? [['H / ←', 'Move to the previous pane'] as Hint] : [['H / ←', 'Move to the previous pane'] as Hint, ['L / →', 'Move to the next pane'] as Hint]), ['Tab / ⇧Tab', 'Move between controls']];
   if (target?.closest('.ws-sidebar')) hints.push(['Enter', 'Open selected page']);
-  else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);
+  else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Leave full screen or return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
     ['N', 'Edit notes'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
-    ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'],
+    ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
   );
   else if (route.view === 'group') hints.push(['Enter', 'Start thread from the new-thread field'], ['Enter / ⇧Enter', 'Send / new line in the composer'], ['@', 'Mention an agent or routine in the composer']);

@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { Check, ExternalLink, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
+import { Check, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { isoDate, parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
@@ -83,6 +83,16 @@ export function TasksView({
   const [editTarget, setEditTarget] = useState<'title' | 'notes' | 'chat' | null>(null);
   const [popover, setPopover] = useState<Popover>(null);
   const [draft, setDraft] = useState('');
+  // Full screen: one task fills the window. Panel width: dragged by the user, kept between launches.
+  const [focus, setFocus] = useState(false);
+  const [detailWidth, setDetailWidth] = useState(() => {
+    try { return Number(localStorage.getItem('legolas.detailWidth')) || 440; } catch { return 440; }
+  });
+  const clampWidth = (width: number) => Math.round(Math.max(360, Math.min(width, window.innerWidth - 560)));
+  const saveWidth = (width: number) => {
+    setDetailWidth(width);
+    try { localStorage.setItem('legolas.detailWidth', String(width)); } catch { /* the width just isn't remembered */ }
+  };
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
@@ -108,6 +118,11 @@ export function TasksView({
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
   const open = current;
   const openId = open?.id;
+  const focused = focus && !!open;
+  useEffect(() => {
+    document.body.classList.toggle('ws-focus-mode', focused);
+    return () => document.body.classList.remove('ws-focus-mode');
+  }, [focused]);
   const returnToList = () => {
     window.requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus(),
@@ -151,6 +166,9 @@ export function TasksView({
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"]')) return;
       const target = event.target instanceof Element ? event.target : null;
+      if (event.key === 'Escape' && focused) {
+        event.preventDefault(); setFocus(false); return;
+      }
       if (event.key === 'Escape' && openId) {
         event.preventDefault(); returnToList(); return;
       }
@@ -210,6 +228,7 @@ export function TasksView({
         if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
         else notify('This task has no conversation yet');
       }
+      else if (key === 'f') setFocus((value) => !value);
       else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
@@ -254,7 +273,7 @@ export function TasksView({
   const count = order.length;
   const team = order.filter((task) => task.threadId).length;
   return (
-    <div className="ws-tasks">
+    <div className={`ws-tasks ${focused ? 'ws-tasks-focus' : ''}`}>
       <section className="ws-task-list" aria-label={titles[list]}>
         <header className="ws-page-head">
           <div>
@@ -322,12 +341,33 @@ export function TasksView({
           {!order.length && <Empty list={list} />}
         </div>
       </section>
+      {open && !focused && (
+        <div className="ws-detail-resizer" role="separator" tabIndex={0} aria-label="Resize task panel" aria-orientation="vertical"
+          aria-valuemin={360} aria-valuemax={Math.max(360, window.innerWidth - 560)} aria-valuenow={detailWidth}
+          title="Drag to resize · double-click to reset"
+          onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
+          onPointerMove={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            setDetailWidth(clampWidth(event.currentTarget.parentElement!.getBoundingClientRect().right - event.clientX));
+          }}
+          onPointerUp={(event) => { event.currentTarget.releasePointerCapture(event.pointerId); saveWidth(detailWidth); }}
+          onDoubleClick={() => saveWidth(440)}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            event.stopPropagation();
+            saveWidth(clampWidth(detailWidth + (event.key === 'ArrowLeft' ? 32 : -32)));
+          }} />
+      )}
       {open && (
         <TaskDetail
           key={open.id}
           task={open}
           data={data}
           run={run}
+          width={focused ? undefined : clampWidth(detailWidth)}
+          focused={focused}
+          onToggleFocus={() => setFocus((value) => !value)}
           onOpenThread={onOpenThread}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
@@ -554,6 +594,9 @@ function TaskDetail({
   task,
   data,
   run,
+  width,
+  focused,
+  onToggleFocus,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -561,6 +604,9 @@ function TaskDetail({
   task: Task;
   data: Snapshot;
   run: Run;
+  width?: number;
+  focused: boolean;
+  onToggleFocus: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
@@ -602,7 +648,7 @@ function TaskDetail({
   };
   const header = (
     <header className="ws-detail-head">
-      {(group || task.sourceUrl || task.status === 'running') && <div className="ws-detail-top">
+      <div className="ws-detail-top">
         {group && thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
           title="Open conversation in channel (Shift+A)"
           onClick={() => onOpenThread(group.id, thread.id)}>
@@ -613,7 +659,11 @@ function TaskDetail({
             <Square size={12} /> Stop
           </button>
         )}
-      </div>}
+        <button type="button" className="ws-btn ws-focus-toggle" onClick={onToggleFocus}
+          title={focused ? 'Exit full screen (F or Esc)' : 'Full screen (F)'} aria-pressed={focused}>
+          {focused ? <><Minimize2 size={12} /> Exit full screen</> : <><Maximize2 size={12} /> Full screen</>}
+        </button>
+      </div>
       <textarea
         rows={1}
         className="ws-task-title-input"
@@ -726,7 +776,7 @@ function TaskDetail({
     </header>
   );
   return (
-    <aside className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1}>
+    <aside className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1} style={width ? { width } : undefined}>
       {thread && group ? (
         <ThreadView
           key={thread.id}
