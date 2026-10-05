@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Snapshot } from '../../shared/types';
 import { ApprovalDock } from './views/ApprovalDock';
+import { CommandPalette } from './views/CommandPalette';
 import { api, type Route, type Run } from './views/common';
 import { useWorkspaceKeyboard } from './hooks/useWorkspaceKeyboard';
 import { useClaudeRoutines } from './hooks/useClaudeRoutines';
@@ -129,6 +130,8 @@ export function App() {
           }
         />
       )}
+      {/* Last, so the views have registered their current commands before the palette reads them. */}
+      <CommandPalette data={data} route={route} go={setRoute} run={run} notify={setNotice} onNewGroup={() => setShowNewGroup(true)} />
     </div>
   );
 }

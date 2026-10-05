@@ -1,7 +1,39 @@
 import { useEffect } from 'react';
+import type { TaskView } from '../../../shared/tasks';
 import { api, isTyping, type Route, type Run } from '../views/common';
 
 const listShortcuts = { i: 'inbox', t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
+const afterRender = (action: () => void) =>
+  window.requestAnimationFrame(() => window.requestAnimationFrame(action));
+
+// Shared by the keys below and the command palette, so both do exactly the same thing.
+export function goTo(setRoute: (route: Route) => void, route: Route) {
+  setRoute(route);
+  afterRender(() => {
+    const pane = document.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
+    (pane?.querySelector<HTMLElement>('[data-keyboard-current]') ||
+      pane?.querySelector<HTMLElement>('[data-keyboard-item]') || pane)?.focus();
+  });
+}
+export const goToList = (setRoute: (route: Route) => void, list: TaskView) => goTo(setRoute, { view: 'tasks', list });
+export function newTask(setRoute: (route: Route) => void) {
+  setRoute({ view: 'tasks', list: 'today' });
+  afterRender(() => document.querySelector<HTMLInputElement>('[data-quick-add]')?.focus());
+}
+// Inside a group or private chat, Cmd+N starts a thread. Returns false when there is no chat on screen.
+export function newThread(setNotice: (message: string) => void) {
+  const field = document.querySelector<HTMLInputElement>('[data-new-thread]');
+  if (!field) return false;
+  if (field.getClientRects().length) field.focus();
+  else setNotice('Close the document with Escape to start a new thread');
+  return true;
+}
+export function undoTaskAction(run: Run, setNotice: (message: string) => void) {
+  void run(async () => {
+    const undone = await api.undoTaskAction();
+    setNotice(undone ? `Undid ${undone.action}` : 'Nothing to undo');
+  });
+}
 
 export function useWorkspaceKeyboard(
   run: Run,
@@ -54,26 +86,12 @@ export function useWorkspaceKeyboard(
       if (event.metaKey && !event.ctrlKey && !event.altKey) {
         if (event.key.toLowerCase() === 'n') {
           event.preventDefault();
-          const newThread = document.querySelector<HTMLInputElement>('[data-new-thread]');
-          if (newThread) {
-            if (newThread.getClientRects().length) newThread.focus();
-            else setNotice('Close the document with Escape to start a new thread');
-            return;
-          }
-          setRoute({ view: 'tasks', list: 'today' });
-          window.requestAnimationFrame(() =>
-            window.requestAnimationFrame(() =>
-              document.querySelector<HTMLInputElement>('[data-quick-add]')?.focus(),
-            ),
-          );
+          if (!newThread(setNotice)) newTask(setRoute);
           return;
         }
         if (event.key.toLowerCase() === 'z' && !event.shiftKey && !isTyping(event)) {
           event.preventDefault();
-          void run(async () => {
-            const undone = await api.undoTaskAction();
-            setNotice(undone ? `Undid ${undone.action}` : 'Nothing to undo');
-          });
+          undoTaskAction(run, setNotice);
         }
         return;
       }
@@ -85,14 +103,7 @@ export function useWorkspaceKeyboard(
         const list = listShortcuts[event.key as keyof typeof listShortcuts];
         if (list) {
           event.preventDefault();
-          setRoute({ view: 'tasks', list });
-          window.requestAnimationFrame(() =>
-            window.requestAnimationFrame(() => {
-              const pane = document.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
-              (pane?.querySelector<HTMLElement>('[data-keyboard-current]') ||
-                pane?.querySelector<HTMLElement>('[data-keyboard-item]') || pane)?.focus();
-            }),
-          );
+          goToList(setRoute, list);
         }
         return;
       }

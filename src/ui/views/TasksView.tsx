@@ -23,7 +23,9 @@ import {
   type Run,
 } from './common';
 import { ThreadView } from './ThreadView';
+import { dateCommands, taskCommands, type TaskActions } from './taskCommands';
 import { Button } from '../design-system/primitives';
+import { openCommandPalette, useCommands } from '../commands';
 
 const titles: Record<TaskView, string> = {
   inbox: 'Inbox',
@@ -174,6 +176,60 @@ export function TasksView({
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
+  // Shared by the keys below and the command palette.
+  const openOutput = (task: Task) => {
+    if (task.outputDir) void run(() => api.openTaskOutput(task.id));
+    else {
+      const link = data.taskLinks.find(item => item.taskId === task.id);
+      if (link) void run(() => api.openTaskLink(link.id));
+      else notify('This task has no output or attachment yet');
+    }
+  };
+  const attachClipboard = (task: Task) => void run(async () => {
+    const value = await api.readClipboardText();
+    if (!value.trim()) {
+      notify('Clipboard has no link or file path to attach');
+      return;
+    }
+    await api.addTaskLink(task.id, value);
+    notify('Attachment updated · ⌘Z to undo');
+  });
+  const openConversation = (task: Task) => {
+    const thread = data.threads.find(item => item.id === task.threadId);
+    if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
+    else notify('This task has no conversation yet');
+  };
+  const removeTask = (task: Task) => {
+    if (task.status === 'proposed') void update(task, { status: 'dismissed' });
+    else if (task.status === 'running') notify('Stop this task before deleting it');
+    else void run(async () => {
+      await api.deleteTask(task.id);
+      if (openId === task.id) returnToList();
+      notify('Task deleted · ⌘Z to undo');
+    });
+  };
+  useCommands('tasks', () => {
+    if (!current) return { commands: [] };
+    const actions: TaskActions = {
+      data,
+      agent: leadName(data),
+      focused,
+      update: (change) => void update(current, change),
+      openBox: (kind) => setPopover({ kind, taskId: current.id }),
+      edit: setEditTarget,
+      toggleFocus: () => setFocus((value) => !value),
+      openOutput: () => openOutput(current),
+      attachClipboard: () => attachClipboard(current),
+      openConversation: () => openConversation(current),
+      dismiss: () => void run(async () => {
+        await api.updateTask(current.id, { status: 'dismissed' });
+        notify('Dismissed · ⌘Z to undo');
+      }),
+      stop: () => void run(() => api.stopTask(current.id)),
+      remove: () => removeTask(current),
+    };
+    return { context: `Task: ${current.title}`, commands: taskCommands(current, actions), forQuery: (query) => dateCommands(query, actions) };
+  });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"]')) return;
@@ -189,16 +245,12 @@ export function TasksView({
           const task = target?.closest('.ws-task-detail') ? open : current;
           if (!task) return;
           event.preventDefault();
-          if (task.outputDir) void run(() => api.openTaskOutput(task.id));
-          else {
-            const link = data.taskLinks.find(item => item.taskId === task.id);
-            if (link) void run(() => api.openTaskLink(link.id));
-            else notify('This task has no output or attachment yet');
-          }
+          openOutput(task);
           return;
         }
         if (event.key.toLowerCase() === 'l' && !isTyping(event) && current && !target?.closest('.ws-task-detail')) {
-          event.preventDefault(); setPopover({ kind: 'label', taskId: current.id }); return;
+          // One label picker for the key and the palette: ⌘L opens the palette at Set label.
+          event.preventDefault(); openCommandPalette('task.label'); return;
         }
       }
       if (isTyping(event)) return;
@@ -208,15 +260,7 @@ export function TasksView({
         !target?.closest('.ws-sidebar, .ws-task-detail')
       ) {
         event.preventDefault();
-        void run(async () => {
-          const value = await api.readClipboardText();
-          if (!value.trim()) {
-            notify('Clipboard has no link or file path to attach');
-            return;
-          }
-          await api.addTaskLink(current.id, value);
-          notify('Attachment updated · ⌘Z to undo');
-        });
+        attachClipboard(current);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -235,28 +279,16 @@ export function TasksView({
         if (current.threadId) setEditTarget('chat');
         else if (current.status !== 'running' && current.status !== 'done') setPopover({ kind: 'handoff', taskId: current.id });
       }
-      else if (key === 'A') {
-        const thread = data.threads.find(item => item.id === current.threadId);
-        if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
-        else notify('This task has no conversation yet');
-      }
+      else if (key === 'A') openConversation(current);
       else if (key === 'f') setFocus((value) => !value);
-      else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
+      else if (key === 'b') openCommandPalette('task.label');
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
       else if (key === 'D') void update(current, { dueAt: null });
       else if (key === 's' && current.status === 'ready') setPopover({ kind: 'snooze', taskId: current.id });
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
-      else if (key === 'Backspace' || key === 'Delete') {
-        if (current.status === 'proposed') void update(current, { status: 'dismissed' });
-        else if (current.status === 'running') notify('Stop this task before deleting it');
-        else void run(async () => {
-          await api.deleteTask(current.id);
-          if (openId === current.id) returnToList();
-          notify('Task deleted · ⌘Z to undo');
-        });
-      }
+      else if (key === 'Backspace' || key === 'Delete') removeTask(current);
       else return;
       event.preventDefault();
     };

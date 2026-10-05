@@ -22,6 +22,7 @@ export function NewGroupModal({
         aria-modal="true"
         aria-labelledby="new-group-title"
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}
       >
         <div className="row-between">
           <h2 id="new-group-title">New group</h2>

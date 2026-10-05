@@ -12,6 +12,8 @@ function contextFor(route: Route): Context {
     title: 'Document workspace', editing: true, dialog: false,
     hints: [['Esc', 'Save and close document'], ['F6', 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['/', 'Insert formatting on an empty line'], ['⌘K', 'Insert link'], ['Tab / ⇧Tab', 'Move between controls']],
   };
+  if (dialog?.classList.contains('ws-palette')) return { title: 'Command palette', editing: true, dialog: true,
+    hints: [['Type', 'Find a command by name, initials or a synonym'], ['↑ / ↓', 'Move the highlight'], ['Enter', 'Run the command'], ['Esc', 'Close, or go back from a second step'], ['⌘K', 'Close the palette']] };
   if (dialog) return { title: dialog.getAttribute('aria-label') || 'Dialog', editing: true, dialog: true,
     hints: [['Tab / ⇧Tab', 'Move between controls'], ['Esc', 'Cancel'], ...(dialog.classList.contains('ws-popover') ? [['Enter', 'Save or hand off'] as Hint, ['⇧Enter', 'New line in instructions'] as Hint] : [])] };
   if (editor) {
@@ -68,7 +70,9 @@ export function ShortcutHints({ route }: { route: Route }) {
     };
   }, [route]);
   if (!context) return null;
-  const global: Hint[] = context.dialog ? [] : [['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
+  // Inside the document editor ⌘K inserts a link, so the palette hint stays out of that context.
+  const palette: Hint[] = context.title === 'Document workspace' ? [] : [['⌘K', 'Command palette: find and run any action']];
+  const global: Hint[] = context.dialog ? [] : [...palette, ['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
     ['G then I / T / U / W / N / C', 'Inbox / Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
   ] : [])];
