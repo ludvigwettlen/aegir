@@ -38,10 +38,41 @@ export type RoutineChange = {
 };
 // One thing an agent did while working on a reply: a tool it used, or an approval you answered.
 export type Step = { kind: 'tool' | 'approval'; label: string; at: string; outcome?: 'approved' | 'declined' };
+// An email or Slack message the agent wrote for the user to send, shown as an editable card in the conversation.
+// The user edits the text there, copies it, and sends it from Slack or Superhuman. Legolas itself sends nothing:
+// "I sent it" only records that the user did, so the agent knows in later turns.
+export type DraftState = 'pending' | 'sent' | 'discarded' | 'replaced';
+export type SlackDestination = { channelId: string; threadTs?: string };
+export type EmailDestination = {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  // The Superhuman draft the agent created, when it did, so the card can open it.
+  draftId?: string;
+  threadId?: string;
+  account?: string;
+};
+export type MessageDraft = {
+  type: 'message-draft';
+  channel: 'slack' | 'email';
+  // Where it goes, in the agent's words ("DM to Johan Lund", "#mgmt"). Shown as the agent's description, with the
+  // raw ids or addresses beside it, for the user to check before sending.
+  label: string;
+  // The agent's text, and the text as the user last left it.
+  original: string;
+  text: string;
+  state: DraftState;
+  slack?: SlackDestination;
+  email?: EmailDestination;
+  // When the user marked it sent.
+  sentAt?: string;
+  replacedBy?: string;
+};
 export type MessageMeta = {
   type: 'steps';
   steps: Step[];
-} | {
+} | MessageDraft | {
   type: 'routine-change';
   routineId: string;
   change: RoutineChange;
@@ -184,6 +215,10 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
 
 export interface DesktopApi extends SkillsApi {
+  // Draft cards: save the text as you type, record that you sent it (with the text you sent), or discard it.
+  updateDraft(messageId: string, text: string): Promise<void>;
+  markDraftSent(messageId: string, text: string): Promise<void>;
+  discardDraft(messageId: string): Promise<void>;
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
   showDocumentInFinder(threadId: string, path: string): Promise<void>;

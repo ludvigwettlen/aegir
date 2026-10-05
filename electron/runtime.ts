@@ -5,6 +5,7 @@ import type {
   AppEvent,
   Group,
   Message,
+  MessageDraft,
   Routine,
   RoutineRun,
   Step,
@@ -25,9 +26,11 @@ import { handleSkillTool, skillTools } from './skill-tools.js';
 import type { SkillProposal } from '../shared/skills.js';
 import { mentionsAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
+import { cleanDraftText, draftFromTool, draftHistory } from './message-drafts.js';
 import {
   cleanRoutineChange,
   connectorToolsFor,
+  draftMessageTool,
   jsonObject,
   logText,
   memoryRecallTool,
@@ -54,6 +57,9 @@ type Context = {
   reply?: { note: (step: Step) => void };
   // Aborted when the run is stopped or ends, so its pending approvals and external writes expire with it.
   abort?: AbortController;
+  // Draft cards this reply made, and who wrote them. They move under the reply when it finishes.
+  drafts?: string[];
+  agentId?: string;
 };
 
 // Runs agents in threads (chat and handed-off tasks) and routines, and keeps the mapping from Codex threads back to them.
@@ -288,6 +294,7 @@ export class Runtime {
     this.refresh();
     let streamed = '';
     let activeId: string | undefined;
+    const drafts: string[] = [];
     // Steps are saved on the reply at most every 1.5s while it works, and once more when it finishes.
     const steps: Step[] = [];
     let flushTimer: NodeJS.Timeout | null = null;
@@ -312,6 +319,7 @@ export class Runtime {
           const proposal = proposals.get(x.meta.proposalId);
           return `System: Skill revision ${x.meta.skillName}, proposal ${x.meta.proposalId}, current state: ${proposal?.state || 'unavailable'}. Review changes in this conversation. Reason: ${x.content}`;
         }
+        if (x.meta?.type === 'message-draft') return `System: ${draftHistory(x.id, x.meta)}`;
         return `${this.speaker(x, agents)}: ${x.content}`;
       }).join('\n');
       const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
@@ -325,6 +333,7 @@ export class Runtime {
         memoryRecallTool(agent),
         ...skillTools,
         ...taskReadTools,
+        draftMessageTool,
         ...(kind === 'chat' ? [proposeRoutineTool] : []),
         ...(suggestTitle ? [threadTitleTool] : []),
       ];
@@ -356,7 +365,7 @@ export class Runtime {
         onThreadStarted: (codexThreadId) => {
           if (!this.available) return;
           activeId = codexThreadId;
-          this.track(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')), reply });
+          this.track(codexThreadId, { kind, threadId: thread.id, initialTitle: suggestTitle ? thread.title : undefined, skills: skillContext.session, browser: tools.some(tool => tool.name.startsWith('browser__')), reply, drafts, agentId: agent.id });
         },
         onItem: (item) => {
           const label = describeStep(item);
@@ -379,7 +388,8 @@ export class Runtime {
         : 'Claude Code ended without an answer. Reply here to try again.');
       this.store.updateMessage(message.id, text, ok ? 'complete' : 'failed');
       flushSteps();
-      this.store.moveMessageToEnd(message.id);
+      // The answer is the last thing in the thread, followed by any draft cards it made.
+      this.store.moveMessagesToEnd([message.id, ...drafts]);
       this.refresh();
       if (depth === 0 && ok) {
         const next = agents.find(
@@ -415,7 +425,8 @@ export class Runtime {
         'failed',
       );
       flushSteps();
-      this.store.moveMessageToEnd(message.id);
+      // The answer is the last thing in the thread, followed by any draft cards it made.
+      this.store.moveMessagesToEnd([message.id, ...drafts]);
       this.refresh();
       throw error;
     } finally {
@@ -560,6 +571,25 @@ ${memoryGuidance}`;
       this.refresh();
       return { created: true, id: task.id };
     }
+    if (provider === 'messages' && tool === 'draft') {
+      if (!context?.threadId || (context.kind !== 'chat' && context.kind !== 'task') || this.runningThreads.get(context.threadId)?.cancelled)
+        throw new Error('Draft cards can only be shown in a conversation, while you answer');
+      const draft = draftFromTool(args);
+      const card = this.store.addMessage(context.threadId, context.agentId ?? null, 'system', `${draft.channel === 'email' ? 'Email' : 'Slack'} draft: ${draft.label}`, 'complete', draft);
+      // A newer draft replaces one the user hasn't sent: the card named in `replaces`, or the same Superhuman draft.
+      const replaces = typeof args.replaces === 'string' ? args.replaces : '';
+      let replaced = false;
+      for (const message of this.store.messagesForThread(context.threadId)) {
+        if (message.id === card.id || message.meta?.type !== 'message-draft' || message.meta.state !== 'pending') continue;
+        if (message.id === replaces || (!!draft.email?.draftId && message.meta.email?.draftId === draft.email.draftId)) {
+          this.store.setMessageMeta(message.id, { ...message.meta, state: 'replaced', replacedBy: card.id });
+          replaced = true;
+        }
+      }
+      context.drafts?.push(card.id);
+      this.refresh();
+      return { card: card.id, replaced, note: 'The card is under your reply. The user edits it, copies it and sends it from Slack or Superhuman. It has not been sent.' };
+    }
     if (provider === 'routines' && tool === 'propose_change') {
       if (!context?.threadId)
         throw new Error('Routine changes can only be proposed in a chat thread');
@@ -578,6 +608,29 @@ ${memoryGuidance}`;
       return { proposed: true, note: 'The user will apply or discard this change.' };
     }
     return undefined;
+  }
+  // ---- Draft cards ------------------------------------------------------------
+  // The user edits a card, records that they sent it, or discards it. Legolas never sends a draft itself.
+  private draftCard(messageId: string): MessageDraft {
+    const message = this.store.message(messageId);
+    if (!message || message.meta?.type !== 'message-draft') throw new Error('This draft no longer exists');
+    return message.meta;
+  }
+  updateDraft(messageId: string, text: string) {
+    const draft = this.draftCard(messageId);
+    if (draft.state !== 'pending') throw new Error('This draft can no longer be edited');
+    const next = cleanDraftText(text);
+    if (next !== draft.text) this.store.setMessageMeta(messageId, { ...draft, text: next });
+  }
+  markDraftSent(messageId: string, text: string) {
+    const draft = this.draftCard(messageId);
+    if (draft.state === 'sent') return;
+    if (draft.state !== 'pending') throw new Error('This draft was discarded or replaced');
+    this.store.setMessageMeta(messageId, { ...draft, text: cleanDraftText(text), state: 'sent', sentAt: new Date().toISOString() });
+  }
+  discardDraft(messageId: string) {
+    const draft = this.draftCard(messageId);
+    if (draft.state === 'pending') this.store.setMessageMeta(messageId, { ...draft, state: 'discarded' });
   }
   resolveRoutineChange(messageId: string, apply: boolean) {
     const message = this.store.message(messageId);

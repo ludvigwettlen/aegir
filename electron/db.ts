@@ -528,6 +528,27 @@ export class Store {
     const message = this.message(id);
     if (message) this.onMessage?.(message);
   }
+  // Puts these messages after everything else in their thread, in this order, with increasing times so a list
+  // sorted by time keeps the order: a reply first, then the draft cards it made.
+  moveMessagesToEnd(ids: string[]) {
+    const moved: string[] = [];
+    this.db.transaction(() => {
+      let at = Date.now();
+      for (const id of ids) {
+        const message = this.message(id);
+        if (!message) continue;
+        const latest = (this.db.prepare('SELECT MAX(createdAt) AS latest FROM messages WHERE threadId=?').get(message.threadId) as { latest: string | null }).latest;
+        if (latest) at = Math.max(at, Date.parse(latest) + 1);
+        this.db.prepare('UPDATE messages SET rowid=(SELECT MAX(rowid)+1 FROM messages), createdAt=? WHERE id=?').run(new Date(at).toISOString(), id);
+        at += 1;
+        moved.push(id);
+      }
+    })();
+    for (const id of moved) {
+      const message = this.message(id);
+      if (message) this.onMessage?.(message);
+    }
+  }
   setMessageMeta(id: string, meta: MessageMeta) {
     this.db.prepare('UPDATE messages SET meta=? WHERE id=?').run(JSON.stringify(meta), id);
     const message = this.message(id);

@@ -440,6 +440,9 @@ function registerIpc() {
   handle('resolve-routine-change', (messageId: string, apply: boolean) =>
     runtime.resolveRoutineChange(messageId, apply),
   );
+  handle('draft-update', (messageId: string, text: string) => runtime.updateDraft(messageId, text));
+  handle('draft-sent', (messageId: string, text: string) => runtime.markDraftSent(messageId, text));
+  handle('draft-discard', (messageId: string) => runtime.discardDraft(messageId));
   handle('run-events', (runId: string) => store.runEvents(runId));
   handle('resolve-approval', (id: string, approved: boolean) => {
     const threadId = approvalThreads.get(id);

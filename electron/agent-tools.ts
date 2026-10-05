@@ -49,6 +49,39 @@ export const proposeRoutineTool: Tool = {
   readOnly: false
 };
 
+// Chats and tasks: hand the user a message to send, as an editable card. It sends nothing.
+export const draftMessageTool: Tool = {
+  name: 'messages__draft',
+  description: [
+    'Show the user an email or Slack message you wrote for them, as an editable draft card in this conversation. Use it whenever the user should send something (a reply, a DM, a follow-up), instead of pasting the message into your reply or leaving it only in a file. Saving a copy in a file as well is fine.',
+    'This sends nothing and writes nothing outside Legolas. The card appears under your reply; the user edits the text there, copies it and sends it from Slack or Superhuman themselves. Never send it yourself.',
+    'Slack: slack.channel_id is the channel (C…), private channel (G…), DM (D…), or the person\'s user id (U…) for a DM; find it with the Slack search tools. slack.thread_ts replies in a thread.',
+    'Email: email.to (and cc, bcc) and email.subject. If you created the draft in Superhuman, also pass its draft_id and thread_id and the account it is in, so the card can open it.',
+    'label says where it goes in a few words, like "DM to Johan Lund", "#mgmt" or "Reply to Petra Berg". text is the message exactly as it should be sent. To revise a draft the user hasn\'t sent yet, pass its card id as replaces.',
+    'Keep your reply short: say what the draft is for and anything the user should check, not the text again.',
+  ].join('\n'),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      channel: { type: 'string', enum: ['slack', 'email'] },
+      label: { type: 'string' },
+      text: { type: 'string' },
+      slack: { type: 'object', properties: { channel_id: { type: 'string' }, thread_ts: { type: 'string' } }, required: ['channel_id'] },
+      email: {
+        type: 'object',
+        properties: {
+          to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } },
+          subject: { type: 'string' }, draft_id: { type: 'string' }, thread_id: { type: 'string' }, account: { type: 'string' },
+        },
+        required: ['to'],
+      },
+      replaces: { type: 'string', description: 'The card id of a draft this one replaces' },
+    },
+    required: ['channel', 'label', 'text'],
+  },
+  readOnly: true,
+};
+
 export function taskSourceKey(provider: string, sourceUrl: string, title: string): string {
   return createHash('sha256').update(`${provider}|${sourceUrl.trim()}|${title.toLowerCase().replace(/\s+/g, ' ').trim()}`).digest('hex');
 }

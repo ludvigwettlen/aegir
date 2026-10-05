@@ -24,6 +24,7 @@ const host = (value: unknown) => {
 const OWN_TOOLS: Record<string, string> = {
   tasks__suggest: 'Suggested a task', tasks__list: 'Looked through your tasks', tasks__read: 'Read a task',
   threads__set_title: 'Named the conversation', routines__propose_change: 'Proposed a routine change',
+  messages__draft: 'Drafted a message for you to send',
 };
 
 export function describeStep(item: Record<string, unknown>): string | null {

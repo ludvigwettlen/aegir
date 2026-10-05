@@ -7,4 +7,5 @@ import './design-system/tokens.scss';
 import './design-system/primitives.scss';
 import './workspace.scss'; // Workspace shell, tasks, groups, threads, and routines.
 import './command-palette.scss';
+import './message-drafts.scss';
 import './document-workspace.scss';

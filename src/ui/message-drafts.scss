@@ -1,0 +1,45 @@
+/* Draft cards: an email or Slack message the agent wrote for you to send from Slack or Superhuman.
+   They keep the routine card's indent so they line up with message text, in group chats and the task panel. No motion. */
+.ws-draft { margin: 6px 0 6px 44px; max-width: 560px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--ds-color-line); border-radius: 11px; background: var(--ds-color-surface); color: var(--ds-color-ink); overflow-wrap: anywhere;
+  p { margin: 0; }
+}
+.ws-draft-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ds-color-lime-ink);
+  svg { flex: none; }
+}
+.ws-draft-kind { flex: 1; min-width: 0; }
+.ws-draft-edited { flex: none; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ds-color-muted); }
+.ws-draft-state { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; background: #f1f4ed; color: #45523f;
+  &.sent { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }
+}
+.ws-draft-to { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--ds-color-muted); }
+.ws-draft-label { font-size: 13px; strong { font-weight: 600; color: var(--ds-color-ink); } }
+.ws-draft-facts code { font: 11.5px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; }
+.ws-draft-rows { margin: 0; display: flex; flex-direction: column; gap: 1px;
+  > div { display: flex; gap: 10px; min-width: 0; }
+  dt { width: 52px; flex: none; }
+  dd { flex: 1; min-width: 0; margin: 0; color: var(--ds-color-ink); }
+}
+.ws-draft-none { color: var(--ds-color-muted); }
+// The editor: a plain field that grows with the text, set like the chat (Inter 13 px at 1.6).
+.ws-draft-text { display: block; width: 100%; box-sizing: border-box; min-height: calc(3.2em + 18px); padding: 8px 10px; resize: none; field-sizing: content; font: 13px/1.6 Inter, 'DM Sans', system-ui, sans-serif; letter-spacing: 0; overflow-wrap: anywhere;
+  &[readonly] { background: var(--ds-color-canvas); }
+}
+.ws-draft-readonly { padding: 8px 10px; border: 1px solid var(--ds-color-line); border-radius: 9px; background: var(--ds-color-canvas); font: 13px/1.6 Inter, 'DM Sans', system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ws-draft-actions { position: relative; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+// A tertiary link after the actions, so Copy, I sent it and Discard stay on one line in the narrowest panel.
+.ws-draft-actions .ws-draft-open { padding: 0 6px; color: var(--ds-color-link); }
+.ws-draft-status { font-size: 12.5px; font-weight: 600; color: var(--ds-color-lime-ink); }
+.ws-draft-announce { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+// Discarded and replaced drafts fold to one muted line; the text stays readable inside.
+.ws-draft.folded { padding: 0; border: 0; background: transparent; gap: 0; }
+.ws-draft-fold { min-width: 0; font-size: 12.5px; color: var(--ds-color-muted);
+  > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 8px 2px 6px; border-radius: 6px; cursor: pointer; list-style: none; user-select: none;
+    &::-webkit-details-marker { display: none; }
+    &::marker { content: ''; }
+    svg { flex: none; }
+    &:hover { background: var(--ds-color-surface); color: #2f3a2b; }
+  }
+  &[open] > summary > svg:first-child { transform: rotate(90deg); }
+}
+.ws-draft-fold-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ws-draft-fold-body { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px 6px; padding: 4px 0 4px 12px; border-left: 2px solid var(--ds-color-line); }

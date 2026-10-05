@@ -534,3 +534,80 @@ describe('runtime shutdown', () => {
     await expect(runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work')).resolves.toBeUndefined();
   });
 });
+
+describe('draft cards', () => {
+  const johan = { channel: 'slack', label: 'DM to Johan Lund', text: 'Hej Johan!', slack: { channel_id: 'U06TESTUSR1' } };
+
+  it('shows a draft under the reply that made it, and the next turn sees its state and the user edits', async () => {
+    let card: { card: string } | undefined;
+    const { store, runtime, runs } = setup(async (_input, id, rt) => {
+      if (!card) card = await rt.handleInternalTool('messages', 'draft', johan, id) as { card: string };
+      return 'The DM is in the card below.';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft a DM to Johan');
+    expect(runs[0].tools.some(tool => tool.name === 'messages__draft')).toBe(true);
+    const messages = store.messagesForThread(thread.id);
+    expect(messages.map(message => message.role)).toEqual(['user', 'agent', 'system']);
+    expect(messages[2]).toMatchObject({ id: card!.card, agentId: messages[1].agentId, meta: { type: 'message-draft', state: 'pending', text: 'Hej Johan!' } });
+    // The thread is shown sorted by time, so the card's time must come after the reply's.
+    expect(messages[1].createdAt < messages[2].createdAt).toBe(true);
+
+    runtime.updateDraft(card!.card, 'Hej Johan! Kort.');
+    await runtime.sendMessage(thread.id, 'Make it shorter');
+    expect(runs[1].prompt).toContain(`Draft card ${card!.card}: Slack message, DM to Johan Lund (Slack U06TESTUSR1)`);
+    expect(runs[1].prompt).toContain('The user edited it. Current text:\nHej Johan! Kort.');
+
+    runtime.markDraftSent(card!.card, 'Hej Johan! Kort och gott.');
+    expect(store.message(card!.card)?.meta).toMatchObject({ state: 'sent', text: 'Hej Johan! Kort och gott.', original: 'Hej Johan!' });
+    expect(() => runtime.updateDraft(card!.card, 'A late save')).toThrow('can no longer be edited');
+    runtime.discardDraft(card!.card);
+    expect(store.message(card!.card)?.meta).toMatchObject({ state: 'sent' });
+    await runtime.sendMessage(thread.id, 'Did I send it?');
+    expect(runs[2].prompt).toContain('It was sent by the user at');
+  });
+
+  it('replaces a waiting draft named in replaces, and a waiting card for the same Superhuman draft', async () => {
+    const cards: string[] = [];
+    const email = (text: string) => ({ channel: 'email', label: 'Reply to Petra', text, email: { to: ['petra@nordvik.example'], draft_id: 'draft00b7d9728c5a1a45', thread_id: 't1' } });
+    const calls = [
+      () => johan,
+      (previous: string) => ({ ...johan, text: 'Shorter', replaces: previous }),
+      () => email('Hej Petra!'),
+      () => email('Hej Petra, kort.'),
+    ];
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      const next = calls[cards.length];
+      cards.push((await rt.handleInternalTool('messages', 'draft', next(cards.at(-1) || ''), id) as { card: string }).card);
+      return 'Done';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Drafts');
+    for (const text of ['one', 'two', 'three', 'four']) await runtime.sendMessage(thread.id, text);
+    const state = (id: string) => store.message(id)?.meta;
+    expect(state(cards[0])).toMatchObject({ state: 'replaced', replacedBy: cards[1] });
+    expect(state(cards[1])).toMatchObject({ state: 'pending' });
+    expect(state(cards[2])).toMatchObject({ state: 'replaced', replacedBy: cards[3] });
+    expect(state(cards[3])).toMatchObject({ state: 'pending', text: 'Hej Petra, kort.' });
+  });
+
+  it('offers drafts in chats and tasks, never in routines', async () => {
+    const { store, runtime, runs } = setup();
+    await runtime.handOff(store.createTask({ title: 'Reply to Petra' }).id, 'Draft the reply');
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    expect(runs.find(run => run.kind === 'task')?.tools.some(tool => tool.name === 'messages__draft')).toBe(true);
+    expect(runs.find(run => run.kind === 'routine')?.tools.some(tool => tool.name === 'messages__draft')).toBe(false);
+  });
+
+  it('refuses a draft outside a conversation and keeps bad calls out of the thread', async () => {
+    let refused: unknown;
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      refused = await rt.handleInternalTool('messages', 'draft', { ...johan, slack: { channel_id: '#mgmt' } }, id).catch(error => error);
+      return 'Done';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Bad draft');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    expect(String(refused)).toContain('channel_id');
+    expect(store.messagesForThread(thread.id).some(message => message.meta?.type === 'message-draft')).toBe(false);
+    await expect(runtime.handleInternalTool('messages', 'draft', johan, 'no-such-run')).rejects.toThrow('only be shown in a conversation');
+  });
+});

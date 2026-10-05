@@ -1,6 +1,7 @@
 import type { SkillProposal } from '../shared/skills.js';
 import { describeSchedule } from '../shared/routines.js';
 import type { Store } from './db.js';
+import { draftTranscript } from './message-drafts.js';
 
 // Read the full saved history in one operation, independently of UI pagination.
 export function chatTranscript(store: Store, threadId: string, proposals: Pick<SkillProposal, 'id' | 'state'>[] = []): string {
@@ -25,6 +26,7 @@ export function chatTranscript(store: Store, threadId: string, proposals: Pick<S
       if (change.enabled !== undefined) parts.push(`Status: ${change.enabled ? 'On' : 'Paused'}`);
       if (change.instructions !== undefined) parts.push(`Instructions:\n${change.instructions}`);
     }
+    if (message.meta?.type === 'message-draft') parts.push(draftTranscript(message.meta));
     if (message.status === 'streaming') parts.push('[Response in progress — copied so far]');
     if (message.status === 'failed') parts.push('[Response failed]');
     return parts.filter(Boolean).join('\n\n');
