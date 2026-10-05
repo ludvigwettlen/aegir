@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
+import { Check, ExternalLink, Plus, RotateCcw, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { parseDue, parseQuickAdd, taskCursor, tasksFor, type TaskView } from '../../../shared/tasks';
@@ -24,6 +24,7 @@ import { ThreadView } from './ThreadView';
 import { Button } from '../design-system/primitives';
 
 const titles: Record<TaskView, string> = {
+  inbox: 'Inbox',
   today: 'Today',
   upcoming: 'Upcoming',
   team: 'Delegated',
@@ -40,6 +41,17 @@ const rank: Record<Task['status'], number> = {
   done: 5,
   dismissed: 6,
 };
+
+// The agent that takes hand-offs: the lead of the default group (Claude on the Claude Code engine).
+export function leadName(data: Snapshot) {
+  return data.agents.find((agent) => agent.role.trim().toLowerCase() === 'lead')?.name || 'the agent';
+}
+// Grows a textarea to fit its text, so long titles and notes wrap instead of being cut off.
+function fitHeight(field: HTMLTextAreaElement | null, maxPx = 0) {
+  if (!field) return;
+  field.style.height = 'auto';
+  field.style.height = `${maxPx ? Math.min(field.scrollHeight, maxPx) : field.scrollHeight}px`;
+}
 
 function groupTasks(list: TaskView, tasks: Task[]) {
   if (list === 'completed') return tasks.length ? [['Completed', tasks] as [string, Task[]]] : [];
@@ -120,7 +132,7 @@ export function TasksView({
         : '.ws-task-detail [aria-label="Task notes"]',
     );
     field?.focus();
-    if (editTarget === 'title' && field instanceof HTMLInputElement) field.select();
+    if (editTarget === 'title' && field) field.select();
     setEditTarget(null);
   }, [editTarget, openId]);
 
@@ -332,9 +344,10 @@ export function TasksView({
 
 function Empty({ list }: { list: TaskView }) {
   const text = {
-    today: 'Nothing due today. Add a task above.',
+    today: 'Nothing due today. Give a task a date to see it here.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
-    team: 'Nothing handed off. Press A on a task to give it to the agent team.',
+    inbox: 'Inbox zero. Undated tasks and phone captures land here.',
+    team: 'Nothing handed off. Press A on a task, or use the hand-off button, to give it to the agent.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
     completed: 'No completed tasks yet.',
   }[list];
@@ -393,7 +406,13 @@ function TaskRow({
       onClick={onClick}
       onFocus={onFocus}
     >
-      <TaskGlyph task={task} />
+      {task.status === 'ready' || task.status === 'done' ? (
+        <button type="button" className="ws-glyph-button" aria-label={task.status === 'done' ? 'Mark not done' : 'Mark done'}
+          title={task.status === 'done' ? 'Mark not done (Space)' : 'Mark done (Space)'}
+          onClick={(event) => { event.stopPropagation(); void run(() => api.updateTask(task.id, { status: task.status === 'done' ? 'ready' : 'done' })); }}>
+          <TaskGlyph task={task} />
+        </button>
+      ) : <TaskGlyph task={task} />}
       <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</span>
       {(task.sourceUrl || hasAttachedLink) && (
         <ExternalLink
@@ -416,7 +435,7 @@ function TaskRow({
       >
         {dueLabel(task.dueAt)}
       </span>
-      {popover && <TaskPopover kind={popover} task={task} onClose={onClosePopover} run={run} />}
+      {popover && <TaskPopover kind={popover} task={task} agent={leadName(data)} onClose={onClosePopover} run={run} />}
     </div>
   );
 }
@@ -424,11 +443,13 @@ function TaskRow({
 function TaskPopover({
   kind,
   task,
+  agent,
   onClose,
   run,
 }: {
   kind: 'handoff' | 'label' | 'due';
   task: Task;
+  agent: string;
   onClose: () => void;
   run: Run;
 }) {
@@ -475,7 +496,7 @@ function TaskPopover({
       role="dialog"
       aria-label={
         kind === 'handoff'
-          ? 'Hand off to the team'
+          ? `Hand off to ${agent}`
           : kind === 'label'
             ? 'Set label'
             : 'Set due date'
@@ -486,19 +507,19 @@ function TaskPopover({
         <>
           <div className="ws-popover-title">
             <Users size={13} aria-hidden="true" />
-            HAND OFF TO THE TEAM
+            HAND OFF TO {agent.toUpperCase()}
           </div>
           <textarea
             autoFocus
             rows={3}
             aria-label="Instruction"
-            placeholder={`What should the team do? Leave empty to use “${task.title}”.`}
+            placeholder={`What should ${agent} do? Leave empty to use “${task.title}”.`}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={onKeyDown}
           />
           <div className="ws-popover-foot">
-            <span className="grow">The team routes it · results saved as files</span>
+            <span className="grow">Results are saved as files in the task folder</span>
             <button type="button" className="ws-btn primary" onClick={submit}>Hand off</button>
           </div>
         </>
@@ -551,7 +572,19 @@ function TaskDetail({
   const group = thread && data.groups.find((item) => item.id === thread.groupId);
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
+  const [label, setLabel] = useState(task.label || '');
   const cancelledTitle = useRef(false);
+  const titleField = useRef<HTMLTextAreaElement>(null);
+  const notesField = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => fitHeight(titleField.current), [title]);
+  useLayoutEffect(() => fitHeight(notesField.current, 420), [notes]);
+  useEffect(() => setLabel(task.label || ''), [task.label]);
+  const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
+  const agent = leadName(data);
+  const saveLabel = () => {
+    const next = label.replace(/^#/, '').trim().toLowerCase() || null;
+    if (next !== task.label) void run(() => api.updateTask(task.id, { label: next }));
+  };
   const links = data.taskLinks.filter(link => link.taskId === task.id);
   const saveTitle = () => {
     if (cancelledTitle.current) { cancelledTitle.current = false; setTitle(task.title); return; }
@@ -576,14 +609,16 @@ function TaskDetail({
           </button>
         )}
       </div>}
-      <input
+      <textarea
+        ref={titleField}
+        rows={1}
         className="ws-task-title-input"
         aria-label="Task title"
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        onChange={(event) => setTitle(event.target.value.replace(/\n/g, ' '))}
         onBlur={saveTitle}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') { event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
+          if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
           if (event.key === 'Escape') {
             event.preventDefault();
             cancelledTitle.current = true;
@@ -615,9 +650,43 @@ function TaskDetail({
           </span>
         ))}
       </div>
+      <div className="ws-detail-controls">
+        {task.status !== 'running' && (
+          <button type="button" className={`ws-btn ${task.status === 'done' || task.status === 'proposed' ? '' : 'primary'}`}
+            onClick={() => void run(() => api.updateTask(task.id, { status: task.status === 'done' ? 'ready' : 'done' }))}>
+            {task.status === 'done' ? <><RotateCcw size={13} /> Reopen</> : <><Check size={13} /> Mark done</>}
+          </button>
+        )}
+        <label className="ws-inline-field">
+          <span>Due</span>
+          <input type="date" aria-label="Due date" value={task.dueAt || ''}
+            onChange={(event) => void run(() => api.updateTask(task.id, { dueAt: event.target.value || null }))} />
+          {task.dueAt && (
+            <button type="button" aria-label="Clear due date" title="Clear due date"
+              onClick={() => void run(() => api.updateTask(task.id, { dueAt: null }))}><X size={11} /></button>
+          )}
+        </label>
+        <label className="ws-inline-field">
+          <span>Label</span>
+          <input aria-label="Label" list="ws-label-options" placeholder="none" value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            onBlur={saveLabel}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+              if (event.key === 'Escape') { event.preventDefault(); setLabel(task.label || ''); event.currentTarget.blur(); onReturnToList(); }
+            }} />
+          <datalist id="ws-label-options">{labels.map((value) => <option key={value} value={value} />)}</datalist>
+        </label>
+        {task.status !== 'done' && task.status !== 'running' && !thread && (
+          <button type="button" className="ws-btn" onClick={onHandOff}>
+            <Users size={13} /> Hand off to {agent}
+          </button>
+        )}
+      </div>
       <label className="ws-field">
         <span>Notes</span>
         <textarea
+          ref={notesField}
           aria-label="Task notes"
           rows={3}
           placeholder="Add context for this task"
@@ -669,14 +738,7 @@ function TaskDetail({
                 </button>
               </>
             ) : (
-              <>
-                {task.status !== 'done' && (
-                  <button className="ws-btn primary" onClick={onHandOff}>
-                    <Users size={13} /> Hand off to the team
-                  </button>
-                )}
-
-              </>
+              null
             )}
           </div>
         </div>

@@ -89,6 +89,7 @@ export function renderTaskExport(tasks: Task[], today = new Date()): string {
   const sections: [string, Task[]][] = [
     ['Needs you', tasksFor('needs', tasks, today)],
     ['Today', tasksFor('today', tasks, today).filter((task) => task.status === 'ready')],
+    ['Inbox (no date)', tasksFor('inbox', tasks, today).filter((task) => task.status === 'ready')],
     ['Upcoming', tasksFor('upcoming', tasks, today).filter((task) => task.status === 'ready')],
     ['Agent working', tasks.filter((task) => task.status === 'running')],
     ['Done in the last 7 days', tasksFor('completed', tasks, today).filter((task) => (task.completedAt || task.updatedAt) >= weekAgo)],

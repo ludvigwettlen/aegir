@@ -114,6 +114,13 @@ export type Connector = {
   tools: string[];
   checkedAt: string | null;
 };
+export type RemindersState = {
+  enabled: boolean;
+  list: string;
+  state: 'off' | 'checking' | 'ok' | 'denied' | 'error';
+  detail: string;
+  lastSyncAt: string | null;
+};
 export type Approval = {
   id: string;
   method: string;
@@ -153,6 +160,8 @@ export type Snapshot = {
   // Display names of the agent engine (Codex or Claude Code) and memory backend (Mnemosyne or gbrain).
   engine: string;
   memoryProvider: string;
+  // Phone capture from an Apple Reminders list.
+  reminders: RemindersState;
   launchAtLogin: boolean;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
@@ -213,6 +222,7 @@ export interface DesktopApi extends SkillsApi {
   forgetMemory(id: string, scope: string): Promise<void>;
   correctMemory(id: string, scope: string, content: string): Promise<void>;
   setLaunchAtLogin(enabled: boolean): Promise<void>;
+  setReminders(enabled: boolean, list: string): Promise<void>;
   setBrowserEnabled(enabled: boolean): Promise<void>;
   openBrowser(): Promise<void>;
   stopBrowser(): Promise<void>;

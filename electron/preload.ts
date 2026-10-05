@@ -55,6 +55,7 @@ const api: DesktopApi = {
   forgetMemory: (id, scope) => ipcRenderer.invoke('forget-memory', id, scope),
   correctMemory: (id, scope, content) => ipcRenderer.invoke('correct-memory', id, scope, content),
   setLaunchAtLogin: enabled => ipcRenderer.invoke('launch-at-login', enabled),
+  setReminders: (enabled, list) => ipcRenderer.invoke('reminders-settings', enabled, list),
   openExternal: url => ipcRenderer.invoke('open-external', url)
 };
 contextBridge.exposeInMainWorld('aegir', api);

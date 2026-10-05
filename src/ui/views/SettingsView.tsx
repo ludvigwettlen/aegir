@@ -12,6 +12,7 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
   const [composioKey, setComposioKey] = useState('');
   const [composioAccount, setComposioAccount] = useState(data.mcpSettings.composioSlackAccount || 'slack_style-winrow');
   const [composioPending, setComposioPending] = useState(false);
+  const [remindersList, setRemindersList] = useState(data.reminders.list);
   const composio = data.connectors.find(x => x.id === 'composio');
   const composioAction = (action: () => Promise<unknown>) => void run(async () => {
     setComposioPending(true);
@@ -107,6 +108,32 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
                 </p>
               </div>
               <SquareArrowOutUpRight size={18} />
+            </div>
+            <div className="connector-row">
+              <span className="connector-icon">✓</span>
+              <div>
+                <strong>Apple Reminders</strong>
+                <Badge size="sm" dot tone={data.reminders.state === 'ok' ? 'success' : data.reminders.state === 'denied' || data.reminders.state === 'error' ? 'danger' : 'neutral'}>
+                  {data.reminders.enabled ? data.reminders.state : 'off'}
+                </Badge>
+                <small className="connector-detail" role="status">
+                  {data.reminders.enabled ? data.reminders.detail : 'Phone capture: each reminder in the list becomes a task here, then gets ticked off in Reminders.'}
+                </small>
+              </div>
+              <Button variant="outline" size="sm" disabled={!data.reminders.enabled && !remindersList.trim()}
+                onClick={() => void run(() => api.setReminders(!data.reminders.enabled, remindersList.trim() || data.reminders.list))}>
+                {data.reminders.enabled ? 'Turn off' : 'Turn on'}
+              </Button>
+            </div>
+            <div className="connector-setup">
+              <div className="form-row">
+                <input aria-label="Reminders list to capture from" placeholder="Reminders list name" value={remindersList}
+                  onChange={event => setRemindersList(event.target.value)} />
+                {data.reminders.enabled && remindersList.trim() !== data.reminders.list && (
+                  <Button variant="outline" size="sm" onClick={() => void run(() => api.setReminders(true, remindersList))}>Use this list</Button>
+                )}
+              </div>
+              <p>New reminders wait two minutes, in case you're still typing. Reminders with a time stay on your phone until the alert has fired, and ones with a location alert or a repeat stay there for good. A reminder you reopen after import is left alone. macOS asks once for access to Reminders.</p>
             </div>
             <div className="connector-row">
               <span className="connector-icon slack">#</span>

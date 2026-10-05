@@ -291,3 +291,28 @@ describe('store', () => {
     store.close();
   });
 });
+
+describe('single-agent setup for Claude Code', () => {
+  it('renames the lead to Claude and removes unused teammates and their direct chats', () => {
+    const store = new Store(path());
+    const before = store.list('agents');
+    expect(before.length).toBeGreaterThan(1);
+    const lead = before.find((agent) => agent.role === 'Lead')!;
+    const helper = before.find((agent) => agent.role !== 'Lead')!;
+    const chatty = before.find((agent) => agent.role !== 'Lead' && agent.id !== helper.id)!;
+    const shared = store.groups().find((group) => group.kind === 'group')!;
+    const thread = store.createThread(shared.id, 'History');
+    store.addMessage(thread.id, chatty.id, 'agent', 'I said something once');
+    store.focusSingleAgent('Claude');
+    const after = store.list('agents');
+    expect(after.find((agent) => agent.id === lead.id)?.name).toBe('Claude');
+    expect(after.find((agent) => agent.id === lead.id)?.instructions).toContain('You are Claude,');
+    expect(after.some((agent) => agent.id === helper.id)).toBe(false);
+    expect(after.some((agent) => agent.id === chatty.id)).toBe(true);
+    expect(store.groups().filter((group) => group.kind === 'group').every((group) => group.agentIds.length === 1 && group.agentIds[0] === lead.id)).toBe(true);
+    expect(store.groups().some((group) => group.kind === 'private' && group.leadAgentId === helper.id)).toBe(false);
+    expect(store.groups().find((group) => group.kind === 'private' && group.leadAgentId === lead.id)?.title).toBe('Claude');
+    expect(store.routines().every((routine) => routine.agentId === lead.id)).toBe(true);
+    store.close();
+  });
+});

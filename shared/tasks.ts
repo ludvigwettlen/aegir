@@ -27,7 +27,7 @@ export function parseQuickAdd(text: string, today = new Date()): { title: string
   return { title: kept.join(' '), label, dueAt };
 }
 
-export type TaskView = 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
+export type TaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
 
 // Keep selection near a removed task in the previous visible order.
 export function taskCursor(order: string[], previousOrder: string[], selected?: string): string | undefined {
@@ -43,12 +43,14 @@ export function taskCursor(order: string[], previousOrder: string[], selected?: 
 }
 
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
+// Inbox = open tasks without a date (phone captures land here); Today = due today or overdue; Upcoming = later.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
   const open = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
-  if (view === 'today') return open.filter(task => task.status !== 'proposed' && (!task.dueAt || task.dueAt <= now));
+  if (view === 'inbox') return open.filter(task => task.status !== 'proposed' && !task.dueAt);
+  if (view === 'today') return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now);
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }

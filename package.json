@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && electron-builder --mac dir",
+    "build": "pnpm build:reminders && tsc -b && vite build && electron-builder --mac dir",
     "check": "tsc -b",
     "test": "vitest run",
-    "dist": "electron-builder --mac dmg"
+    "dist": "electron-builder --mac dmg",
+    "build:reminders": "swiftc -O -swift-version 5 -o build/aegir-reminders native/reminders/main.swift"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.289",
@@ -65,8 +66,18 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "build/icon.icns"
-    }
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSRemindersFullAccessUsageDescription": "Aegir turns what you capture in Apple Reminders into tasks, then ticks the reminder off.",
+        "NSRemindersUsageDescription": "Aegir turns what you capture in Apple Reminders into tasks, then ticks the reminder off."
+      }
+    },
+    "extraResources": [
+      {
+        "from": "build/aegir-reminders",
+        "to": "aegir-reminders"
+      }
+    ]
   },
   "packageManager": "pnpm@11.24.0+sha512.bd27e345e976dcb0be0b7a1228217b049a817e21b1f355c90dbe7dc46671895a8bc1e6d06c24554505ea93ea0b45f489a27ec1bfbc8de6a9659fca0f16fa0000"
 }

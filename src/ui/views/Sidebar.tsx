@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users, Archive as Tray } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -67,6 +67,13 @@ export function Sidebar({
         label="Needs you"
         count={needs + data.approvals.length}
         tone="attention"
+      />
+      <Item
+        active={isList('inbox')}
+        onClick={() => go({ view: 'tasks', list: 'inbox' })}
+        icon={<Tray size={16} />}
+        label="Inbox"
+        count={tasksFor('inbox', data.tasks).length}
       />
       <Item
         active={isList('today')}

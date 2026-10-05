@@ -16,7 +16,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstat
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Agent, AppEvent, Approval, Snapshot, Task, TaskChange } from '../shared/types.js';
+import type { Agent, AppEvent, Approval, RemindersState, Snapshot, Task, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
@@ -27,6 +27,7 @@ import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
 import { exportTasks, importInbox } from './brain-bridge.js';
+import { findRemindersHelper, parseLedger, RemindersError, RemindersHelper, syncReminders } from './reminders.js';
 import { Runtime } from './runtime.js';
 import { BrowserManager } from './browser.js';
 import { createBrowserBackend } from './browser-backend.js';
@@ -49,6 +50,11 @@ let brain: { dir: string; inbox: string; exportDir: string } | null = null;
 let inboxTimer: NodeJS.Timeout | null = null;
 let exportTimer: NodeJS.Timeout | null = null;
 let pendingExport: Task[] | null = null;
+let remindersTimer: NodeJS.Timeout | null = null;
+let remindersBusy = false;
+let remindersRerun = false;
+let remindersImported = 0;
+let remindersState: RemindersState = { enabled: false, list: 'Reminders', state: 'off', detail: '', lastSyncAt: null };
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
@@ -58,6 +64,85 @@ function notifyApproval(title: string) {
   const note = new Notification({ title: 'Aegir needs your approval', body: title });
   note.on('click', () => { window?.show(); window?.focus(); });
   note.show();
+}
+// ---- Phone capture from Apple Reminders ----------------------------------------------
+function remindersSettings() {
+  return { enabled: store.getSetting('remindersCapture') === 'on', list: store.getSetting('remindersList') || 'Reminders' };
+}
+function remindersHelperPath() {
+  return findRemindersHelper(app.isPackaged
+    ? [join(process.resourcesPath, 'aegir-reminders')]
+    : [join(app.getAppPath(), 'build', 'aegir-reminders')]);
+}
+function scheduleReminders(delayMs: number) {
+  if (remindersTimer) clearTimeout(remindersTimer);
+  // A pass already running picks the request up as soon as it ends.
+  if (remindersBusy) { remindersRerun = true; remindersTimer = null; return; }
+  remindersTimer = shuttingDown ? null : setTimeout(() => { remindersTimer = null; void syncPhoneCapture(); }, delayMs);
+}
+async function syncPhoneCapture() {
+  if (shuttingDown || !store?.isOpen || remindersBusy) return;
+  const settings = remindersSettings();
+  if (!settings.enabled) {
+    remindersState = { ...settings, state: 'off', detail: 'Off', lastSyncAt: remindersState.lastSyncAt };
+    refresh();
+    return;
+  }
+  const binary = remindersHelperPath();
+  if (!binary) {
+    remindersState = { ...settings, state: 'error', detail: 'This build has no Reminders helper. Rebuild with pnpm build.', lastSyncAt: null };
+    refresh();
+    return;
+  }
+  remindersBusy = true;
+  remindersRerun = false;
+  let nextCheck = 60_000;
+  // Stop mid-pass when the user turns capture off, switches list, or quits.
+  const unchanged = () => {
+    if (shuttingDown || !store?.isOpen) return false;
+    const now = remindersSettings();
+    return now.enabled && now.list === settings.list;
+  };
+  try {
+    const ledger = parseLedger(store.getSetting('remindersLedger'), store.getSetting('remindersPending'));
+    // Saved after every change, so quitting mid-pass loses nothing.
+    const save = () => { if (!shuttingDown && store?.isOpen) store.setSetting('remindersLedger', JSON.stringify(ledger)); };
+    save();
+    if (store.getSetting('remindersPending')) store.deleteSetting('remindersPending');
+    const result = await syncReminders(store, new RemindersHelper(binary), settings.list, ledger, { save, keepGoing: unchanged });
+    if (!unchanged()) return;
+    remindersImported += result.imported;
+    const parts = [`${remindersImported} imported since start`];
+    if (result.settling) parts.push(`${result.settling} waiting two minutes in case you're still editing`);
+    if (result.keptForAlert) parts.push(`${result.keptForAlert} kept in Reminders for their alert`);
+    if (result.failed) parts.push(`${result.failed} not ticked off yet`);
+    remindersState = { ...settings, state: 'ok', detail: parts.join(' · '), lastSyncAt: new Date().toISOString() };
+    if (result.settling) nextCheck = 30_000;
+  } catch (error) {
+    if (!unchanged()) return;
+    const code = error instanceof RemindersError ? error.code : 'error';
+    remindersState = {
+      ...settings,
+      state: code === 'denied' ? 'denied' : 'error',
+      detail: error instanceof Error ? error.message : String(error),
+      lastSyncAt: remindersState.lastSyncAt,
+    };
+    // Permission or list problems don't fix themselves within a minute.
+    if (code === 'denied' || code === 'noList') nextCheck = 10 * 60_000;
+  } finally {
+    remindersBusy = false;
+    if (!shuttingDown && store?.isOpen) {
+      // Settings changed during the pass: show the current ones and check again right away.
+      const current = remindersSettings();
+      if (current.enabled !== settings.enabled || current.list !== settings.list) {
+        remindersState = { ...current, state: current.enabled ? 'checking' : 'off', detail: current.enabled ? 'Checking…' : 'Off', lastSyncAt: remindersState.lastSyncAt };
+        remindersRerun = current.enabled;
+      }
+      refresh();
+      if (current.enabled) scheduleReminders(remindersRerun ? 0 : nextCheck);
+      remindersRerun = false;
+    }
+  }
 }
 function syncInbox() {
   if (!brain || shuttingDown || !store?.isOpen) return;
@@ -115,6 +200,7 @@ function snapshot(): Snapshot {
     codexStatus: codex.status,
     engine: engineNames[engine],
     memoryProvider: memory instanceof GbrainMemoryService ? 'gbrain' : 'Mnemosyne',
+    reminders: remindersState,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
     browser: browser.state,
     mcpSettings: {
@@ -364,6 +450,16 @@ function registerIpc() {
     await memory.correct(id, scope, content);
     refresh();
   });
+  handle('reminders-settings', (enabled: boolean, list: string) => {
+    if (typeof enabled !== 'boolean') throw new Error('Invalid Reminders setting');
+    const name = typeof list === 'string' ? list.trim() : '';
+    if (!name || name.length > 100) throw new Error('Name the Reminders list to capture from');
+    store.setSetting('remindersCapture', enabled ? 'on' : 'off');
+    store.setSetting('remindersList', name);
+    remindersState = { ...remindersState, enabled, list: name, state: enabled ? 'checking' : 'off', detail: enabled ? 'Checking…' : 'Off' };
+    refresh();
+    scheduleReminders(0);
+  });
   handle('launch-at-login', (enabled: boolean) => {
     app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
     refresh();
@@ -483,6 +579,11 @@ if (app.requestSingleInstanceLock()) {
       for (const routine of store.routines()) store.updateRoutine(routine.id, { enabled: false });
       store.setSetting('claudeEngineSetup', 'true');
     }
+    // Claude Code runs its own subagents, so a named team of four only confuses who does the work.
+    if (engine === 'claude' && !store.getSetting('singleAgentSetup')) {
+      store.focusSingleAgent('Claude');
+      store.setSetting('singleAgentSetup', 'true');
+    }
     connectors = new ConnectorManager(store);
     // The user's gbrain, when present: memory, the suggestion inbox and the task export live there.
     const gbrainBinary = findGbrainBinary(store.getSetting('gbrainBinary'));
@@ -571,6 +672,8 @@ if (app.requestSingleInstanceLock()) {
     createTray();
     connectors.start();
     runtime.start();
+    remindersState = { ...remindersSettings(), state: remindersSettings().enabled ? 'checking' : 'off', detail: remindersSettings().enabled ? 'Checking…' : 'Off', lastSyncAt: null };
+    if (remindersSettings().enabled) scheduleReminders(3000);
     if (brain) {
       syncInbox();
       inboxTimer = setInterval(syncInbox, 30_000);
@@ -589,7 +692,11 @@ if (app.requestSingleInstanceLock()) {
       store.setSetting('loginConfigured', 'true');
       refresh();
     }
-    powerMonitor.on('resume', () => runtime.tick());
+    powerMonitor.on('resume', () => {
+      if (shuttingDown || !store?.isOpen) return;
+      runtime.tick();
+      if (remindersSettings().enabled) scheduleReminders(5000);
+    });
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();
     void codex.start().catch((error) => {
       codex.status = `Error: ${String(error)}`;
@@ -601,6 +708,7 @@ if (app.requestSingleInstanceLock()) {
     event?.preventDefault();
     shuttingDown = true;
     if (inboxTimer) clearInterval(inboxTimer);
+    if (remindersTimer) clearTimeout(remindersTimer);
     if (exportTimer) {
       clearTimeout(exportTimer);
       writeExport(); // the brain copy should match what the user last saw

@@ -6,3 +6,4 @@ dist-types/
 release/
 *.tsbuildinfo
 .DS_Store
+build/aegir-reminders

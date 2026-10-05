@@ -308,6 +308,34 @@ export class Store {
       .prepare("UPDATE groups SET title=? WHERE kind='private' AND leadAgentId=?")
       .run(row.name, row.id);
   }
+  // For an engine that brings its own subagents (Claude Code): one visible agent instead of a named team.
+  // Renames the default lead, takes the other agents out of shared groups and routines, and deletes the
+  // ones that never spoke, with their direct-chat groups. Agents with history stay, outside the team.
+  focusSingleAgent(name: string) {
+    this.db.transaction(() => {
+      const agents = this.list('agents');
+      const lead = agents.find((agent) => agent.role.trim().toLowerCase() === 'lead');
+      if (!lead) return;
+      const seeded = defaultAgents[0];
+      if (lead.name === seeded.name)
+        this.updateAgent({ ...lead, name, instructions: lead.instructions === seeded.instructions ? lead.instructions.replace(`You are ${seeded.name},`, `You are ${name},`) : lead.instructions });
+      for (const agent of agents.filter((item) => item.id !== lead.id)) {
+        for (const group of this.groups().filter((item) => item.kind === 'group' && item.agentIds.includes(agent.id))) {
+          const agentIds = group.agentIds.filter((id) => id !== agent.id);
+          this.db.prepare('UPDATE groups SET agentIds=?, leadAgentId=? WHERE id=?')
+            .run(JSON.stringify(agentIds.includes(lead.id) ? agentIds : [lead.id, ...agentIds]), group.leadAgentId === agent.id ? lead.id : group.leadAgentId, group.id);
+        }
+        this.db.prepare('UPDATE routines SET agentId=? WHERE agentId=?').run(lead.id, agent.id);
+        const directs = this.groups().filter((item) => item.kind === 'private' && item.leadAgentId === agent.id);
+        const spoke = this.db.prepare('SELECT 1 FROM messages WHERE agentId=? LIMIT 1').get(agent.id)
+          || directs.some((group) => this.db.prepare('SELECT 1 FROM threads WHERE groupId=? LIMIT 1').get(group.id))
+          || this.db.prepare('SELECT 1 FROM tasks WHERE agentId=? LIMIT 1').get(agent.id);
+        if (spoke) continue;
+        for (const group of directs) this.db.prepare('DELETE FROM groups WHERE id=?').run(group.id);
+        this.db.prepare('DELETE FROM agents WHERE id=?').run(agent.id);
+      }
+    })();
+  }
 
   groups(): Group[] {
     return (this.db.prepare('SELECT * FROM groups ORDER BY createdAt ASC').all() as GroupRow[]).map(
@@ -586,7 +614,8 @@ export class Store {
       ? this.db.prepare('SELECT * FROM task_links WHERE taskId=? ORDER BY createdAt').all(taskId) as TaskLink[]
       : this.db.prepare('SELECT * FROM task_links ORDER BY createdAt').all() as TaskLink[];
   }
-  addTaskLink(taskId: string, value: string): TaskLink {
+  // Background imports pass undoable=false so they never land on the user's Cmd+Z stack.
+  addTaskLink(taskId: string, value: string, undoable = true): TaskLink {
     if (!this.get('tasks', taskId)) throw new Error('Task not found');
     const latest = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) || '';
     const url = normalizeTaskAttachment(latest, homedir());
@@ -598,7 +627,7 @@ export class Store {
       this.db.prepare('DELETE FROM task_links WHERE taskId=?').run(taskId);
       this.insertTaskLink(link);
     })();
-    this.rememberTaskAction({ kind: 'link-added', link, previous });
+    if (undoable) this.rememberTaskAction({ kind: 'link-added', link, previous });
     return link;
   }
   private insertTaskLink(link: TaskLink) {
