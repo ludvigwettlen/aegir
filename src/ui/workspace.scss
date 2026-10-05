@@ -447,3 +447,4 @@ body.ws-focus-mode .ws-sidebar { display: none; }
   .ws-detail-top { padding-left: 64px; }
 }
 .ws-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.ws-detail-ask .ws-popover { position: static; width: 100%; box-shadow: 0 6px 18px rgba(31, 43, 29, 0.12); }

@@ -26,12 +26,18 @@ describe('task lists', () => {
     { ...base, id: 'suggested', status: 'proposed' }, { ...base, id: 'blocked', status: 'blocked', threadId: 't' }, { ...base, id: 'done', status: 'done', completedAt: '2026-09-25' }, { ...base, id: 'recently-done', status: 'done', completedAt: '2026-09-26' }
   ];
   it('splits inbox, today, upcoming, team and needs-you', () => {
-    expect(tasksFor('inbox', tasks, saturday).map(x => x.id)).toEqual(['undated', 'blocked']);
+    expect(tasksFor('inbox', tasks, saturday).map(x => x.id)).toEqual(['undated']);
     expect(tasksFor('today', tasks, saturday).map(x => x.id)).toEqual(['overdue']);
     expect(tasksFor('upcoming', tasks, saturday).map(x => x.id)).toEqual(['later']);
     expect(tasksFor('team', tasks, saturday).map(x => x.id)).toEqual(['blocked']);
     expect(tasksFor('needs', tasks, saturday).map(x => x.id)).toEqual(['suggested', 'blocked']);
     expect(tasksFor('completed', tasks, saturday).map(x => x.id)).toEqual(['recently-done', 'done']);
+  });
+  it('keeps work with the agent and work waiting on the user out of the inbox', () => {
+    const handled: Task[] = (['running', 'review', 'blocked'] as const).map(status => ({ ...base, id: status, status, threadId: 't' }));
+    expect(tasksFor('inbox', [...handled, { ...base, id: 'new' }], saturday).map(x => x.id)).toEqual(['new']);
+    expect(tasksFor('needs', handled, saturday).map(x => x.id)).toEqual(['review', 'blocked']);
+    expect(tasksFor('team', handled, saturday).map(x => x.id)).toEqual(['running', 'review', 'blocked']);
   });
   it.each(['ready', 'dismissed'] as const)('advances past a proposal changed to %s instead of jumping to review', status => {
     const before: Task[] = [

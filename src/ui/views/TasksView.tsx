@@ -376,6 +376,8 @@ export function TasksView({
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
+          asking={popover?.kind === 'handoff' && popover.taskId === open.id}
+          onCloseAsk={() => setPopover(null)}
         />
       )}
     </div>
@@ -475,7 +477,7 @@ function TaskRow({
       >
         {dueLabel(task.dueAt)}
       </span>
-      {popover && <TaskPopover kind={popover} task={task} agent={leadName(data)} onClose={onClosePopover} run={run} />}
+      {popover && popover !== 'handoff' && <TaskPopover kind={popover} task={task} agent={leadName(data)} onClose={onClosePopover} run={run} />}
     </div>
   );
 }
@@ -601,6 +603,8 @@ function TaskDetail({
   focused,
   onToggleFocus,
   notify,
+  asking,
+  onCloseAsk,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -612,6 +616,8 @@ function TaskDetail({
   focused: boolean;
   onToggleFocus: () => void;
   notify: (message: string) => void;
+  asking: boolean;
+  onCloseAsk: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
@@ -745,6 +751,11 @@ function TaskDetail({
           <button type="button" className="ws-btn" onClick={() => setStatus('ready')}><RotateCcw size={13} /> {task.status === 'done' ? 'Reopen' : 'Restore'}</button>
         )}
       </div>
+      {asking && (
+        <div className="ws-detail-ask">
+          <TaskPopover kind="handoff" task={task} agent={agent} onClose={onCloseAsk} run={run} />
+        </div>
+      )}
       <div className="ws-detail-controls">
         <label className="ws-inline-field">
           <span>Due</span>
