@@ -4,14 +4,17 @@ import {
   Archive, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
   Undo2, Users, Wand2, type LucideIcon,
 } from 'lucide-react';
-import type { Snapshot } from '../../../shared/types';
+import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
+import { claudeRoutineName } from '../../../shared/cron';
 import type { TaskView } from '../../../shared/tasks';
 import { rankCommands } from '../../../shared/command-search';
 import { registeredCommands, setCommandPaletteOpener, type Command, type CommandOption, type CommandSection, type CommandStep } from '../commands';
 import { goTo, goToList, newTask, newThread, undoTaskAction } from '../hooks/useWorkspaceKeyboard';
 import { api, Kbd, routineStatus, type Route, type Run } from './common';
 
-type Props = { data: Snapshot; route: Route; go: (route: Route) => void; run: Run; notify: (message: string) => void; onNewGroup: () => void };
+type Props = {
+  data: Snapshot; claude?: ClaudeRoutines; route: Route; go: (route: Route) => void; run: Run; notify: (message: string) => void; onNewGroup: () => void;
+};
 type Row = Command | CommandOption;
 // What the palette works from while it's open. It's read once when the palette opens, so a snapshot
 // arriving meanwhile can't swap the task under a highlighted Delete.
@@ -28,7 +31,7 @@ const lists: Array<[TaskView, string, LucideIcon, string]> = [
 ];
 
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.
-function appCommands({ data, route, go, run, notify, onNewGroup }: Props): Command[] {
+function appCommands({ data, claude, route, go, run, notify, onNewGroup }: Props): Command[] {
   const commands: Command[] = lists.map(([list, title, icon, key]) => ({
     id: `go.${list}`, section: 'go', title: `Go to ${title}`, icon, keys: `G then ${key}`,
     keywords: ['list', 'jump', 'open', 'show'], run: () => goToList(go, list),
@@ -57,6 +60,12 @@ function appCommands({ data, route, go, run, notify, onNewGroup }: Props): Comma
     commands.push({ id: `routine.toggle.${routine.id}`, section: 'routines', title: `${routine.enabled ? 'Pause' : 'Resume'} ${routine.name}`,
       icon: routine.enabled ? Pause : Play, keywords: ['routine', routine.enabled ? 'stop' : 'start', routine.enabled ? 'disable' : 'enable'], searchOnly,
       run: () => void run(async () => { await api.setRoutineEnabled(routine.id, !routine.enabled); notify(`${routine.enabled ? 'Paused' : 'Resumed'} ${routine.name}`); }) });
+  }
+  // Claude Code's scheduled tasks are read-only pages. There can be many, so they show up when searched for.
+  for (const task of claude?.tasks || []) {
+    commands.push({ id: `claude.go.${task.id}`, section: 'routines', title: `Go to ${claudeRoutineName(task.name)}`,
+      subtitle: `Claude Code · ${task.enabled ? 'On' : 'Paused'}`, icon: Repeat2, keywords: ['routine', 'schedule', 'cron', 'claude'],
+      searchOnly: true, run: () => goTo(go, { view: 'claude-routine', id: task.id }) });
   }
   commands.push(
     { id: 'app.undo', section: 'app', title: 'Undo last task action', icon: Undo2, keys: '⌘ Z', keywords: ['revert', 'restore'], run: () => undoTaskAction(run, notify) },

@@ -131,7 +131,7 @@ export function App() {
         />
       )}
       {/* Last, so the views have registered their current commands before the palette reads them. */}
-      <CommandPalette data={data} route={route} go={setRoute} run={run} notify={setNotice} onNewGroup={() => setShowNewGroup(true)} />
+      <CommandPalette data={data} claude={claude} route={route} go={setRoute} run={run} notify={setNotice} onNewGroup={() => setShowNewGroup(true)} />
     </div>
   );
 }

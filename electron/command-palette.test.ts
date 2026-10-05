@@ -162,6 +162,13 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await page.keyboard.press('Enter');
     await page.getByText('Started Hourly discovery').waitFor();
     expect(await calls()).toContainEqual(['runRoutine', 'hourly']);
+    // Claude Code's scheduled tasks stay out of the empty list but are one search away.
+    await page.keyboard.press('Meta+K');
+    expect((await options()).some(text => text.includes('daily-brief'))).toBe(false);
+    await search.fill('daily brief');
+    expect((await options())[0]).toContain('Go to daily-brief');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-nav-item][aria-current="page"]', { hasText: 'daily-brief' }).waitFor();
     await page.keyboard.press('Meta+K');
     await search.fill('go general');
     await page.keyboard.press('Enter');
@@ -198,6 +205,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await search.fill('new group');
     await page.keyboard.press('Enter');
     await page.getByRole('dialog', { name: 'New group' }).waitFor();
+    await page.waitForFunction(() => !!document.activeElement?.closest('[aria-labelledby="new-group-title"]'));
     await page.keyboard.press('Escape');
     await page.getByRole('dialog', { name: 'New group' }).waitFor({ state: 'detached' });
 
