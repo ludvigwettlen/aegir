@@ -3,9 +3,10 @@ import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, ChevronRight, FileText, FolderSearch, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
+import { ArrowDownRight, ChevronRight, FilePenLine, FileText, FolderSearch, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Step, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
+import { reviewMirror, reviewRequest } from '../../../shared/review';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
@@ -105,12 +106,26 @@ export function ThreadView({
   const busy =
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
+  // Asks the agent to open one file in human-review, the browser surface for editing and commenting on drafts.
+  // Task conversations only: chats work in the app's own folder, read-only. Needs Claude Code for the skill.
+  const reviewTask = thread.kind === 'task' && data.engine === 'Claude Code' ? data.tasks.find(task => task.id === thread.taskId) : undefined;
+  const reviewDocument = (path: string) => {
+    if (!reviewTask) return;
+    setShowFiles(false);
+    void run(async () => {
+      if (documentEditor.current && !await documentEditor.current.save()) return;
+      beforeSend?.();
+      await api.sendMessage(thread.id, reviewRequest({ path, mirror: reviewMirror(path, reviewTask.createdAt) }));
+    });
+  };
   const filePicker = <div ref={fileAccess} className="ws-document-access">
     <button className="ws-btn ghost" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} />{opening ? 'Opening…' : 'Files'}</button>
     {showFiles && <div className="ws-document-files" aria-label="Workspace files">
       <strong>Markdown files</strong>
       {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <div key={path} className="ws-document-file-row">
         <button className="ws-btn ghost ws-document-file-open" disabled={opening} onClick={() => openDocument(path)}><FileText size={14} aria-hidden="true" /><span>{path}</span></button>
+        {reviewTask && <button className="ws-icon-btn" aria-label={`Review ${path} in your browser`} title={busy ? 'Wait for the agent to finish, then review in your browser' : 'Review in browser: edit and comment, the agent applies your changes'}
+          disabled={busy} onClick={() => reviewDocument(path)}><FilePenLine size={15} aria-hidden="true" /></button>}
         <button className="ws-icon-btn" aria-label={`Show ${path} in Finder`} title="Show in Finder" disabled={revealing} onClick={() => void run(async () => {
           setRevealing(true);
           try { await api.showDocumentInFinder(thread.id, path); if (active.current) setShowFiles(false); }

@@ -123,6 +123,9 @@ function childEnv(): Record<string, string | undefined> {
   // Started from inside another Claude Code session (development), these would leak into the child.
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
+  // Review in browser polls human-review for up to nine minutes at a time. Claude Code's default command limit is
+  // two minutes, after which a command moves to the background and dies with the turn; 10 minutes is its maximum.
+  env.BASH_DEFAULT_TIMEOUT_MS ||= '600000';
   return env;
 }
 

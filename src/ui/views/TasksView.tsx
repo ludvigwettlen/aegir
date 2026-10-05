@@ -8,9 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AlarmClock, CalendarDays, Check, ChevronRight, ExternalLink, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
+import { AlarmClock, CalendarDays, Check, ChevronRight, ExternalLink, FilePenLine, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
+import { reviewRequest, reviewTargets, type ReviewTarget } from '../../../shared/review';
 import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
 import {
   api,
@@ -213,6 +214,43 @@ export function TasksView({
     if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
     else notify('This task has no conversation yet');
   };
+  // Markdown drafts in the open task's folder, for Review in browser. Read again whenever the task changes.
+  const [documents, setDocuments] = useState<{ threadId: string; files: string[] } | null>(null);
+  useEffect(() => {
+    const threadId = open?.threadId;
+    if (!threadId) return;
+    let live = true;
+    api.listDocuments(threadId).then(
+      (files) => { if (live) setDocuments({ threadId, files }); },
+      () => { if (live) setDocuments({ threadId, files: [] }); },
+    );
+    return () => { live = false; };
+  }, [open?.threadId, open?.status, open?.updatedAt]);
+  const reviewFiles = (task: Task) => reviewTargets(
+    documents && documents.threadId === task.threadId ? documents.files : [],
+    data.taskLinks.filter(link => link.taskId === task.id).map(link => link.url),
+    task.createdAt,
+  );
+  // human-review is a Claude Code skill, and sending reopens a finished task, so those don't offer it.
+  const claudeCode = data.engine === 'Claude Code';
+  const canReview = (task: Task) => claudeCode && task.status !== 'running' && task.status !== 'done' && task.status !== 'dismissed';
+  // Asks the agent to open one draft in human-review. It's work on the task, so the task stays in front of you.
+  const startReview = (task: Task, target: ReviewTarget) => {
+    if (task.status === 'running') { notify(`${leadName(data)} is already working on this task`); return; }
+    hold(task);
+    const text = reviewRequest(target);
+    void run(() => (task.threadId ? api.sendMessage(task.threadId, text) : api.handOff(task.id, text)));
+  };
+  // One draft starts at once; several open ⌘K at a file picker, the way ⌘L opens it at Set label.
+  const requestReview = (task: Task) => {
+    const files = reviewFiles(task);
+    if (!claudeCode) notify('Review in browser needs the Claude Code engine');
+    else if (task.status === 'running') notify(`${leadName(data)} is already working on this task`);
+    else if (!files.length) notify('No Markdown draft in this task yet');
+    else if (!canReview(task)) notify('Reopen the task to review its draft');
+    else if (files.length === 1) startReview(task, files[0]);
+    else openCommandPalette('task.review');
+  };
   const removeTask = (task: Task) => {
     if (task.status === 'proposed') void update(task, { status: 'dismissed' });
     else if (task.status === 'running') notify('Stop this task before deleting it');
@@ -241,6 +279,8 @@ export function TasksView({
       }),
       stop: () => void run(() => api.stopTask(current.id)),
       remove: () => removeTask(current),
+      reviewFiles: canReview(current) ? reviewFiles(current) : [],
+      review: (target) => startReview(current, target),
     };
     return { context: `Task: ${current.title}`, commands: taskCommands(current, actions), forQuery: (query) => dateCommands(query, actions) };
   });
@@ -294,6 +334,7 @@ export function TasksView({
         else if (current.status !== 'running' && current.status !== 'done') setPopover({ kind: 'handoff', taskId: current.id });
       }
       else if (key === 'A') openConversation(current);
+      else if (key === 'r') requestReview(current);
       else if (key === 'f') setFocus((value) => !value);
       else if (key === 'b') openCommandPalette('task.label');
       else if (key === 'B') void update(current, { label: null });
@@ -434,6 +475,7 @@ export function TasksView({
           }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
           onSend={() => hold(open)}
+          onReview={canReview(open) && reviewFiles(open).length ? () => requestReview(open) : undefined}
           onSnooze={() => setPopover({ kind: 'snooze', taskId: open.id })}
           onSetDue={() => setPopover({ kind: 'due', taskId: open.id })}
         />
@@ -747,6 +789,7 @@ function TaskDetail({
   onReturnToList,
   onHandOff,
   onSend,
+  onReview,
   onOpenThread,
 }: {
   task: Task;
@@ -761,6 +804,7 @@ function TaskDetail({
   onReturnToList: () => void;
   onHandOff: () => void;
   onSend: () => void;
+  onReview?: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
@@ -877,6 +921,11 @@ function TaskDetail({
         {(task.status === 'ready' || task.status === 'proposed') && !thread && (
           <button type="button" className="ws-btn" onClick={onHandOff} title={`${agent} starts working on it now`}>
             <Sparkles size={13} /> Ask {agent}
+          </button>
+        )}
+        {onReview && (
+          <button type="button" className="ws-btn" onClick={onReview} title={`Edit and comment on the draft in your browser; ${agent} applies your changes (R)`}>
+            <FilePenLine size={13} /> Review in browser
           </button>
         )}
         {task.status !== 'done' && task.status !== 'dismissed' && task.status !== 'running' && (

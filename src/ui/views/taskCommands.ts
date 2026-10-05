@@ -1,8 +1,9 @@
 import {
-  AlarmClock, CalendarDays, CalendarX, Check, ExternalLink, FileText, Hash, Maximize2, MessageSquare, Minimize2, Paperclip,
+  AlarmClock, CalendarDays, CalendarX, Check, ExternalLink, FilePenLine, FileText, Hash, Maximize2, MessageSquare, Minimize2, Paperclip,
   PenLine, Plus, RotateCcw, Sparkles, Square, Tag, Trash2, X,
 } from 'lucide-react';
 import type { Snapshot, Task, TaskChange } from '../../../shared/types';
+import type { ReviewTarget } from '../../../shared/review';
 import { rankCommands } from '../../../shared/command-search';
 import { parseWhen } from '../../../shared/tasks';
 import type { Command, CommandOption } from '../commands';
@@ -21,6 +22,9 @@ export type TaskActions = {
   dismiss: () => void;
   stop: () => void;
   remove: () => void;
+  // Markdown drafts the task can be reviewed on in the browser; empty when it can't be right now.
+  reviewFiles: ReviewTarget[];
+  review: (target: ReviewTarget) => void;
 };
 
 // Pick an existing label or type a new one; the same cleanup as the ⌘L box.
@@ -60,6 +64,18 @@ export function taskCommands(task: Task, a: TaskActions): Command[] {
   if (!task.threadId && status !== 'running' && status !== 'done')
     add({ id: 'task.ask', title: `Ask ${a.agent}…`, icon: Sparkles, keys: 'A', keywords: ['hand off', 'delegate', 'agent', 'claude'], run: () => a.openBox('handoff') });
   if (task.threadId) add({ id: 'task.reply', title: `Reply to ${a.agent}`, icon: MessageSquare, keys: 'A', keywords: ['chat', 'message', 'agent'], run: () => a.edit('chat') });
+  const files = a.reviewFiles;
+  const reviewKeywords = ['human review', 'edit draft', 'comment', 'browser', 'feedback'];
+  if (files.length === 1)
+    add({ id: 'task.review', title: 'Review in browser', subtitle: files[0].path, icon: FilePenLine, keys: 'R', keywords: reviewKeywords, run: () => a.review(files[0]) });
+  else if (files.length > 1)
+    add({
+      id: 'task.review', title: 'Review in browser…', icon: FilePenLine, keys: 'R', keywords: reviewKeywords,
+      step: {
+        title: 'Review in browser', placeholder: 'Pick a draft…', empty: 'No draft matches.',
+        options: (query) => rankCommands(files.map((file) => ({ id: `review.${file.path}`, title: file.path, icon: FileText, run: () => a.review(file) })), query),
+      },
+    });
   if (status === 'ready') add({ id: 'task.snooze', title: 'Snooze…', icon: AlarmClock, keys: 'S', keywords: ['later', 'postpone', 'defer'], run: () => a.openBox('snooze') });
   add({ id: 'task.due', title: 'Set due date…', icon: CalendarDays, keys: 'D', keywords: ['date', 'deadline', 'schedule', 'when'], run: () => a.openBox('due') });
   if (task.dueAt) add({ id: 'task.due.clear', title: 'Clear due date', icon: CalendarX, keys: '⇧ D', keywords: ['remove date', 'no date'], run: () => a.update({ dueAt: null }) });
