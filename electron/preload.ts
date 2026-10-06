@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
@@ -29,13 +29,22 @@ const api: DesktopApi = {
   createAgent: input => ipcRenderer.invoke('create-agent', input),
   updateAgent: input => ipcRenderer.invoke('update-agent', input),
   startThread: (groupId, content) => ipcRenderer.invoke('start-thread', groupId, content),
-  sendMessage: (threadId, content) => ipcRenderer.invoke('send-message', threadId, content),
+  sendMessage: (threadId, content, fileIds) => ipcRenderer.invoke('send-message', threadId, content, fileIds),
+  stageFiles: (threadId, paths) => ipcRenderer.invoke('stage-files', threadId, paths),
+  stageClipboardFile: threadId => ipcRenderer.invoke('stage-clipboard-file', threadId),
+  // Electron 44 removed File.path, so the path has to be read here and sent to the main process.
+  pathForFile: file => webUtils.getPathForFile(file),
   stopThread: threadId => ipcRenderer.invoke('stop-thread', threadId),
   closeThread: threadId => ipcRenderer.invoke('close-thread', threadId),
   createTask: input => ipcRenderer.invoke('create-task', input),
   updateTask: (taskId, change) => ipcRenderer.invoke('update-task', taskId, change),
   deleteTask: taskId => ipcRenderer.invoke('delete-task', taskId),
   addTaskLink: (taskId, url) => ipcRenderer.invoke('add-task-link', taskId, url),
+  attachFileToTask: (fileId, taskId) => ipcRenderer.invoke('attach-file-to-task', fileId, taskId),
+  fileToBrain: (fileId, slug) => ipcRenderer.invoke('file-to-brain', fileId, slug),
+  removeTaskFile: fileId => ipcRenderer.invoke('remove-task-file', fileId),
+  openTaskFile: fileId => ipcRenderer.invoke('open-task-file', fileId),
+  revealTaskFile: fileId => ipcRenderer.invoke('reveal-task-file', fileId),
   openTaskLink: linkId => ipcRenderer.invoke('open-task-link', linkId),
   readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
   removeTaskLink: linkId => ipcRenderer.invoke('remove-task-link', linkId),

@@ -149,6 +149,19 @@ describe('task export', () => {
     expect(markdown).not.toContain('Old thing');
   });
 
+  // The sweeps and daily-brief read legolas-tasks.json, so what is attached has to be in it.
+  it('lists a task\'s files with absolute paths, and the brain copy once it is filed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-export-files-'));
+    expect(exportTasks(tasks, dir, [
+      { taskId: '1', name: 'pack.pdf', path: '/Users/m/Documents/Legolas/board-abc123/attachments/pack.pdf', bytes: 2_517_291, brainPath: '/Users/m/brain/sources/q3-close/.raw/pack.pdf' },
+    ])).toBe(true);
+    const exported = JSON.parse(readFileSync(join(dir, 'legolas-tasks.json'), 'utf8')) as (Task & { files?: unknown[] })[];
+    expect(exported.find(task => task.id === '1')?.files).toEqual([
+      { name: 'pack.pdf', path: '/Users/m/Documents/Legolas/board-abc123/attachments/pack.pdf', bytes: 2_517_291, brainPath: '/Users/m/brain/sources/q3-close/.raw/pack.pdf' },
+    ]);
+    expect(exported.find(task => task.id === '2')).not.toHaveProperty('files');
+  });
+
   it('writes only when something changed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'aegir-export-'));
     expect(exportTasks(tasks, dir)).toBe(true);

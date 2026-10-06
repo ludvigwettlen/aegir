@@ -73,6 +73,47 @@ describe('store', () => {
     } finally { store.close(); }
   });
 
+
+  it('removes an attachment with its bytes and restores both on undo', () => {
+    const store = new Store(path());
+    try {
+      const moved: [string, string][] = [];
+      store.onTaskFileMoved = (file, action) => moved.push([file.name, action]);
+      const task = store.createTask({ title: 'Read the board pack' });
+      const thread = store.createThread(store.groups()[0].id, task.title, 'task', task.id);
+      const file = store.addTaskFile({
+        taskId: task.id, threadId: thread.id, messageId: null, root: 'task', path: 'attachments/pack.pdf',
+        name: 'pack.pdf', kind: 'pdf', mime: 'application/pdf', bytes: 2048, sha256: 'abc',
+        originalPath: '/Downloads/pack.pdf', brainPath: null, brainFiledAt: null,
+      });
+      store.removeTaskFile(file.id);
+      expect(store.taskFiles(task.id)).toEqual([]);
+      expect(store.undoTaskAction()).toEqual({ taskId: task.id, action: 'attachment removal' });
+      expect(store.taskFiles(task.id)).toEqual([file]);
+      expect(moved).toEqual([['pack.pdf', 'remove'], ['pack.pdf', 'restore']]);
+      expect(() => store.removeTaskFile(file.id + 'x')).toThrow(/no longer exists/);
+    } finally { store.close(); }
+  });
+
+  it('keeps a deleted task\'s attachments for undo, and files the brain copy on the row', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Read the board pack' });
+      const file = store.addTaskFile({
+        taskId: task.id, threadId: null, messageId: null, root: 'task', path: 'attachments/pack.pdf',
+        name: 'pack.pdf', kind: 'pdf', mime: 'application/pdf', bytes: 2048, sha256: 'abc',
+        originalPath: null, brainPath: null, brainFiledAt: null,
+      });
+      store.setTaskFileBrainPath(file.id, '/Users/m/brain/sources/q3-close/.raw/pack.pdf');
+      expect(store.taskFile(file.id)).toMatchObject({ brainPath: '/Users/m/brain/sources/q3-close/.raw/pack.pdf' });
+      expect(store.taskFile(file.id)?.brainFiledAt).toBeTruthy();
+      store.deleteTask(task.id, true);
+      expect(store.taskFiles(task.id)).toEqual([]);
+      store.undoTaskAction();
+      expect(store.taskFiles(task.id).map(item => item.id)).toEqual([file.id]);
+    } finally { store.close(); }
+  });
+
   it('seeds a shared group, one private group per agent and the discovery routine', () => {
     const store = new Store(path());
     const groups = store.groups();

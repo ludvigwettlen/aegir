@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalTitle, describeToolRequest, disallowedFor, exposedToolName, isInside, mcpContent, permissionResult, SEND_TOOLS } from './claude.js';
+import { approvalTitle, ClaudeProvider, describeToolRequest, disallowedFor, exposedToolName, isInside, mcpContent, permissionResult, SEND_TOOLS } from './claude.js';
 import { brainKeywords, parseGbrainResults } from './gbrain-memory.js';
 import { chooseEngine } from './engine.js';
 import { ToolResult } from './tool-result.js';
@@ -27,6 +27,17 @@ describe('Claude Code engine helpers', () => {
     expect(isInside('/tmp/task', '/tmp/task/sub/a.md')).toBe(true);
     expect(isInside('/tmp/task', '../other/a.md')).toBe(false);
     expect(isInside('/tmp/task', '/Users/me/.zshrc')).toBe(false);
+  });
+
+  // Attachments live outside the brain, so a chat run needs read access to the output root. Read only:
+  // an attachment is data, and nothing is allowed to write there through a permission rule.
+  it('grants Read and nothing else on the attachment root', () => {
+    const provider = new ClaudeProvider('/bin/false', { workDirs: ['/Users/m/brain'], readDirs: ['/Users/m/Documents/Legolas'] });
+    const rules = provider.allowRules(['tasks__list']);
+    expect(rules).toContain('Read(/Users/m/Documents/Legolas/**)');
+    expect(rules.filter(rule => rule.includes('Documents/Legolas'))).toEqual(['Read(/Users/m/Documents/Legolas/**)']);
+    expect(rules.filter(rule => rule.includes('/Users/m/brain/**')).sort()).toEqual(['Edit(/Users/m/brain/**)', 'Read(/Users/m/brain/**)', 'Write(/Users/m/brain/**)']);
+    expect(new ClaudeProvider('/bin/false').allowRules([]).some(rule => rule.startsWith('Read('))).toBe(false);
   });
 
   it('writes readable approval cards', () => {

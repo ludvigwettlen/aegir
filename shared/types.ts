@@ -1,5 +1,6 @@
 import type { SkillsApi } from './skills.js';
 import type { BrowserState } from './browser.js';
+import type { FileKind } from './task-files.js';
 export type Agent = {
   id: string;
   name: string;
@@ -101,6 +102,10 @@ export type MessageMeta = {
   proposalId: string;
   skillId: string;
   skillName: string;
+} | {
+  // Files sent with a user message, so the message shows its chips again on reload.
+  type: 'attachments';
+  files: TaskFile[];
 };
 export type Message = {
   id: string;
@@ -129,6 +134,27 @@ export type Task = {
   completedAt: string | null;
 };
 export type TaskLink = { id: string; taskId: string; url: string; createdAt: string };
+// A file the user dropped in a conversation, copied into the task's folder (root 'task') or the chat
+// files folder (root 'chat'). path is relative to that root. brainPath is set once it is filed in the brain.
+export type TaskFile = {
+  id: string;
+  taskId: string | null;
+  threadId: string | null;
+  messageId: string | null;
+  root: 'task' | 'chat';
+  path: string;
+  name: string;
+  kind: FileKind;
+  mime: string;
+  bytes: number;
+  sha256: string;
+  originalPath: string | null;
+  brainPath: string | null;
+  brainFiledAt: string | null;
+  createdAt: string;
+};
+// One dropped file, as the composer sees it: staged, pointing at a copy that is already there, or refused.
+export type StagedAttachment = { name: string; file: TaskFile | null; error: string | null };
 export type RoutineSchedule = {
   every: 'hour' | 'day' | 'week';
   at?: string;
@@ -209,6 +235,7 @@ export type Snapshot = {
   threads: ThreadSummary[];
   tasks: Task[];
   taskLinks: TaskLink[];
+  taskFiles: TaskFile[];
   routines: Routine[];
   routineRuns: RoutineRun[];
   connectors: Connector[];
@@ -222,6 +249,8 @@ export type Snapshot = {
   // Phone capture from an Apple Reminders list.
   reminders: RemindersState;
   launchAtLogin: boolean;
+  // The user's brain folder, when there is one: attachments can be filed into it.
+  brainDir: string | null;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
@@ -257,7 +286,12 @@ export interface DesktopApi extends SkillsApi {
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Promise<void>;
   updateAgent(agent: Agent): Promise<void>;
   startThread(groupId: string, content: string): Promise<Thread>;
-  sendMessage(threadId: string, content: string): Promise<void>;
+  sendMessage(threadId: string, content: string, fileIds?: string[]): Promise<void>;
+  // Dropped files: copy the bytes into this conversation's folder before the message goes out.
+  stageFiles(threadId: string, paths: string[]): Promise<StagedAttachment[]>;
+  stageClipboardFile(threadId: string): Promise<StagedAttachment | null>;
+  // The renderer cannot read a dropped file's path on its own; Electron 44 removed File.path.
+  pathForFile(file: File): string;
   stopThread(threadId: string): Promise<void>;
   closeThread(threadId: string): Promise<void>;
   createTask(input: {
@@ -269,6 +303,11 @@ export interface DesktopApi extends SkillsApi {
   updateTask(taskId: string, change: TaskChange): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;
+  attachFileToTask(fileId: string, taskId: string): Promise<TaskFile>;
+  fileToBrain(fileId: string, slug: string): Promise<TaskFile>;
+  removeTaskFile(fileId: string): Promise<void>;
+  openTaskFile(fileId: string): Promise<void>;
+  revealTaskFile(fileId: string): Promise<void>;
   openTaskLink(linkId: string): Promise<void>;
   readClipboardText(): Promise<string>;
   removeTaskLink(linkId: string): Promise<void>;

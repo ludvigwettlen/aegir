@@ -172,12 +172,21 @@ export function renderTaskExport(tasks: Task[], today = new Date()): string {
   return `---\ntitle: Legolas tasks\ntype: export\n---\n\n# Legolas tasks\n\nLegolas rewrites this file whenever a task changes. Change tasks in Legolas, not here.\n\n${body}`;
 }
 
+// Attachments in the export, so daily-brief, momentum and the sweeps can see what is on a task. Absolute
+// paths: a skill reads the file where it is, or the brain copy once it has been filed.
+export type ExportFile = { taskId: string; name: string; path: string; bytes: number; brainPath: string | null };
+
 // Writes only when the content changed, so the brain's git history shows real task changes.
-export function exportTasks(tasks: Task[], dir: string): boolean {
+export function exportTasks(tasks: Task[], dir: string, files: ExportFile[] = []): boolean {
   if (!existsSync(dir)) return false;
   const markdown = renderTaskExport(tasks);
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const current = tasks.filter((task) => task.status !== 'dismissed' && (task.status !== 'done' || (task.completedAt || task.updatedAt) >= weekAgo));
+  const current = tasks
+    .filter((task) => task.status !== 'dismissed' && (task.status !== 'done' || (task.completedAt || task.updatedAt) >= weekAgo))
+    .map((task) => {
+      const own = files.filter((file) => file.taskId === task.id).map(({ taskId, ...file }) => file);
+      return own.length ? { ...task, files: own } : task;
+    });
   const json = `${JSON.stringify(current, null, 1)}\n`;
   const mdPath = join(dir, 'legolas-tasks.md');
   const jsonPath = join(dir, 'legolas-tasks.json');

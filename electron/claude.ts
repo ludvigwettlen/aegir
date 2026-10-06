@@ -156,18 +156,23 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
   private pending = new Map<string, Pending>();
 
   // workDirs: folders agents read and edit without asking (the user's brain, which git versions).
+  // readDirs: folders agents may read and nothing more (the Legolas output root, where attachments are
+  // copied). Without it every attachment would raise an approval card in a read-only chat run.
   // approvals: 'auto' follows the user's Claude Code auto mode (Claude approves safe actions and asks
   // through an approval card only when unsure); 'ask' sends every gated action to an approval card.
   // Malcolm chose 'auto' as the default on 2026-10-05.
-  constructor(private binary: string, private options: { workDirs?: string[]; approvals?: () => 'auto' | 'ask' } = {}) { super(); }
+  constructor(private binary: string, private options: { workDirs?: string[]; readDirs?: string[]; approvals?: () => 'auto' | 'ask' } = {}) { super(); }
+
+  private get directories() { return [...(this.options.workDirs || []), ...(this.options.readDirs || [])]; }
 
   allowRules(toolNames: string[]) {
     const home = homedir();
     const rules = toolNames.map((name) => `${PREFIX}${name}`);
-    for (const dir of this.options.workDirs || []) {
-      const path = dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : `/${dir}`;
-      rules.push(`Read(${path}/**)`, `Edit(${path}/**)`, `Write(${path}/**)`);
-    }
+    const pattern = (dir: string) => `${dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir}/**`;
+    for (const dir of this.options.workDirs || [])
+      rules.push(`Read(${pattern(dir)})`, `Edit(${pattern(dir)})`, `Write(${pattern(dir)})`);
+    // Attachments are data, never code: read, and nothing else.
+    for (const dir of this.options.readDirs || []) rules.push(`Read(${pattern(dir)})`);
     rules.push('Bash(gbrain:*)', `Bash(${join(home, '.bun', 'bin', 'gbrain')}:*)`);
     return rules;
   }
@@ -285,7 +290,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
                 // Chats and tasks behave like the user's own Claude Code, except they never send as the user;
                 // unattended routines are also read-only.
                 disallowedTools: disallowedFor(input.kind),
-                additionalDirectories: this.options.workDirs || [],
+                additionalDirectories: this.directories,
                 model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
               }),
           resume: input.threadId ? this.sessions.get(input.threadId) : undefined,

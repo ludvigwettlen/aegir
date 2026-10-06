@@ -11,6 +11,7 @@ import type {
   RoutineRun,
   Step,
   Task,
+  TaskFile,
   Thread,
 } from '../shared/types.js';
 import { addStep, describeStep } from './steps.js';
@@ -32,6 +33,8 @@ import {
   canSend, checkPlan, cleanDraftText, draftFromTool, draftHistory, learnFromToolResult, needsCheck, nothingKnown,
   readToolResponse, sameDestination, sendPlan, UNDO_MS, type Known, type SendPlan,
 } from './message-drafts.js';
+import { attachmentPrompt, FILES_ONLY, type PromptFile } from '../shared/task-files.js';
+import { filePath } from './task-files.js';
 import {
   cleanRoutineChange,
   connectorToolsFor,
@@ -147,10 +150,10 @@ export class Runtime {
     void this.sendMessage(thread.id, text).catch(() => {});
     return thread;
   }
-  async sendMessage(threadId: string, content: string, waitForCompletion = true) {
+  async sendMessage(threadId: string, content: string, waitForCompletion = true, fileIds: string[] = []) {
     if (!this.available) throw new Error('Runtime is stopped');
     const text = content.trim();
-    if (!text) return;
+    if (!text && !fileIds.length) return;
     const thread = this.thread(threadId);
     const group = this.group(thread.groupId);
     if (
@@ -160,20 +163,24 @@ export class Runtime {
       throw new Error('An agent is already working in this thread');
     const execution = { cancelled: false };
     this.runningThreads.set(threadId, execution);
-    // Persist before acknowledging so rejected sends leave the draft intact.
+    // Persist before acknowledging so rejected sends leave the draft and its chips intact.
+    let files: TaskFile[] = [];
     try {
-      this.store.addMessage(threadId, null, 'user', text);
+      const staged = this.store.stagedFiles(fileIds, thread);
+      const message = this.store.addMessage(threadId, null, 'user', text);
+      files = this.store.attachFilesToMessage(staged, message.id, thread.taskId);
+      if (files.length) this.store.setMessageMeta(message.id, { type: 'attachments', files });
       if (thread.taskId) this.store.updateTask(thread.taskId, { status: 'running' });
       this.refresh();
     } catch (error) {
       this.runningThreads.delete(threadId);
       throw error;
     }
-    const completion = this.respondToMessage(thread, group, text, execution);
+    const completion = this.respondToMessage(thread, group, text, execution, files);
     if (waitForCompletion) await completion;
     else void completion.catch(() => {}); // runAgent records failures in the conversation.
   }
-  private async respondToMessage(thread: Thread, group: Group, text: string, execution: { cancelled: boolean }) {
+  private async respondToMessage(thread: Thread, group: Group, text: string, execution: { cancelled: boolean }, files: TaskFile[] = []) {
     const threadId = thread.id;
     let ok = false;
     try {
@@ -184,7 +191,7 @@ export class Runtime {
           ok = false;
           break;
         }
-        ok = (await this.runAgent(thread, group, agent, text, kind)) && ok;
+        ok = (await this.runAgent(thread, group, agent, text, kind, 0, files)) && ok;
       }
     } catch (error) {
       ok = false;
@@ -310,6 +317,7 @@ export class Runtime {
     userText: string,
     kind: RunKind,
     depth = 0,
+    attached: TaskFile[] = [],
   ): Promise<boolean> {
     if (!this.available) return false;
     const message = this.store.addMessage(thread.id, agent.id, 'agent', '', 'streaming');
@@ -342,6 +350,8 @@ export class Runtime {
           return `System: Skill revision ${x.meta.skillName}, proposal ${x.meta.proposalId}, current state: ${proposal?.state || 'unavailable'}. Review changes in this conversation. Reason: ${x.content}`;
         }
         if (x.meta?.type === 'message-draft') return `System: ${draftHistory(x.id, x.meta)}`;
+        if (x.meta?.type === 'attachments')
+          return `${this.speaker(x, agents)}: ${x.content || FILES_ONLY} [attached: ${x.meta.files.map(file => file.name).join(', ')}]`;
         return `${this.speaker(x, agents)}: ${x.content}`;
       }).join('\n');
       const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
@@ -360,6 +370,18 @@ export class Runtime {
         ...(suggestTitle ? [threadTitleTool] : []),
       ];
       const skillContext = this.skills.session(agent.id, message.id, kind, tools.map(tool => tool.name), userText);
+      // Absolute paths only: the agent's own Read parses the file, and a file that has been filed in the
+      // brain is read there, where the page and the backlinks are.
+      const promptFile = (file: TaskFile, dated: boolean): PromptFile | null => {
+        const path = file.brainPath || filePath(file, this.paths.outputRoot, id => this.store.get('tasks', id)?.outputDir);
+        return path ? { name: file.name, path, kind: file.kind, bytes: file.bytes, ...(dated ? { at: file.createdAt } : {}) } : null;
+      };
+      const known = new Set(attached.map(file => file.id));
+      const onTodo = task ? this.store.taskFiles(task.id).filter(file => !known.has(file.id)) : [];
+      const files = attachmentPrompt(
+        attached.map(file => promptFile(file, false)).filter((file): file is PromptFile => !!file),
+        onTodo.map(file => promptFile(file, true)).filter((file): file is PromptFile => !!file),
+      );
       const prompt = [
         `Relevant memory:\n${recalled || '(none)'}`,
         routines.length
@@ -367,7 +389,8 @@ export class Runtime {
           : '',
         `Thread "${thread.title}" so far:\n${history || '(empty)'}`,
         task ? `Current todo (latest saved details):\n${JSON.stringify(task)}` : '',
-        `Current message:\n${userText}`,
+        files,
+        `Current message:\n${userText || FILES_ONLY}`,
       ]
         .filter(Boolean)
         .join('\n\n');

@@ -32,6 +32,7 @@ const data = {
     task('attached', 'Polish the offsite agenda', {}),
   ],
   taskLinks: [{ id: 'link', taskId: 'attached', url: 'file:///Users/m/brain/drafts/offsite%20agenda.md', createdAt: now }],
+  taskFiles: [],
   routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '',
   codexStatus: 'Connected', engine: location.search.includes('codex') ? 'Codex' : 'Claude Code', memoryProvider: 'gbrain',
   reminders: { enabled: false, list: '', state: 'off', detail: '', lastSyncAt: null }, launchAtLogin: false,

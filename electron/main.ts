@@ -15,10 +15,15 @@ import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Agent, AppEvent, Approval, RemindersState, Snapshot, Task, TaskChange } from '../shared/types.js';
-import { normalizeTaskLink } from '../shared/task-links.js';
+import type { Agent, AppEvent, Approval, RemindersState, Snapshot, StagedAttachment, Task, TaskChange, TaskFile } from '../shared/types.js';
+import { normalizeTaskLink, normalizeTaskAttachment } from '../shared/task-links.js';
+import { brainSlug, fileSize, MAX_FILES_PER_MESSAGE, MAX_FOLDER_BYTES } from '../shared/task-files.js';
+import {
+  chatFilesRoot, fileRoot, filePath, fileToBrain, folderBytes, hideAttachment, readSource,
+  restoreAttachment, sourceFromBytes, writeAttachment, type SourceFile,
+} from './task-files.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
 import { ClaudeProvider } from './claude.js';
@@ -28,10 +33,11 @@ import { approveExternalWrite } from './external-write.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
-import { exportTasks, importInbox } from './brain-bridge.js';
+import { exportTasks, importInbox, type ExportFile } from './brain-bridge.js';
 import { readClaudeRoutines } from './claude-schedule.js';
 import { findRemindersHelper, parseLedger, RemindersError, RemindersHelper, syncReminders } from './reminders.js';
 import { Runtime } from './runtime.js';
+import { slug } from './agent-tools.js';
 import { BrowserManager } from './browser.js';
 import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
@@ -50,9 +56,12 @@ let runtime: Runtime;
 let browser: BrowserManager;
 let shuttingDown = false;
 let brain: { dir: string; inbox: string; exportDir: string } | null = null;
+// Where task folders and chat attachment folders live. Set before the engine starts, which is granted
+// read access to it so a run can open an attachment without an approval card.
+let outputRoot = '';
 let inboxTimer: NodeJS.Timeout | null = null;
 let exportTimer: NodeJS.Timeout | null = null;
-let pendingExport: Task[] | null = null;
+let pendingExport: { tasks: Task[]; files: ExportFile[] } | null = null;
 let remindersTimer: NodeJS.Timeout | null = null;
 let remindersBusy = false;
 let remindersRerun = false;
@@ -159,15 +168,15 @@ function syncInbox() {
 }
 // Exports reuse the task list the latest snapshot already read, so quitting can flush without touching SQLite.
 function writeExport() {
-  const tasks = pendingExport;
+  const pending = pendingExport;
   pendingExport = null;
-  if (!brain || !tasks) return;
-  try { exportTasks(tasks, brain.exportDir); }
+  if (!brain || !pending) return;
+  try { exportTasks(pending.tasks, brain.exportDir, pending.files); }
   catch (error) { console.error('Task export failed:', error); }
 }
-function scheduleExport(tasks: Task[]) {
+function scheduleExport(tasks: Task[], files: ExportFile[]) {
   if (!brain) return;
-  pendingExport = tasks;
+  pendingExport = { tasks, files };
   if (exportTimer) return;
   exportTimer = setTimeout(() => {
     exportTimer = null;
@@ -226,6 +235,7 @@ function snapshot(): Snapshot {
     threads: store.threadSummaries(),
     tasks: store.list('tasks'),
     taskLinks: store.taskLinks(),
+    taskFiles: store.taskFiles(),
     routines: store.routines(),
     routineRuns: store.routineRuns(),
     connectors: Object.values(connectors.states),
@@ -237,6 +247,7 @@ function snapshot(): Snapshot {
     memoryProvider: memory instanceof GbrainMemoryService ? 'gbrain' : 'Mnemosyne',
     reminders: remindersState,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    brainDir: brain?.dir || null,
     browser: browser.state,
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
@@ -255,7 +266,7 @@ function refresh() {
   const value = snapshot();
   emit({ type: 'snapshot', value });
   app.setBadgeCount(approvals.size);
-  scheduleExport(value.tasks);
+  scheduleExport(value.tasks, exportFiles(value.taskFiles));
 }
 function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal; method?: string }): Promise<boolean> {
   if (options?.signal.aborted) return Promise.resolve(false);
@@ -287,6 +298,83 @@ function approvalForExternal(detail: string, threadId: string | undefined, optio
     options?.signal.addEventListener('abort', cancel, { once: true });
     refresh();
   });
+}
+// ---- Attachments ---------------------------------------------------------------------------
+// Dropped files are copied into the conversation's own folder: a task's attachments/, or one folder per
+// chat thread under "Chat files". Legolas reads, shows and opens them; it converts and runs nothing.
+const taskDir = (taskId: string) => store.get('tasks', taskId)?.outputDir;
+
+// A task gets its folder when it is handed off; a file dropped before that creates it.
+function ensureTaskDir(task: Task): string {
+  const dir = task.outputDir || join(outputRoot, `${slug(task.title)}-${task.id.slice(0, 6)}`);
+  mkdirSync(dir, { recursive: true });
+  if (!task.outputDir) store.updateTask(task.id, { outputDir: dir });
+  return dir;
+}
+function attachmentFolder(threadId: string): { root: 'task' | 'chat'; base: string; folder: string; taskId: string | null } {
+  const thread = store.get('threads', threadId);
+  if (!thread) throw new Error('This conversation no longer exists');
+  if (thread.taskId) {
+    const task = store.get('tasks', thread.taskId);
+    if (!task) throw new Error('This task no longer exists');
+    return { root: 'task', base: ensureTaskDir(task), folder: 'attachments', taskId: task.id };
+  }
+  // The folder name is part of the stored path, so renaming the chat never loses the file.
+  return { root: 'chat', base: chatFilesRoot(outputRoot), folder: `${slug(thread.title)}-${threadId.slice(0, 6)}`, taskId: null };
+}
+function stageSources(threadId: string, sources: (SourceFile | { name: string; error: string })[]): StagedAttachment[] {
+  const { root, base, folder, taskId } = attachmentFolder(threadId);
+  const staged: StagedAttachment[] = [];
+  let used = folderBytes(join(base, folder));
+  for (const source of sources) {
+    if ('error' in source) { staged.push({ name: source.name, file: null, error: source.error }); continue; }
+    try {
+      // The same file dropped twice points at the copy that is already there.
+      const twin = store.threadFiles(threadId).find(file => file.sha256 === source.sha256);
+      if (twin) { staged.push({ name: twin.name, file: twin, error: null }); continue; }
+      if (used + source.bytes > MAX_FOLDER_BYTES)
+        throw new Error(`This folder would pass ${fileSize(MAX_FOLDER_BYTES)}`);
+      const path = writeAttachment(base, folder, source);
+      used += source.bytes;
+      staged.push({
+        name: basename(path),
+        file: store.addTaskFile({
+          taskId, threadId, messageId: null, root, path, name: basename(path), kind: source.kind,
+          mime: source.mime, bytes: source.bytes, sha256: source.sha256, originalPath: source.originalPath,
+          brainPath: null, brainFiledAt: null,
+        }),
+        error: null,
+      });
+    } catch (error) {
+      staged.push({ name: source.name, file: null, error: String(error).replace(/^Error:\s*/, '') });
+    }
+  }
+  refresh();
+  return staged;
+}
+// The staged bytes behind an attachment, in the conversation's own folder.
+function attachmentPath(fileId: string): { file: TaskFile; path: string } {
+  const file = store.taskFile(fileId);
+  if (!file) throw new Error('This attachment no longer exists');
+  const path = filePath(file, outputRoot, taskDir);
+  if (!path || !existsSync(path)) throw new Error(`${file.name} is no longer in its folder`);
+  return { file, path };
+}
+// Opening and showing in Finder follow the file to the brain once it is filed there: that copy is the one
+// with a page and backlinks.
+function openablePath(fileId: string): string {
+  const file = store.taskFile(fileId);
+  if (file?.brainPath && existsSync(file.brainPath)) return file.brainPath;
+  return attachmentPath(fileId).path;
+}
+function exportFiles(files: TaskFile[]): ExportFile[] {
+  const list: ExportFile[] = [];
+  for (const file of files) {
+    if (!file.taskId) continue;
+    const path = file.brainPath || filePath(file, outputRoot, taskDir);
+    if (path) list.push({ taskId: file.taskId, name: file.name, path, bytes: file.bytes, brainPath: file.brainPath });
+  }
+  return list;
 }
 function registerIpc() {
   const documentRoot = (threadId: string) => {
@@ -363,8 +451,8 @@ function registerIpc() {
   handle('start-thread', (groupId: string, content: string) =>
     runtime.startThread(groupId, content),
   );
-  handle('send-message', (threadId: string, content: string) =>
-    runtime.sendMessage(threadId, content, false),
+  handle('send-message', (threadId: string, content: string, fileIds?: string[]) =>
+    runtime.sendMessage(threadId, content, false, Array.isArray(fileIds) ? fileIds : []),
   );
   handle('stop-thread', (threadId: string) => runtime.stopThread(threadId));
   handle('close-thread', (threadId: string) => {
@@ -396,6 +484,70 @@ function registerIpc() {
     return link;
   });
   handle('read-clipboard-text', () => clipboard.readText());
+  handle('stage-files', (threadId: string, paths: unknown) => {
+    const list = (Array.isArray(paths) ? paths : []).filter((path): path is string => typeof path === 'string');
+    return stageSources(threadId, list.map((path, index) => {
+      if (index >= MAX_FILES_PER_MESSAGE) return { name: basename(path), error: `Attach at most ${MAX_FILES_PER_MESSAGE} files to one message` };
+      try { return readSource(path); }
+      catch (error) { return { name: basename(path) || 'file', error: String(error).replace(/^Error:\s*/, '') }; }
+    }));
+  });
+  // A copied file behaves like a drop. A copied image has no path, so it is written out under the time
+  // it was pasted.
+  handle('stage-clipboard-file', async (threadId: string) => {
+    for (const item of await clipboard.read()) {
+      const type = item.types.find(mime => /^image\/(png|jpeg|gif|webp)$/.test(mime));
+      if (!type) continue;
+      const data = Buffer.from(await (await item.getType(type) as Blob).arrayBuffer());
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const extension = type === 'image/jpeg' ? 'jpg' : type.slice('image/'.length);
+      return stageSources(threadId, [sourceFromBytes(`pasted-${stamp}.${extension}`, data)])[0] || null;
+    }
+    const text = (await clipboard.readText()).trim();
+    const url = text && normalizeTaskAttachment(text.split(/\r?\n/).filter(Boolean).at(-1) || '', homedir());
+    if (!url || !url.startsWith('file:')) return null;
+    const path = fileURLToPath(url);
+    try { return stageSources(threadId, [readSource(path)])[0] || null; }
+    catch (error) { return { name: basename(path) || 'file', file: null, error: String(error).replace(/^Error:\s*/, '') }; }
+  });
+  handle('attach-file-to-task', (fileId: string, taskId: string) => {
+    const { file, path } = attachmentPath(fileId);
+    const task = store.get('tasks', taskId);
+    if (!task) throw new Error('This task no longer exists');
+    if (file.taskId === taskId) return file;
+    // A second copy, so the task folder is complete on its own and the chat history keeps its file.
+    const base = ensureTaskDir(task);
+    const copy = sourceFromBytes(file.name, readFileSync(path), file.originalPath);
+    const copied = writeAttachment(base, 'attachments', copy);
+    const row = store.addTaskFile({
+      taskId, threadId: file.threadId, messageId: null, root: 'task', path: copied, name: basename(copied),
+      kind: copy.kind, mime: copy.mime, bytes: copy.bytes, sha256: copy.sha256, originalPath: file.originalPath,
+      brainPath: null, brainFiledAt: null,
+    });
+    refresh();
+    return row;
+  });
+  // The task folder stages; the brain keeps. Nothing files itself: this runs from File to brain only.
+  handle('file-to-brain', (fileId: string, proposed: string) => {
+    if (!brain) throw new Error('There is no brain folder to file into');
+    const { file, path } = attachmentPath(fileId);
+    const task = file.taskId ? store.get('tasks', file.taskId) : undefined;
+    const written = fileToBrain(brain.dir, (proposed || brainSlug(file.name)).trim(), file, path, {
+      taskTitle: task?.title || null, taskId: task?.id || null,
+    });
+    store.setTaskFileBrainPath(file.id, written);
+    refresh();
+    return store.taskFile(file.id);
+  });
+  handle('remove-task-file', (fileId: string) => {
+    store.removeTaskFile(fileId);
+    refresh();
+  });
+  handle('open-task-file', async (fileId: string) => {
+    const error = await shell.openPath(openablePath(fileId));
+    if (error) throw new Error(error);
+  });
+  handle('reveal-task-file', (fileId: string) => shell.showItemInFolder(openablePath(fileId)));
   handle('open-task-link', async (linkId: string) => {
     const link = store.taskLinks().find(item => item.id === linkId);
     if (!link) throw new Error('This attachment no longer exists');
@@ -618,13 +770,21 @@ if (app.requestSingleInstanceLock()) {
       return;
     }
     migrateLegacyData();
+    outputRoot = join(app.getPath('documents'), 'Legolas');
+    mkdirSync(outputRoot, { recursive: true });
     store = new Store();
     store.onMessage = (value) => emit({ type: 'message', value });
+    store.onTaskFileMoved = (file, action) => {
+      const root = fileRoot(file, outputRoot, taskDir);
+      if (!root) return;
+      if (action === 'remove') hideAttachment(root, file);
+      else restoreAttachment(root, file);
+    };
     const claudeBinary = findClaudeBinary(store.getSetting('claudeBinary'));
     engine = chooseEngine(store.getSetting('engine'), claudeBinary);
     const brainDir = process.env.AEGIR_BRAIN_DIR || store.getSetting('brainDir') || join(homedir(), 'brain');
     codex = engine === 'claude' && claudeBinary
-      ? new ClaudeProvider(claudeBinary, { workDirs: existsSync(brainDir) ? [brainDir] : [], approvals: () => (store.getSetting('approvalMode') === 'ask' ? 'ask' : 'auto') })
+      ? new ClaudeProvider(claudeBinary, { workDirs: existsSync(brainDir) ? [brainDir] : [], readDirs: [outputRoot], approvals: () => (store.getSetting('approvalMode') === 'ask' ? 'ask' : 'auto') })
       : new CodexProvider();
     if (!(codex instanceof ClaudeProvider)) engine = 'codex';
     // Seeded routines run hourly on the user's default model. On first start with Claude Code they
@@ -654,7 +814,6 @@ if (app.requestSingleInstanceLock()) {
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
-    const outputRoot = join(app.getPath('documents'), 'Legolas');
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
       routineCwd: app.getPath('userData'),

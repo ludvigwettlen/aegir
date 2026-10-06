@@ -18,7 +18,7 @@ const data = {
   threads: [{ id: threadId, groupId: 'team', title: task.title, kind: 'task', taskId: task.id, status: 'active', createdAt: now, updatedAt: now,
     agentIds: ['lead'], busyAgentIds: [], snippet: 'Edit them in the cards, copy, and send them.', messageCount: 8 }],
   tasks: [task],
-  taskLinks: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '', codexStatus: 'Connected', engine: 'Claude Code',
+  taskLinks: [], taskFiles: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '', codexStatus: 'Connected', engine: 'Claude Code',
   memoryProvider: 'gbrain', reminders: { enabled: false, list: '', state: 'off', detail: '', lastSyncAt: null }, launchAtLogin: false,
   browser: { enabled: false, status: 'disabled', detail: '', threadId: null },
   mcpSettings: { slackClientId: '', slackConfigured: false },

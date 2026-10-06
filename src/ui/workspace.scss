@@ -381,6 +381,23 @@
   span small { display: block; margin-top: 3px; color: var(--ds-color-muted); }
 }
 .ws-picker-state { margin: 0; padding: 8px; font-size: 12px; color: var(--ds-color-muted); }
+/* Attachments: files dropped or pasted on a conversation, and the files a sent message carried. */
+.ws-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0;
+  > span, > button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 3px 5px 3px 8px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); color: var(--ds-color-ink); font-size: 12px; text-align: left; }
+  > span.error { border-color: var(--ds-color-danger); color: var(--ds-color-danger); }
+  .ws-attachment-name { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  small { flex: none; color: var(--ds-color-muted); font-size: 11px; }
+  > span.error small { color: inherit; }
+  button { flex: none; }
+  &.sent { padding: 6px 0 0;
+    > button { cursor: pointer; &:hover { border-color: var(--ds-color-lime-strong); background: var(--ds-color-lime-soft); } }
+  }
+}
+.ws-attachment-state { margin: 6px 10px 0; font-size: 12px; color: var(--ds-color-muted); }
+/* A 1 px boundary while a file is over the composer; no modal, no blurred text. */
+.ws-composer-wrap.dragging .ws-composer { border-color: var(--ds-color-lime-strong); box-shadow: 0 0 0 3px var(--ds-color-lime-soft); }
+.ws-drop-hint { position: absolute; left: 50%; top: -10px; transform: translateX(-50%); z-index: 20; padding: 3px 10px; border: 1px solid var(--ds-color-lime-strong); border-radius: 999px; background: var(--ds-color-surface); color: var(--ds-color-lime-ink); font-size: 11.5px; font-weight: 700; }
+
 .ws-selected-skills { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0;
   > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; padding: 3px 5px 3px 8px; border-radius: var(--ds-radius-control); background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); font-size: 12px; }
   button { flex: none; }

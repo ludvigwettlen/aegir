@@ -7,6 +7,7 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 ## Next
 
 - [ ] Explore an in-app calendar view where clicking a meeting opens meeting prep prepared by the agent teams for review.
+- [ ] Attachments, the rest: "Attach to todo" on a chat chip and dropping a file on a task row, an "Attach files to this todo" palette entry, image thumbnails in chips, an attachment count on task rows, and `tasks__read` returning the file list.
 - [ ] Add proper web search tools for agents.
 
 ## Security review follow-ups — 2026-10-01
@@ -56,5 +57,6 @@ Validation at review time: TypeScript passed; 132 tests passed under Electron's 
 - [x] Add Vim pane and list navigation across the workspace, including left from a task into the sidebar.
 - [x] Align task shortcuts with Godspeed, including `Enter` title editing, `Space` completion, `Cmd+N` creation, and `n` notes.
 - [x] Attach and manage copied URLs or deep links on tasks with `Cmd+V`, separately from task source provenance.
+- [x] Attach files to a conversation by dropping or pasting them on the composer: copied into the task folder, listed on the task, handed to the run as absolute paths, and promotable to `~/brain/sources/<slug>/` with File it in the brain.
 - [x] Complete task CRUD for title, notes, label, due date, and task deletion.
 - [x] Use Mnemosyne as the only active memory store; migrate legacy SQLite memories, remove the fallback and pending sync, and update the Memory screen, docs, and tests.

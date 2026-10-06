@@ -9,7 +9,7 @@ const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOStr
 const data = {
   agents: [{ id: 'lead', name: 'Aegir', role: 'Lead', color: '#abc', createdAt: now }],
   groups: [{ id: 'team', title: 'Team', kind: 'group', leadAgentId: 'lead', agentIds: ['lead'] }],
-  threads: [], tasks: [], taskLinks: [], approvals: [], connectors: [], routineRuns: [],
+  threads: [], tasks: [], taskLinks: [], taskFiles: [], approvals: [], connectors: [], routineRuns: [],
   routines: [{ id: 'r1', name: 'Hourly discovery', instructions: '', agentId: 'lead', schedule: { every: 'hour' }, enabled: false, lastRunAt: null, createdAt: now, updatedAt: now }],
 } as unknown as Snapshot;
 const claude: ClaudeRoutines = { source: '/fixture/scheduled-tasks.json', tasks: [

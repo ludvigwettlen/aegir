@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
@@ -8,6 +8,7 @@ import type { Agent, Group, Message, Routine, Snapshot, Step, Thread } from '../
 import { describeSchedule } from '../../../shared/routines';
 import { reviewMirror, reviewRequest } from '../../../shared/review';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
+import { ComposerAttachments, MessageAttachments, type Chip } from './Attachments';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
@@ -175,6 +176,7 @@ export function ThreadView({
       )}
       <Composer
         key={`composer-${thread.id}`}
+        threadId={thread.id}
         data={data}
         group={group}
         busy={busy}
@@ -184,10 +186,10 @@ export function ThreadView({
         }
         reference={selection}
         onClearReference={() => setSelection(null)}
-        onSend={async (text) => {
+        onSend={async (text, fileIds) => {
           if (documentEditor.current && !await documentEditor.current.save()) { setMobilePane('document'); return false; }
           beforeSend?.();
-          await api.sendMessage(thread.id, withDocumentReference(text, selection));
+          await api.sendMessage(thread.id, withDocumentReference(text, selection), fileIds);
           setSelection(null);
           return true;
         }}
@@ -282,14 +284,17 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
         <div className="ws-message-text">
           {message.content ? (
             <ChatMarkdown content={message.content} onOpenDocument={onOpenDocument} onOpenLink={url => void run(() => api.openExternal(url))} />
-          ) : (
+          ) : message.role === 'agent' ? (
             <span className="ws-typing" aria-label="Working">
               <i />
               <i />
               <i />
             </span>
-          )}
+          ) : null}
         </div>
+        {message.meta?.type === 'attachments' && message.meta.files.length > 0 && (
+          <MessageAttachments files={message.meta.files} run={run} />
+        )}
       </div>
     </article>
   );
@@ -364,6 +369,7 @@ function RoutineChangeCard({ message, data, run }: { message: Message; data: Sna
 }
 
 export function Composer({
+  threadId,
   data,
   group,
   busy,
@@ -374,11 +380,12 @@ export function Composer({
   onClearReference,
   kind = 'chat',
 }: {
+  threadId: string;
   data: Snapshot;
   group: Group;
   busy: boolean;
   placeholder: string;
-  onSend: (text: string) => Promise<void | boolean> | void;
+  onSend: (text: string, fileIds: string[]) => Promise<void | boolean> | void;
   reference?: DocumentReference | null;
   onClearReference?: () => void;
   onStop?: () => void;
@@ -388,6 +395,11 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [sendError, setSendError] = useState('');
+  // Dropped and pasted files. The bytes are already copied into this conversation's folder; the next
+  // message claims them.
+  const [chips, setChips] = useState<Chip[]>([]);
+  const [staging, setStaging] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [picker, setPicker] = useState<{ kind: 'mention' | 'skill'; query: string; start: number; end: number } | null>(null);
   const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
   const { library, error: skillError, reload } = useSkillLibrary();
@@ -448,22 +460,62 @@ export function Composer({
       input.current?.focus();
     });
   };
+  const key = () => `chip-${Math.random().toString(36).slice(2)}`;
+  const stage = async (action: () => Promise<Chip[]>) => {
+    setStaging(true); setSendError('');
+    // The same file dropped twice comes back as the copy that is already there, so it gets one chip.
+    try { const staged = await action(); setChips(items => [...items, ...staged.filter(item => !item.file || !items.some(chip => chip.file?.id === item.file!.id))]); }
+    catch (cause) { setSendError(String(cause)); }
+    finally { setStaging(false); }
+  };
+  const stagePaths = (paths: string[]) =>
+    void stage(async () => (await api.stageFiles(threadId, paths)).map(item => ({ ...item, key: key() })));
+  // A screenshot has no path on disk, so the main process reads it off the clipboard instead.
+  const stageClipboard = () => void stage(async () => {
+    const item = await api.stageClipboardFile(threadId);
+    if (!item) throw new Error('Nothing on the clipboard to attach');
+    return [{ ...item, key: key() }];
+  });
+  const pathsOf = (files: File[]) => files.map(file => { try { return api.pathForFile(file); } catch { return ''; } }).filter(Boolean);
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    setDragging(false);
+    const paths = pathsOf([...event.dataTransfer.files]);
+    if (paths.length) stagePaths(paths);
+    else setSendError('Drag the file from Finder, or save it first.');
+  };
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...(event.clipboardData?.files || [])];
+    if (!files.length) return;
+    event.preventDefault();
+    const paths = pathsOf(files);
+    if (paths.length) stagePaths(paths); else stageClipboard();
+  };
+  const removeChip = (chip: Chip) => {
+    setChips(items => items.filter(item => item.key !== chip.key));
+    if (chip.file) void api.removeTaskFile(chip.file.id).catch((cause: unknown) => setSendError(String(cause)));
+  };
+  const attached = chips.filter(chip => chip.file);
   const submit = async () => {
     const draft = value;
     const skills = selectedSkills;
     const text = withSkillCommands(draft, skills);
-    if (!text || busy || sendingRef.current || invalidSelection) return;
+    const files = attached;
+    if ((!text && !files.length) || busy || staging || sendingRef.current || invalidSelection) return;
     sendingRef.current = true;
     setSending(true); setSendError('');
-    setValue(''); setPicker(null); setSelectedSkills([]);
+    setValue(''); setPicker(null); setSelectedSkills([]); setChips([]);
     input.current?.focus();
-    // Keep any follow-up typed while saving, including when the send is rejected.
+    // Keep any follow-up typed while saving, including when the send is rejected. Chips come back too:
+    // the bytes are already in the folder, so a rejected send must not orphan them.
     const restoreDraft = () => {
       setValue(next => next ? `${draft}\n\n${next}` : draft);
       setSelectedSkills(next => [...skills, ...next.filter(skill => !skills.some(item => item.id === skill.id))]);
+      setChips(next => [...chips, ...next.filter(item => !chips.some(chip => chip.key === item.key))]);
     };
     try {
-      const sent = await onSend(text);
+      const sent = await onSend(text, files.map(chip => chip.file!.id));
       if (sent === false) restoreDraft();
     } catch (cause) {
       restoreDraft();
@@ -516,7 +568,13 @@ export function Composer({
   const routines = options.filter((option) => option.kind === 'routine');
   const agents = options.filter((option) => option.kind === 'agent');
   return (
-    <div className="ws-composer-wrap">
+    <div
+      className={`ws-composer-wrap ${dragging ? 'dragging' : ''}`}
+      onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }}
+      onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={onDrop}
+    >
+      {dragging && <div className="ws-drop-hint" aria-hidden="true">Drop files</div>}
       {picker && (options.length > 0 || picker.kind === 'skill') && (
         <div className="ws-picker" id={pickerId} role="listbox" aria-label={picker.kind === 'skill' ? 'Skills' : 'Mention'}>
           {picker.kind === 'skill' && <>
@@ -583,6 +641,8 @@ export function Composer({
           {selectedSkills.map(skill => <span key={skill.id}>/{skill.name}<button type="button" className="ws-icon-btn"
             aria-label={`Remove skill ${skill.name}`} onClick={() => setSelectedSkills(items => items.filter(item => item.id !== skill.id))}><X size={12} /></button></span>)}
         </div>}
+        {chips.length > 0 && <ComposerAttachments chips={chips} onRemove={removeChip} />}
+        {staging && <p className="ws-attachment-state" role="status">Copying files…</p>}
         {invalidSelection && <p role="alert">A selected skill is unavailable for the current recipients. Remove it or change the @mention.</p>}
         {reference && <div className="ws-document-reference"><div><strong>{reference.path}</strong><blockquote>{reference.text}</blockquote></div><button className="ws-icon-btn" aria-label="Remove selected passage" onClick={onClearReference}><X size={13} /></button></div>}
         {sendError && <p role="alert">{sendError}</p>}
@@ -599,6 +659,7 @@ export function Composer({
           onChange={(event) => update(event.target.value, event.target.selectionStart)}
           onClick={() => setPicker(null)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
         <div className="ws-composer-bar">
           {busy && onStop && (
@@ -609,7 +670,7 @@ export function Composer({
           <button
             className="ws-send"
             aria-label="Send"
-            disabled={busy || sending || invalidSelection || (!value.trim() && !selectedSkills.length)}
+            disabled={busy || sending || staging || invalidSelection || (!value.trim() && !selectedSkills.length && !attached.length)}
             onClick={submit}
           >
             <Send size={15} />

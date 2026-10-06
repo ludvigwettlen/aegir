@@ -27,7 +27,7 @@ const data = {
     task('churn', 'Check churn numbers', { status: 'proposed', sourceKey: 'fixture:churn' }),
     task('dentist', 'Book dentist', {}),
   ],
-  taskLinks: [],
+  taskLinks: [], taskFiles: [],
   routines: [{ id: 'hourly', name: 'Hourly discovery', instructions: '', agentId: 'lead', schedule: { every: 'hour' }, enabled: true, lastRunAt: null, createdAt: now, updatedAt: now }],
   routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '', codexStatus: 'Connected', engine: 'Claude Code',
   memoryProvider: 'gbrain', reminders: { enabled: false, list: '', state: 'off', detail: '', lastSyncAt: null }, launchAtLogin: false,

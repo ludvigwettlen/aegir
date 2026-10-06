@@ -8,9 +8,11 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AlarmClock, CalendarDays, Check, ChevronRight, ExternalLink, FilePenLine, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
+import { AlarmClock, Brain, CalendarDays, Check, ChevronRight, ExternalLink, FilePenLine, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
+import { brainFilingRequest, brainSlug, fileSize } from '../../../shared/task-files';
+import { KindIcon } from './Attachments';
 import { reviewRequest, reviewTargets, type ReviewTarget } from '../../../shared/review';
 import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
 import {
@@ -835,6 +837,17 @@ function TaskDetail({
     if (next !== task.label) void run(() => api.updateTask(task.id, { label: next }));
   };
   const links = data.taskLinks.filter(link => link.taskId === task.id);
+  const files = data.taskFiles.filter(file => file.taskId === task.id);
+  // The task folder stages, the brain keeps. The copy is deterministic; the agent writes the page and the
+  // Timeline entries, because deciding which pages a file touches is judgment.
+  const fileInBrain = (file: Snapshot['taskFiles'][number]) => void run(async () => {
+    const filed = await api.fileToBrain(file.id, brainSlug(file.name));
+    notify(`Filed in the brain · ${filed.brainPath}`);
+    if (!task.threadId || task.status === 'running') return;
+    // Asking the agent to finish the filing is work on this task, so the task stays in front of you.
+    onSend();
+    await api.sendMessage(task.threadId, brainFilingRequest(file.name, filed.brainPath!));
+  });
   const saveTitle = () => {
     if (cancelledTitle.current) { cancelledTitle.current = false; setTitle(task.title); return; }
     const next = title.trim();
@@ -899,6 +912,20 @@ function TaskDetail({
               {taskLinkLabel(link.url)} <ExternalLink size={11} />
             </a>
             <button type="button" aria-label={`Remove link ${link.url}`} title="Remove link" onClick={() => void run(() => api.removeTaskLink(link.id))}><X size={11} /></button>
+          </span>
+        ))}
+        {files.map(file => (
+          <span className="ws-task-link" key={file.id}>
+            <a href="#" title={file.brainPath ? `Filed in the brain: ${file.brainPath}` : `${file.name} · ${fileSize(file.bytes)}`}
+              onClick={event => { event.preventDefault(); void run(() => api.openTaskFile(file.id)); }}>
+              <KindIcon kind={file.kind} name={file.name} /> {file.name}
+            </a>
+            {data.brainDir && !file.brainPath && (
+              <button type="button" aria-label={`File ${file.name} in the brain`} title="File it in the brain: sources/<slug>, with a page and Timeline entries"
+                onClick={() => fileInBrain(file)}><Brain size={11} /></button>
+            )}
+            <button type="button" aria-label={`Remove attachment ${file.name}`} title="Remove attachment (⌘Z to undo)"
+              onClick={() => void run(async () => { await api.removeTaskFile(file.id); notify('Attachment removed · ⌘Z to undo'); })}><X size={11} /></button>
           </span>
         ))}
       </div>

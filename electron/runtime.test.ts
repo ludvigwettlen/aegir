@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -844,5 +844,71 @@ describe('sending draft cards', () => {
     const plain = firstCard(codex.store, other.id);
     expect(codex.card(plain).state).toBe('pending');
     await expect(codex.runtime.sendDraft(plain, 'Hej')).rejects.toThrow('needs the Claude Code engine');
+  });
+});
+
+describe('attachments', () => {
+  // A file dropped in a task conversation: copied into the task folder before the send, claimed by the
+  // user message, and handed to the run as an absolute path.
+  it('hands the run the attached files, keeps them on the todo, and tells routines nothing', async () => {
+    const { store, runtime, runs } = setup();
+    const task = store.createTask({ title: 'Read the board pack' });
+    const outputDir = join(mkdtempSync(join(tmpdir(), 'aegir-task-')), 'board');
+    mkdirSync(join(outputDir, 'attachments'), { recursive: true });
+    writeFileSync(join(outputDir, 'attachments', 'pack.pdf'), '%PDF-1.7');
+    writeFileSync(join(outputDir, 'attachments', 'model.xlsx'), 'PK');
+    const thread = store.createThread(store.groups()[0].id, task.title, 'task', task.id);
+    store.updateTask(task.id, { threadId: thread.id, outputDir });
+    const stage = (name: string, kind: 'pdf' | 'office') => store.addTaskFile({
+      taskId: null, threadId: thread.id, messageId: null, root: 'task', path: `attachments/${name}`, name,
+      kind, mime: 'application/octet-stream', bytes: 8, sha256: name, originalPath: `/Downloads/${name}`,
+      brainPath: null, brainFiledAt: null,
+    });
+    const pack = stage('pack.pdf', 'pdf');
+    const model = stage('model.xlsx', 'office');
+    await runtime.sendMessage(thread.id, 'Pull the three numbers that changed', true, [pack.id, model.id]);
+    const attached = runs.at(-1)!.prompt;
+    expect(attached).toContain(`Files attached to this message (read them with Read; absolute paths):\n- ${join(outputDir, 'attachments', 'pack.pdf')} (PDF, 8 B)`);
+    expect(attached).toContain('Use the xlsx skill to read it.');
+    expect(attached).not.toContain('Files already on this todo');
+    // The message carries its chips, and the files now belong to the task.
+    const sent = store.messagesForThread(thread.id)[0];
+    expect(sent.meta).toMatchObject({ type: 'attachments', files: [{ id: pack.id }, { id: model.id }] });
+    expect(store.taskFiles(task.id).map(file => file.name)).toEqual(['pack.pdf', 'model.xlsx']);
+    expect(() => store.stagedFiles([pack.id], thread)).toThrow('already sent');
+    // A later turn sees them as files already on the todo, with the date they were attached.
+    await runtime.sendMessage(thread.id, 'Now compare with Q2');
+    expect(runs.at(-1)!.prompt).toContain(`Files already on this todo:\n- ${join(outputDir, 'attachments', 'pack.pdf')} (PDF, 8 B, attached `);
+    expect(runs.at(-1)!.prompt).not.toContain('Files attached to this message');
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    const routine = runs.find(run => run.kind === 'routine')!;
+    expect(routine.prompt).not.toContain('pack.pdf');
+    expect(routine.prompt).not.toContain('Files attached to this message');
+  });
+
+  it('sends a message that is only files, and reads a filed attachment from the brain', async () => {
+    const { store, runtime, runs } = setup();
+    const task = store.createTask({ title: 'Look at this slide' });
+    const outputDir = join(mkdtempSync(join(tmpdir(), 'aegir-task-')), 'slide');
+    mkdirSync(join(outputDir, 'attachments'), { recursive: true });
+    const thread = store.createThread(store.groups()[0].id, task.title, 'task', task.id);
+    store.updateTask(task.id, { threadId: thread.id, outputDir });
+    const file = store.addTaskFile({
+      taskId: task.id, threadId: thread.id, messageId: null, root: 'task', path: 'attachments/slide.png',
+      name: 'slide.png', kind: 'image', mime: 'image/png', bytes: 310_000, sha256: 'slide',
+      originalPath: null, brainPath: '/Users/m/brain/sources/q3-close/slide.png', brainFiledAt: '2026-10-06T09:00:00.000Z',
+    });
+    await runtime.sendMessage(thread.id, '', true, [file.id]);
+    expect(runs.at(-1)!.prompt).toContain('Current message:\nNo instruction, the files are the message.');
+    // Filed in the brain, so the run is pointed at the copy with the page and the backlinks.
+    expect(runs.at(-1)!.prompt).toContain('- /Users/m/brain/sources/q3-close/slide.png (image, 303 KB)');
+    expect(store.messagesForThread(thread.id)[0].content).toBe('');
+  });
+
+  it('refuses a send whose attachment is gone, leaving the draft and its chips intact', async () => {
+    const { store, runtime } = setup();
+    const thread = store.createThread(store.groups()[0].id, 'Mgmt');
+    await expect(runtime.sendMessage(thread.id, 'Here it is', true, ['no-such-file'])).rejects.toThrow('no longer available');
+    expect(store.messagesForThread(thread.id)).toHaveLength(0);
   });
 });

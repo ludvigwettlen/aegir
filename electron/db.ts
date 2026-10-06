@@ -14,6 +14,7 @@ import type {
   RoutineSchedule,
   RunEvent,
   Task,
+  TaskFile,
   TaskLink,
   TaskChange,
   Thread,
@@ -22,6 +23,7 @@ import type {
 } from '../shared/types.js';
 import { defaultAgents, legacyAgents , singleLeadInstructions } from './default-agents.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
+import { MAX_FILES_PER_MESSAGE } from '../shared/task-files.js';
 import type { SkillProposal } from '../shared/skills.js';
 
 const now = () => new Date().toISOString();
@@ -33,9 +35,10 @@ type RoutineRow = Omit<Routine, 'schedule' | 'enabled'> & { schedule: string; en
 type TaskUndo =
   | { kind: 'created'; taskId: string }
   | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[] }
-  | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[] }
+  | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[]; files: TaskFile[] }
   | { kind: 'link-added'; link: TaskLink; previous?: TaskLink }
-  | { kind: 'link-removed'; link: TaskLink };
+  | { kind: 'link-removed'; link: TaskLink }
+  | { kind: 'file-removed'; file: TaskFile };
 const toGroup = (row: GroupRow): Group => ({
   ...row,
   agentIds: JSON.parse(row.agentIds) as string[],
@@ -59,6 +62,9 @@ export class Store {
   readonly db: Database.Database;
   private readonly taskUndo: TaskUndo[] = [];
   onMessage?: (message: Message) => void;
+  // The bytes behind an attachment row: moved to removed/ when it goes, back again on undo. The store
+  // owns the rows, the main process owns the files.
+  onTaskFileMoved?: (file: TaskFile, action: 'remove' | 'restore') => void;
   constructor(path = join(app.getPath('userData'), 'aegir.sqlite')) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
@@ -83,6 +89,10 @@ export class Store {
         SELECT rowid FROM (SELECT rowid, ROW_NUMBER() OVER (PARTITION BY taskId ORDER BY createdAt DESC, rowid DESC) AS position FROM task_links) WHERE position=1
       ); CREATE UNIQUE INDEX IF NOT EXISTS task_links_single_task ON task_links(taskId);`);
     })();
+    // Many files per task, unlike task_links, which stays one row per task for URLs and deep links.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS task_files(id TEXT PRIMARY KEY,taskId TEXT,threadId TEXT,messageId TEXT,root TEXT NOT NULL,path TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL,mime TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,originalPath TEXT,brainPath TEXT,brainFiledAt TEXT,createdAt TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS task_files_task ON task_files(taskId);
+      CREATE INDEX IF NOT EXISTS task_files_thread ON task_files(threadId);`);
     this.db.exec('CREATE INDEX IF NOT EXISTS messages_thread ON messages(threadId);');
     this.seedAgentTeam();
     this.renameLeadAgent();
@@ -634,15 +644,18 @@ export class Store {
       ? this.db.prepare('SELECT * FROM messages WHERE threadId=? ORDER BY rowid').all(thread.id) as MessageRow[]
       : [];
     const links = this.taskLinks(id);
+    const files = this.taskFiles(id);
     this.db.transaction(() => {
       if (thread?.kind === 'task') {
         this.db.prepare('DELETE FROM messages WHERE threadId=?').run(thread.id);
         this.db.prepare('DELETE FROM threads WHERE id=?').run(thread.id);
       }
       this.db.prepare('DELETE FROM task_links WHERE taskId=?').run(id);
+      // The task folder and its attachments are left on disk, as they are today.
+      this.db.prepare('DELETE FROM task_files WHERE taskId=?').run(id);
       this.db.prepare('DELETE FROM tasks WHERE id=?').run(id);
     })();
-    if (undoable) this.rememberTaskAction({ kind: 'deleted', task, thread: thread?.kind === 'task' ? thread : null, messages, links });
+    if (undoable) this.rememberTaskAction({ kind: 'deleted', task, thread: thread?.kind === 'task' ? thread : null, messages, links, files });
   }
 
   taskLinks(taskId?: string): TaskLink[] {
@@ -674,6 +687,58 @@ export class Store {
     if (!link) throw new Error('Link not found');
     this.db.prepare('DELETE FROM task_links WHERE id=?').run(linkId);
     this.rememberTaskAction({ kind: 'link-removed', link });
+  }
+  taskFiles(taskId?: string): TaskFile[] {
+    return taskId
+      ? this.db.prepare('SELECT * FROM task_files WHERE taskId=? ORDER BY createdAt, rowid').all(taskId) as TaskFile[]
+      : this.db.prepare('SELECT * FROM task_files ORDER BY createdAt, rowid').all() as TaskFile[];
+  }
+  threadFiles(threadId: string): TaskFile[] {
+    return this.db.prepare('SELECT * FROM task_files WHERE threadId=? ORDER BY createdAt, rowid').all(threadId) as TaskFile[];
+  }
+  taskFile(id: string): TaskFile | undefined {
+    return this.db.prepare('SELECT * FROM task_files WHERE id=?').get(id) as TaskFile | undefined;
+  }
+  addTaskFile(input: Omit<TaskFile, 'id' | 'createdAt'>): TaskFile {
+    const row: TaskFile = { ...input, id: randomUUID(), createdAt: now() };
+    this.insertTaskFile(row);
+    return row;
+  }
+  private insertTaskFile(file: TaskFile) {
+    this.db.prepare('INSERT INTO task_files(id,taskId,threadId,messageId,root,path,name,kind,mime,bytes,sha256,originalPath,brainPath,brainFiledAt,createdAt) VALUES (@id,@taskId,@threadId,@messageId,@root,@path,@name,@kind,@mime,@bytes,@sha256,@originalPath,@brainPath,@brainFiledAt,@createdAt)').run(file);
+  }
+  // The files a send may carry: staged in this thread, not already sent with an earlier message.
+  stagedFiles(ids: string[], thread: Thread): TaskFile[] {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return [];
+    if (unique.length > MAX_FILES_PER_MESSAGE) throw new Error(`Attach at most ${MAX_FILES_PER_MESSAGE} files to one message`);
+    return unique.map(id => {
+      const file = this.taskFile(id);
+      if (!file || file.threadId !== thread.id) throw new Error('An attachment is no longer available');
+      if (file.messageId) throw new Error('That attachment was already sent');
+      return file;
+    });
+  }
+  // A sent message claims its files, so they render as chips on reload and belong to the task from then on.
+  attachFilesToMessage(files: TaskFile[], messageId: string, taskId: string | null): TaskFile[] {
+    const claim = this.db.prepare('UPDATE task_files SET messageId=?,taskId=COALESCE(taskId,?) WHERE id=?');
+    this.db.transaction(() => { for (const file of files) claim.run(messageId, taskId, file.id); })();
+    return files.map(file => this.taskFile(file.id)!);
+  }
+  setTaskFileTask(id: string, taskId: string) {
+    if (!this.get('tasks', taskId)) throw new Error('Task not found');
+    this.db.prepare('UPDATE task_files SET taskId=? WHERE id=?').run(taskId, id);
+  }
+  setTaskFileBrainPath(id: string, brainPath: string) {
+    this.db.prepare('UPDATE task_files SET brainPath=?,brainFiledAt=? WHERE id=?').run(brainPath, now(), id);
+  }
+  // The row goes, the bytes move to removed/, and Cmd+Z brings both back.
+  removeTaskFile(id: string) {
+    const file = this.taskFile(id);
+    if (!file) throw new Error('This attachment no longer exists');
+    this.onTaskFileMoved?.(file, 'remove');
+    this.db.prepare('DELETE FROM task_files WHERE id=?').run(id);
+    this.rememberTaskAction({ kind: 'file-removed', file });
   }
   private rememberTaskAction(action: TaskUndo) {
     this.taskUndo.push(action);
@@ -710,9 +775,15 @@ export class Store {
             this.db.prepare('INSERT INTO messages(id,roomId,threadId,agentId,role,content,status,meta,createdAt) VALUES (@id,@roomId,@threadId,@agentId,@role,@content,@status,@meta,@createdAt)').run(message);
         }
         for (const link of action.links) this.insertTaskLink(link);
+        for (const file of action.files) this.insertTaskFile(file);
       })();
       taskId = action.task.id;
       label = 'task deletion';
+    } else if (action.kind === 'file-removed') {
+      this.onTaskFileMoved?.(action.file, 'restore');
+      this.insertTaskFile(action.file);
+      taskId = action.file.taskId || action.file.id;
+      label = 'attachment removal';
     } else if (action.kind === 'link-added') {
       this.db.transaction(() => {
         this.db.prepare('DELETE FROM task_links WHERE id=?').run(action.link.id);

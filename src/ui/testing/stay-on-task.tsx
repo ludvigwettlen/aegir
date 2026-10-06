@@ -27,7 +27,7 @@ const data = {
     task('research', 'Research competitor pricing', { status: 'review', threadId: 'research-thread', agentId: 'lead', outputDir: '/mock' }),
     task('offsite', 'Plan offsite', { dueAt: today }),
   ],
-  taskLinks: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '',
+  taskLinks: [], taskFiles: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '',
   codexStatus: 'Connected', engine: 'Claude Code', memoryProvider: 'gbrain',
   reminders: { enabled: false, list: '', state: 'off', detail: '', lastSyncAt: null }, launchAtLogin: false,
   browser: { enabled: false, status: 'disabled', detail: '', threadId: null },
