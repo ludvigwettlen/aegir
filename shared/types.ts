@@ -39,34 +39,53 @@ export type RoutineChange = {
 // One thing an agent did while working on a reply: a tool it used, or an approval you answered.
 export type Step = { kind: 'tool' | 'approval'; label: string; at: string; outcome?: 'approved' | 'declined' };
 // An email or Slack message the agent wrote for the user to send, shown as an editable card in the conversation.
-// The user edits the text there, copies it, and sends it from Slack or Superhuman. Legolas itself sends nothing:
-// "I sent it" only records that the user did, so the agent knows in later turns.
-export type DraftState = 'pending' | 'sent' | 'discarded' | 'replaced';
-export type SlackDestination = { channelId: string; threadTs?: string };
+// The user edits the text there and presses Send: after five seconds to undo, Legolas sends exactly the card's text
+// through the user's own Slack or Superhuman connection (a locked run, see electron/gated.ts). Or they copy it, send
+// it themselves, and press "I sent it", so the agent knows in later turns.
+// checking: Legolas is confirming the destination with Slack or Superhuman itself; Send waits for it.
+// queued: Send was pressed and the undo window is open; nothing has gone out.
+// sending: the send call was released. If its answer is lost the card says 'unknown', never 'failed', so a retry
+// can't send twice.
+export type DraftState = 'checking' | 'pending' | 'queued' | 'sending' | 'sent' | 'failed' | 'unknown' | 'discarded' | 'replaced';
+export type SlackDestination = {
+  channelId: string;
+  threadTs?: string;
+  // Slack's own name for the destination ("Johan Lund", "mgmt"), once confirmed; null when it couldn't be confirmed.
+  name?: string | null;
+};
 export type EmailDestination = {
   to: string[];
   cc: string[];
   bcc: string[];
   subject: string;
-  // The Superhuman draft the agent created, when it did, so the card can open it.
+  // The Superhuman draft the card sends and opens. Without one, the card can be copied but not sent from Legolas.
   draftId?: string;
   threadId?: string;
   account?: string;
+  // What Superhuman's create_or_update_draft needs on every call.
+  type?: 'new' | 'reply' | 'reply_all' | 'forward';
+  // True once the rows above come from Superhuman itself rather than from the agent.
+  confirmed?: boolean;
 };
 export type MessageDraft = {
   type: 'message-draft';
   channel: 'slack' | 'email';
-  // Where it goes, in the agent's words ("DM to Johan Lund", "#mgmt"). Shown as the agent's description, with the
-  // raw ids or addresses beside it, for the user to check before sending.
+  // Where it goes, in the agent's words ("DM to Johan Lund", "#mgmt"). Shown next to what Slack or Superhuman confirm.
   label: string;
-  // The agent's text, and the text as the user last left it.
+  // The agent's text, and the text as the user last left it (or as it was sent).
   original: string;
   text: string;
   state: DraftState;
   slack?: SlackDestination;
   email?: EmailDestination;
-  // When the user marked it sent.
+  // Why the destination couldn't be confirmed, or why the last send didn't go out.
+  error?: string;
+  queuedAt?: string;
   sentAt?: string;
+  // 'legolas' when Send sent it, 'you' when the user marked it sent.
+  sentBy?: 'legolas' | 'you';
+  // Open in Slack or Superhuman, once sent.
+  link?: string;
   replacedBy?: string;
 };
 export type MessageMeta = {
@@ -215,9 +234,14 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
 
 export interface DesktopApi extends SkillsApi {
-  // Draft cards: save the text as you type, record that you sent it (with the text you sent), or discard it.
+  // Draft cards: save the text as you type, send it (five seconds to undo), take the send back, record that you sent
+  // it yourself (with the text you sent), or discard it.
   updateDraft(messageId: string, text: string): Promise<void>;
+  sendDraft(messageId: string, text: string): Promise<void>;
+  undoDraftSend(messageId: string): Promise<void>;
   markDraftSent(messageId: string, text: string): Promise<void>;
+  // Takes back "I sent it" when it didn't actually go out. A card Legolas sent can't be reopened.
+  reopenDraft(messageId: string): Promise<void>;
   discardDraft(messageId: string): Promise<void>;
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;

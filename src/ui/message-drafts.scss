@@ -29,6 +29,12 @@
 // A tertiary link after the actions, so Copy, I sent it and Discard stay on one line in the narrowest panel.
 .ws-draft-actions .ws-draft-open { padding: 0 6px; color: var(--ds-color-link); }
 .ws-draft-status { font-size: 12.5px; font-weight: 600; color: var(--ds-color-lime-ink); }
+// What Slack confirmed, in ink: the agent's description above it is only its claim.
+.ws-draft-confirmed { color: var(--ds-color-ink); font-weight: 500; }
+// Couldn't confirm the destination, or lost track of a send: lemon, with the words doing the work.
+.ws-draft-warning { padding: 6px 9px; border-radius: 8px; background: #fff7c7; color: #4a3f00; font-size: 12px; line-height: 1.5; }
+.ws-draft-error { padding: 6px 9px; border-radius: 8px; background: #fdecea; color: #7a1f17; font-size: 12px; line-height: 1.5; }
+.ws-draft-state.failed, .ws-draft-state.unknown { background: #fff7c7; color: #4a3f00; }
 .ws-draft-announce { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 // Discarded and replaced drafts fold to one muted line; the text stays readable inside.
 .ws-draft.folded { padding: 0; border: 0; background: transparent; gap: 0; }

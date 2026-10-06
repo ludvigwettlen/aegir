@@ -441,7 +441,11 @@ function registerIpc() {
     runtime.resolveRoutineChange(messageId, apply),
   );
   handle('draft-update', (messageId: string, text: string) => runtime.updateDraft(messageId, text));
+  // Returns once the send is queued; the card follows the rest (sending, sent) through message events.
+  handle('draft-send', (messageId: string, text: string) => runtime.sendDraft(messageId, text));
+  handle('draft-undo', (messageId: string) => runtime.undoDraftSend(messageId));
   handle('draft-sent', (messageId: string, text: string) => runtime.markDraftSent(messageId, text));
+  handle('draft-reopen', (messageId: string) => runtime.reopenDraft(messageId));
   handle('draft-discard', (messageId: string) => runtime.discardDraft(messageId));
   handle('run-events', (runId: string) => store.runEvents(runId));
   handle('resolve-approval', (id: string, approved: boolean) => {

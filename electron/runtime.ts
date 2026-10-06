@@ -4,6 +4,7 @@ import type {
   Agent,
   AppEvent,
   Group,
+  DraftState,
   Message,
   MessageDraft,
   Routine,
@@ -15,6 +16,7 @@ import type {
 import { addStep, describeStep } from './steps.js';
 import type { Store } from './db.js';
 import type { ModelProvider, Tool } from './codex.js';
+import type { GatedOutcome } from './gated.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { modelTierForRole } from '../shared/model-policy.js';
@@ -26,7 +28,10 @@ import { handleSkillTool, skillTools } from './skill-tools.js';
 import type { SkillProposal } from '../shared/skills.js';
 import { mentionsAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
-import { cleanDraftText, draftFromTool, draftHistory } from './message-drafts.js';
+import {
+  canSend, checkPlan, cleanDraftText, draftFromTool, draftHistory, learnFromToolResult, needsCheck, nothingKnown,
+  readToolResponse, sameDestination, sendPlan, UNDO_MS, type Known, type SendPlan,
+} from './message-drafts.js';
 import {
   cleanRoutineChange,
   connectorToolsFor,
@@ -69,6 +74,14 @@ export class Runtime {
   private runningThreads = new Map<string, { cancelled: boolean }>();
   private runningRoutines = new Set<string>();
   private handingOffTasks = new Set<string>();
+  // What Slack and Superhuman returned in each conversation, so draft cards can show a confirmed destination at once.
+  private known = new Map<string, Known>();
+  // Draft sends in their undo window or in flight, by card id. Undo aborts them.
+  private sends = new Map<string, AbortController>();
+  // Destination checks run one at a time, each in its own locked run.
+  private checks: Promise<void> = Promise.resolve();
+  // The draft card undo window. Tests shorten it.
+  undoMs = UNDO_MS;
   private timer: NodeJS.Timeout | null = null;
   private startupTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -87,6 +100,13 @@ export class Runtime {
     this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId);
     for (const proposal of this.skills.proposals())
       store.ensureSkillProposalMessage(proposal, this.skills.get(proposal.skillId).name);
+    // Sends Legolas quit in the middle of. Before the send call was released nothing went out; after it, nobody knows.
+    for (const message of store.draftsIn(['queued', 'sending'])) {
+      const draft = message.meta as MessageDraft;
+      store.setMessageMeta(message.id, draft.state === 'queued'
+        ? { ...draft, state: 'failed', queuedAt: undefined, error: 'Legolas closed before sending it. Nothing went out.' }
+        : { ...draft, state: 'unknown', error: `Legolas closed while sending it. Check ${draft.channel === 'email' ? 'Superhuman' : 'Slack'} before sending again.` });
+    }
   }
 
   contextFor(codexThreadId: string) {
@@ -371,6 +391,8 @@ export class Runtime {
           const label = describeStep(item);
           if (label) reply.note({ kind: 'tool', label, at: new Date().toISOString() });
         },
+        // Superhuman drafts and Slack names as the connectors returned them, for draft cards in this conversation.
+        onToolResult: (name, toolInput, response) => learnFromToolResult(name, toolInput, response, this.knownFor(thread.id)),
         onDelta: (delta) => {
           if (!this.available) return;
           streamed += delta;
@@ -574,21 +596,24 @@ ${memoryGuidance}`;
     if (provider === 'messages' && tool === 'draft') {
       if (!context?.threadId || (context.kind !== 'chat' && context.kind !== 'task') || this.runningThreads.get(context.threadId)?.cancelled)
         throw new Error('Draft cards can only be shown in a conversation, while you answer');
-      const draft = draftFromTool(args);
+      const draft = draftFromTool(args, this.knownFor(context.threadId));
+      // Send waits until Slack or Superhuman confirm where it goes. Without Claude Code it can only be copied.
+      if (needsCheck(draft) && this.codex.sendGated) draft.state = 'checking';
       const card = this.store.addMessage(context.threadId, context.agentId ?? null, 'system', `${draft.channel === 'email' ? 'Email' : 'Slack'} draft: ${draft.label}`, 'complete', draft);
       // A newer draft replaces one the user hasn't sent: the card named in `replaces`, or the same Superhuman draft.
       const replaces = typeof args.replaces === 'string' ? args.replaces : '';
       let replaced = false;
       for (const message of this.store.messagesForThread(context.threadId)) {
-        if (message.id === card.id || message.meta?.type !== 'message-draft' || message.meta.state !== 'pending') continue;
+        if (message.id === card.id || message.meta?.type !== 'message-draft' || !['checking', 'pending', 'failed'].includes(message.meta.state)) continue;
         if (message.id === replaces || (!!draft.email?.draftId && message.meta.email?.draftId === draft.email.draftId)) {
           this.store.setMessageMeta(message.id, { ...message.meta, state: 'replaced', replacedBy: card.id });
           replaced = true;
         }
       }
       context.drafts?.push(card.id);
+      if (draft.state === 'checking') this.queueCheck(card.id);
       this.refresh();
-      return { card: card.id, replaced, note: 'The card is under your reply. The user edits it, copies it and sends it from Slack or Superhuman. It has not been sent.' };
+      return { card: card.id, replaced, note: 'The card is under your reply. The user edits it there and presses Send, or copies it and sends it themselves. It has not been sent, and you never send it yourself.' };
     }
     if (provider === 'routines' && tool === 'propose_change') {
       if (!context?.threadId)
@@ -610,27 +635,129 @@ ${memoryGuidance}`;
     return undefined;
   }
   // ---- Draft cards ------------------------------------------------------------
-  // The user edits a card, records that they sent it, or discards it. Legolas never sends a draft itself.
+  // The user edits a card and presses Send (five seconds to undo), or sends it themselves and says so, or discards it.
+  // Legolas sends only what the card says, to the destination Slack or Superhuman confirmed, after that click.
+  private static editable: DraftState[] = ['checking', 'pending', 'failed', 'unknown'];
   private draftCard(messageId: string): MessageDraft {
     const message = this.store.message(messageId);
     if (!message || message.meta?.type !== 'message-draft') throw new Error('This draft no longer exists');
     return message.meta;
   }
+  private knownFor(threadId: string): Known {
+    let known = this.known.get(threadId);
+    if (!known) this.known.set(threadId, known = nothingKnown());
+    return known;
+  }
+  // Changes a card only while it is in one of `from`. Store calls are synchronous, so nothing can slip in between.
+  private moveDraft(messageId: string, from: DraftState[], change: Partial<MessageDraft>): MessageDraft | null {
+    const message = this.store.message(messageId);
+    if (!this.available || message?.meta?.type !== 'message-draft' || !from.includes(message.meta.state)) return null;
+    const next: MessageDraft = { ...message.meta, ...change };
+    this.store.setMessageMeta(messageId, next);
+    return next;
+  }
   updateDraft(messageId: string, text: string) {
     const draft = this.draftCard(messageId);
-    if (draft.state !== 'pending') throw new Error('This draft can no longer be edited');
+    if (!Runtime.editable.includes(draft.state)) throw new Error('This draft can no longer be edited');
     const next = cleanDraftText(text);
-    if (next !== draft.text) this.store.setMessageMeta(messageId, { ...draft, text: next });
+    if (next !== draft.text) this.moveDraft(messageId, Runtime.editable, { text: next });
+  }
+  // Queues the send and returns. The locked run starts at once and waits at the send call until the undo window has
+  // passed; the card follows the rest (sending, sent) through message events.
+  async sendDraft(messageId: string, text: string) {
+    if (!this.available) throw new Error('Runtime is stopped');
+    const draft = this.draftCard(messageId);
+    if (draft.state === 'queued' || draft.state === 'sending') throw new Error('This draft is already being sent');
+    if (!['pending', 'failed', 'unknown'].includes(draft.state)) throw new Error('This draft can no longer be sent');
+    if (!this.codex.sendGated) throw new Error('Sending from Legolas needs the Claude Code engine. Copy it instead.');
+    if (!canSend(draft)) throw new Error(draft.channel === 'slack'
+      ? "Legolas couldn't confirm where this goes, so it won't send it. Copy it instead."
+      : 'Legolas only sends an email that is in Superhuman. Ask Claude to put it there, or copy it.');
+    const body = cleanDraftText(text);
+    if (!body.trim()) throw new Error('The draft is empty');
+    const queued = this.moveDraft(messageId, ['pending', 'failed', 'unknown'], { text: body, state: 'queued', queuedAt: new Date().toISOString(), error: undefined });
+    if (!queued) throw new Error('This draft is already being sent');
+    const abort = new AbortController();
+    this.sends.set(messageId, abort);
+    void this.deliver(messageId, queued, abort).finally(() => { if (this.sends.get(messageId) === abort) this.sends.delete(messageId); });
+  }
+  private async deliver(messageId: string, draft: MessageDraft, abort: AbortController) {
+    // The commit point: waits out the undo window, then marks the card sending, unless the user took it back.
+    const commit = async () => {
+      const wait = Date.parse(draft.queuedAt || '') + this.undoMs - Date.now();
+      if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+      return !abort.signal.aborted && !!this.moveDraft(messageId, ['queued'], { state: 'sending' });
+    };
+    let plan: SendPlan;
+    try { plan = sendPlan(draft, commit); }
+    catch (error) { this.moveDraft(messageId, ['queued'], { state: 'failed', error: String(error).replace(/^Error: /, '') }); return; }
+    let outcome: GatedOutcome;
+    try { outcome = await this.codex.sendGated!(plan.calls, abort.signal, readToolResponse); }
+    catch (error) { outcome = { results: [], released: 0, completed: false, error: String(error).replace(/^Error: /, '') }; }
+    const now = this.store.isOpen ? this.store.message(messageId)?.meta : undefined;
+    if (!this.available || now?.type !== 'message-draft') return;
+    if (now.state === 'queued') {
+      // Stopped before the send call was released, so nothing went out. For email, the draft may have moved.
+      const live = plan.live?.(outcome.results);
+      const moved = !!(live && draft.email && !sameDestination(draft.email, live));
+      this.moveDraft(messageId, ['queued'], {
+        state: 'failed', queuedAt: undefined,
+        error: moved && live
+          ? `The draft in Superhuman now goes to ${[...live.to, ...live.cc, ...live.bcc].join(', ')}, subject "${live.subject}". The card shows that now. Check it and send again.`
+          : outcome.error || "It didn't go out",
+        ...(moved && live ? { email: { ...draft.email!, ...live } } : {}),
+      });
+      return;
+    }
+    // Undone or discarded meanwhile. Otherwise the send call was released: only its own answer can say what happened.
+    if (now.state !== 'sending') return;
+    const result = outcome.results[plan.sendIndex];
+    const verdict = outcome.completed && result !== undefined
+      ? plan.verdict(result)
+      : { state: 'unknown' as const, error: outcome.error || "Legolas didn't get an answer to the send" };
+    this.moveDraft(messageId, ['sending'], verdict.state === 'sent'
+      ? { state: 'sent', sentBy: 'legolas', sentAt: verdict.sentAt, ...(verdict.link ? { link: verdict.link } : {}), queuedAt: undefined, error: undefined }
+      : { state: verdict.state, queuedAt: undefined, error: verdict.error });
+  }
+  undoDraftSend(messageId: string) {
+    const draft = this.draftCard(messageId);
+    if (draft.state === 'sending' || draft.state === 'sent') throw new Error(`Too late, it has gone to ${draft.channel === 'email' ? 'Superhuman' : 'Slack'}`);
+    if (this.moveDraft(messageId, ['queued'], { state: 'pending', queuedAt: undefined })) this.sends.get(messageId)?.abort();
   }
   markDraftSent(messageId: string, text: string) {
     const draft = this.draftCard(messageId);
     if (draft.state === 'sent') return;
-    if (draft.state !== 'pending') throw new Error('This draft was discarded or replaced');
-    this.store.setMessageMeta(messageId, { ...draft, text: cleanDraftText(text), state: 'sent', sentAt: new Date().toISOString() });
+    if (!Runtime.editable.includes(draft.state)) throw new Error(draft.state === 'queued' || draft.state === 'sending' ? 'This draft is being sent' : 'This draft was discarded or replaced');
+    this.moveDraft(messageId, Runtime.editable, { text: cleanDraftText(text), state: 'sent', sentBy: 'you', sentAt: new Date().toISOString(), error: undefined });
+  }
+  // Takes back "I sent it" when it didn't actually go out, so the card can be sent from Legolas after all. A card
+  // Legolas sent can't be reopened: it went out.
+  reopenDraft(messageId: string) {
+    const draft = this.draftCard(messageId);
+    if (draft.state !== 'sent') throw new Error('Only a draft marked sent can be reopened');
+    if (draft.sentBy === 'legolas') throw new Error(`Legolas sent this one, so it has gone to ${draft.channel === 'email' ? 'Superhuman' : 'Slack'}`);
+    const check = needsCheck(draft) && !!this.codex.sendGated;
+    if (this.moveDraft(messageId, ['sent'], { state: check ? 'checking' : 'pending', sentAt: undefined, sentBy: undefined }) && check) this.queueCheck(messageId);
   }
   discardDraft(messageId: string) {
-    const draft = this.draftCard(messageId);
-    if (draft.state === 'pending') this.store.setMessageMeta(messageId, { ...draft, state: 'discarded' });
+    this.draftCard(messageId);
+    this.moveDraft(messageId, Runtime.editable, { state: 'discarded' });
+  }
+  // Confirms where a card goes with Slack or Superhuman itself: read-only calls in a locked run, one card at a time.
+  private queueCheck(messageId: string) {
+    this.checks = this.checks.then(() => this.checkDraft(messageId)).catch(() => {});
+  }
+  private async checkDraft(messageId: string) {
+    const message = this.available ? this.store.message(messageId) : undefined;
+    if (message?.meta?.type !== 'message-draft' || message.meta.state !== 'checking') return;
+    const plan = checkPlan(message.meta);
+    if (!plan || !this.codex.sendGated) { this.moveDraft(messageId, ['checking'], { state: 'pending' }); return; }
+    let results: unknown[] = [];
+    let error: string | undefined;
+    try { ({ results, error } = await this.codex.sendGated(plan.calls, undefined, readToolResponse)); }
+    catch (cause) { error = String(cause).replace(/^Error: /, ''); }
+    const found = plan.read(results);
+    this.moveDraft(messageId, ['checking'], { ...found, state: 'pending', ...(found.error && error && error !== 'not found' ? { error: `${found.error} (${error})` } : {}) });
   }
   resolveRoutineChange(messageId: string, apply: boolean) {
     const message = this.store.message(messageId);
@@ -672,6 +799,13 @@ ${memoryGuidance}`;
     if (!this.available || this.timer) return;
     this.timer = setInterval(() => this.tick(), 60_000);
     this.startupTimer = setTimeout(() => this.tick(), 5_000);
+    // Draft cards whose destination check didn't finish before Legolas last quit, and cards from before Send
+    // existed, so they can be sent from Legolas too.
+    for (const message of this.store.draftsIn(['checking', 'pending'])) {
+      const draft = message.meta as MessageDraft;
+      if (draft.state === 'checking') this.queueCheck(message.id);
+      else if (needsCheck(draft) && this.codex.sendGated && this.moveDraft(message.id, ['pending'], { state: 'checking' })) this.queueCheck(message.id);
+    }
   }
   stop() {
     this.stopped = true;
@@ -679,6 +813,8 @@ ${memoryGuidance}`;
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.timer = null;
     this.startupTimer = null;
+    // A send still in its undo window never goes out; one already released is settled as unknown at the next start.
+    for (const abort of this.sends.values()) abort.abort();
     for (const execution of this.runningThreads.values()) execution.cancelled = true;
     for (const id of [...this.active.keys()]) this.untrack(id);
   }

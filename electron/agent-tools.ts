@@ -49,14 +49,14 @@ export const proposeRoutineTool: Tool = {
   readOnly: false
 };
 
-// Chats and tasks: hand the user a message to send, as an editable card. It sends nothing.
+// Chats and tasks: hand the user a message to send, as an editable card. Calling it sends nothing.
 export const draftMessageTool: Tool = {
   name: 'messages__draft',
   description: [
     'Show the user an email or Slack message you wrote for them, as an editable draft card in this conversation. Use it whenever the user should send something (a reply, a DM, a follow-up), instead of pasting the message into your reply or leaving it only in a file. Saving a copy in a file as well is fine.',
-    'This sends nothing and writes nothing outside Legolas. The card appears under your reply; the user edits the text there, copies it and sends it from Slack or Superhuman themselves. Never send it yourself.',
+    'Calling this sends nothing. The card appears under your reply. The user edits the text there and presses Send, and Legolas sends exactly the card\'s text after confirming the destination with Slack or Superhuman; or the user copies it and sends it themselves. Never send it yourself.',
     'Slack: slack.channel_id is the channel (C…), private channel (G…), DM (D…), or the person\'s user id (U…) for a DM; find it with the Slack search tools. slack.thread_ts replies in a thread.',
-    'Email: email.to (and cc, bcc) and email.subject. If you created the draft in Superhuman, also pass its draft_id and thread_id and the account it is in, so the card can open it.',
+    'Email: put the draft in Superhuman first (create_or_update_draft with body), then pass its draft_id and thread_id, its type (new, reply, reply_all or forward) and the account it is in, plus email.to (and cc, bcc) and email.subject. Without a Superhuman draft the user can only copy it.',
     'label says where it goes in a few words, like "DM to Johan Lund", "#mgmt" or "Reply to Petra Berg". text is the message exactly as it should be sent. To revise a draft the user hasn\'t sent yet, pass its card id as replaces.',
     'Keep your reply short: say what the draft is for and anything the user should check, not the text again.',
   ].join('\n'),
@@ -72,6 +72,7 @@ export const draftMessageTool: Tool = {
         properties: {
           to: { type: 'array', items: { type: 'string' } }, cc: { type: 'array', items: { type: 'string' } }, bcc: { type: 'array', items: { type: 'string' } },
           subject: { type: 'string' }, draft_id: { type: 'string' }, thread_id: { type: 'string' }, account: { type: 'string' },
+          type: { type: 'string', enum: ['new', 'reply', 'reply_all', 'forward'] },
         },
         required: ['to'],
       },

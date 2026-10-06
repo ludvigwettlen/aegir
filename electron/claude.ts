@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { query, type PermissionResult, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -9,6 +10,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import type { Approval } from '../shared/types.js';
 import type { RunInput, Tool, ToolHandler } from './codex.js';
 import type { EngineProvider } from './engine.js';
+import { CallGate, type Decision, type GatedCall, type GatedOutcome } from './gated.js';
 import { ToolResult } from './tool-result.js';
 
 const SERVER = 'aegir';
@@ -274,6 +276,14 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
                 model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
               }),
           resume: input.threadId ? this.sessions.get(input.threadId) : undefined,
+          // Read-only: lets Legolas learn what a connector itself returned, such as a Superhuman draft's recipients.
+          ...(input.onToolResult && !quick ? {
+            hooks: { PostToolUse: [{ hooks: [async (hook) => {
+              const event = hook as { tool_name?: string; tool_input?: unknown; tool_response?: unknown };
+              try { input.onToolResult?.(String(event.tool_name || ''), event.tool_input, event.tool_response); } catch { /* learning is best effort */ }
+              return {};
+            }] }] },
+          } : {}),
           includePartialMessages: true,
           abortController: run.abort,
           stderr: (data) => { this.emit('log', data); stderrTail = (stderrTail + data).slice(-1500); },
@@ -330,6 +340,75 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
     if (run.abort.signal.aborted) status = 'interrupted';
     const failure = status === 'failed' && stderrTail.trim() ? `Claude Code stopped with this error:\n${stderrTail.trim().slice(-800)}` : '';
     return { threadId: runId, text: finalText || streamed || failure, status };
+  }
+
+  // A locked run (see gated.ts): haiku, no built-in tools but ToolSearch, no approval cards, no saved session, an empty
+  // working folder, and none of the message text in the prompt. Two minutes at most. `read` parses tool answers.
+  async sendGated(calls: GatedCall[], signal?: AbortSignal, read?: (response: unknown) => unknown): Promise<GatedOutcome> {
+    const gate = new CallGate(calls, read);
+    const abort = new AbortController();
+    const end = () => setTimeout(() => abort.abort(), 0);
+    const cancel = () => { gate.stop('Cancelled before it was sent', gate.released === 0); abort.abort(); };
+    if (signal?.aborted) return { ...gate.outcome(), error: 'Cancelled before it was sent', failedCall: 0, toolSaidNo: true };
+    signal?.addEventListener('abort', cancel, { once: true });
+    const timer = setTimeout(() => { gate.stop('Timed out'); abort.abort(); }, 120_000);
+    const cwd = mkdtempSync(join(tmpdir(), 'legolas-send-'));
+    const decide = (decision: Decision) => ({
+      hookSpecificOutput: decision.allow
+        ? { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, ...(decision.input ? { updatedInput: decision.input } : {}) }
+        : { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: decision.reason },
+    });
+    try {
+      const steps = calls.map((call, index) => `${index + 1}. ${call.tool}`).join('\n');
+      const session = query({
+        prompt: `Call these tools in this order, once each:\n${steps}\nIf a tool isn't loaded yet, load it first with ToolSearch, using the query "select:<tool name>". Pass {} as each tool's input: Legolas fills it in. Don't call anything else. When you're done, or a call is refused, reply with the word Done.`,
+        options: {
+          cwd, pathToClaudeCodeExecutable: this.binary, env: childEnv(),
+          systemPrompt: 'You run tool calls for Legolas, a desktop app, after its user approved them. Make exactly the calls you are asked for. Do nothing else.',
+          model: 'haiku', permissionMode: 'default', tools: ['ToolSearch'], maxTurns: calls.length * 2 + 4,
+          persistSession: false, abortController: abort,
+          hooks: {
+            PreToolUse: [{ hooks: [async (hook) => {
+              const decision = await gate.before(String((hook as { tool_name?: string }).tool_name || ''));
+              if (gate.done) end();
+              return decide(decision);
+            }] }],
+            PostToolUse: [{ hooks: [async (hook) => {
+              const event = hook as { tool_name?: string; tool_input?: unknown; tool_response?: unknown };
+              gate.after(String(event.tool_name || ''), event.tool_input, event.tool_response);
+              // Nothing left to do, or a call said no: end the run instead of waiting for the model to sign off.
+              if (gate.done) end();
+              return {};
+            }] }],
+            PostToolUseFailure: [{ hooks: [async (hook) => {
+              const event = hook as { tool_name?: string; error?: string };
+              gate.failed(String(event.tool_name || ''), String(event.error || ''));
+              if (gate.done) end();
+              return {};
+            }] }],
+          },
+          // Nothing in a locked run ever reaches the approval bar.
+          canUseTool: async () => ({ behavior: 'deny', message: 'Only the approved calls may run.' }),
+          stderr: (data) => this.emit('log', data),
+        },
+      });
+      for await (const message of session as AsyncIterable<SDKMessage>) {
+        if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
+          const tools = (message as { tools?: string[] }).tools || [];
+          const missing = calls.find((call) => !tools.includes(call.tool));
+          if (missing) { gate.stop(`Your Claude Code setup has no ${missing.tool}`, true); abort.abort(); }
+        }
+      }
+    } catch (error) {
+      if (!abort.signal.aborted) gate.stop(String(error));
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      abort.abort();
+      try { rmSync(cwd, { recursive: true, force: true }); } catch { /* a temp folder */ }
+    }
+    if (!gate.done) gate.stop('Claude Code ended before making the calls', gate.released === 0);
+    return gate.outcome();
   }
 
   // Stopping a run also withdraws any approval it is still waiting on.

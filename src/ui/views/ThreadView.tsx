@@ -254,7 +254,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
   if (message.meta?.type === 'routine-change')
     return <RoutineChangeCard message={message} data={data} run={run} />;
   if (message.meta?.type === 'message-draft')
-    return <DraftCard message={message} draft={message.meta} agentName={data.agents.find((item) => item.id === message.agentId)?.name} run={run} />;
+    return <DraftCard message={message} draft={message.meta} agentName={data.agents.find((item) => item.id === message.agentId)?.name} canSend={data.engine === 'Claude Code'} run={run} />;
   if (message.role === 'system')
     return (
       <div className="ws-event">

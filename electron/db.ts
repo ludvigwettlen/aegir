@@ -528,6 +528,13 @@ export class Store {
     const message = this.message(id);
     if (message) this.onMessage?.(message);
   }
+  // Draft cards in these states, oldest first. Startup uses it to settle sends that Legolas quit in the middle of.
+  draftsIn(states: string[]): Message[] {
+    if (!states.length) return [];
+    return (this.db
+      .prepare(`SELECT * FROM messages WHERE json_extract(meta,'$.type')='message-draft' AND json_extract(meta,'$.state') IN (${states.map(() => '?').join(',')}) ORDER BY createdAt ASC, rowid ASC`)
+      .all(...states) as MessageRow[]).map(toMessage);
+  }
   // Puts these messages after everything else in their thread, in this order, with increasing times so a list
   // sorted by time keeps the order: a reply first, then the draft cards it made.
   moveMessagesToEnd(ids: string[]) {

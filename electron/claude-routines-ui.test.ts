@@ -13,6 +13,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows Claude Code scheduled tasks
     await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.setDefaultTimeout(5000);
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    // A cold first load makes Vite optimise dependencies and reload the page, so start from a settled second load.
+    await page.goto(`${server.resolvedUrls!.local[0]}claude-routines`);
+    await page.getByText('Claude Code', { exact: true }).waitFor({ timeout: 30_000 }).catch(() => {});
     await page.goto(`${server.resolvedUrls!.local[0]}claude-routines`);
     await page.getByText('Claude Code', { exact: true }).waitFor({ timeout: 20000 });
     expect(await page.getByRole('button', { name: 'daily-brief', exact: true }).innerText()).toContain('On');

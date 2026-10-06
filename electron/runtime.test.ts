@@ -8,6 +8,8 @@ import type { CodexProvider, RunInput } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { BrowserManager } from './browser.js';
+import { CallGate, type GatedCall } from './gated.js';
+import type { MessageDraft } from '../shared/types.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 
@@ -609,5 +611,209 @@ describe('draft cards', () => {
     expect(String(refused)).toContain('channel_id');
     expect(store.messagesForThread(thread.id).some(message => message.meta?.type === 'message-draft')).toBe(false);
     await expect(runtime.handleInternalTool('messages', 'draft', johan, 'no-such-run')).rejects.toThrow('only be shown in a conversation');
+  });
+});
+
+describe('sending draft cards', () => {
+  const johan = { channel: 'slack', label: 'DM to Johan Lund', text: 'Hej Johan!', slack: { channel_id: 'U06TESTUSR1' } };
+  const created = '{"draft":{"draft_id":"draft00b7d9728c5a1a45","thread_id":"draft00c3124c75effa45","to":[{"email":"petra@nordvik.example","name":""}],"subject":"Mötet","body":"<div>Hej</div>"}}';
+  const petra = { channel: 'email', label: 'Reply to Petra', text: 'Hej Petra!', email: { to: ['petra@nordvik.example'], subject: 'Mötet', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', type: 'new', account: 'malcolm@example.com' } };
+  const until = async (check: () => boolean, ms = 3000) => {
+    const end = Date.now() + ms;
+    while (!check()) { if (Date.now() > end) throw new Error('Timed out waiting'); await new Promise((done) => setTimeout(done, 5)); }
+  };
+  type Respond = (tool: string, input: Record<string, unknown>) => unknown;
+
+  // A fake Claude Code: its runs call the script; its locked runs go through the real gate, answering with `respond`.
+  function sending(respond: Respond, script: (input: RunInput, id: string, runtime: Runtime) => Promise<string>, options: { gated?: boolean } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-'));
+    const store = new Store(join(dir, 'db.sqlite'));
+    const calls: [string, Record<string, unknown>][] = [];
+    const runs: RunInput[] = [];
+    let n = 0;
+    let runtime!: Runtime;
+    const sendGated = async (planned: GatedCall[], signal?: AbortSignal, read?: (response: unknown) => unknown) => {
+      const gate = new CallGate(planned, read);
+      for (const call of planned) {
+        if (signal?.aborted) { gate.stop('Cancelled before it was sent', gate.released === 0); break; }
+        const decision = await gate.before(call.tool);
+        if (!decision.allow || signal?.aborted) break;
+        const input = decision.input || {};
+        calls.push([call.tool, input]);
+        const answer = respond(call.tool, input);
+        if (answer instanceof Error) { gate.failed(call.tool, answer.message); break; }
+        gate.after(call.tool, input, answer);
+        if (gate.done) break;
+      }
+      return gate.outcome();
+    };
+    const codex = {
+      run: async (input: RunInput) => { runs.push(input); const id = `run-${++n}`; input.onThreadStarted?.(id); return { threadId: id, text: await script(input, id, runtime), status: 'completed' }; },
+      stop: async () => {},
+      ...(options.gated === false ? {} : { sendGated }),
+    } as unknown as CodexProvider;
+    const connectors = { listTools: () => [], states: {} } as unknown as ConnectorManager;
+    const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
+    const make = () => new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir });
+    runtime = make();
+    runtime.undoMs = 30;
+    cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
+    const card = (id: string) => store.message(id)?.meta as MessageDraft;
+    return { store, runtime, calls, runs, card, reopen: make };
+  }
+  const draftOnce = (args: Record<string, unknown>, before?: (input: RunInput) => void) => {
+    let id = '';
+    return async (input: RunInput, run: string, rt: Runtime) => {
+      if (!id) { before?.(input); id = (await rt.handleInternalTool('messages', 'draft', args, run) as { card: string }).card; }
+      return 'The draft is in the card below.';
+    };
+  };
+  const firstCard = (store: Store, threadId: string) => store.messagesForThread(threadId).find((message) => message.meta?.type === 'message-draft')!.id;
+
+  it('confirms a Slack card with Slack, then sends exactly the card text once the undo window has passed', async () => {
+    const { store, runtime, calls, runs, card } = sending((tool) => tool.endsWith('slack_read_user_profile')
+      ? [{ type: 'text', text: '{"result":"Johan Lund (johan.lund)\\nNorthwind"}' }]
+      : '{"ok":true,"channel":"D04EXAMPL01","ts":"1759740000.1","permalink_hint":"https://app.slack.com/client/D04EXAMPL01"}', draftOnce(johan));
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft a DM to Johan');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    expect(card(id).slack).toEqual({ channelId: 'U06TESTUSR1', name: 'Johan Lund' });
+    expect(calls.map(([tool]) => tool)).toEqual(['mcp__claude_ai_Slack__slack_read_user_profile']);
+
+    await runtime.sendDraft(id, 'Hej Johan! Kort.');
+    expect(card(id)).toMatchObject({ state: 'queued', text: 'Hej Johan! Kort.' });
+    await expect(runtime.sendDraft(id, 'Again')).rejects.toThrow('already being sent');
+    expect(() => runtime.updateDraft(id, 'A late edit')).toThrow('can no longer be edited');
+    await until(() => card(id).state === 'sent');
+    expect(calls.at(-1)).toEqual(['mcp__claude_ai_Slack__slack_send_message', { channel_id: 'U06TESTUSR1', text: 'Hej Johan! Kort.', message: 'Hej Johan! Kort.', thread_ts: '' }]);
+    expect(card(id)).toMatchObject({ sentBy: 'legolas', link: 'https://app.slack.com/client/D04EXAMPL01', text: 'Hej Johan! Kort.' });
+    await runtime.sendMessage(thread.id, 'Did it go out?');
+    expect(runs.at(-1)?.prompt).toContain('was sent by Legolas when the user pressed Send');
+  });
+
+  it('takes a send back in the undo window, and nothing goes out', async () => {
+    const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('profile') ? { result: 'Johan Lund' } : { ok: true, ts: '1.2' }), draftOnce(johan));
+    runtime.undoMs = 200;
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    await runtime.sendDraft(id, 'Hej');
+    runtime.undoDraftSend(id);
+    expect(card(id).state).toBe('pending');
+    await new Promise((done) => setTimeout(done, 300));
+    expect(calls.some(([tool]) => tool.endsWith('slack_send_message'))).toBe(false);
+    expect(card(id).state).toBe('pending');
+    runtime.undoMs = 10;
+    await runtime.sendDraft(id, 'Hej igen');
+    await until(() => card(id).state === 'sent');
+    expect(calls.filter(([tool]) => tool.endsWith('slack_send_message'))).toHaveLength(1);
+  });
+
+  it('keeps a refused send editable, and calls a lost answer unknown so it is never resent by itself', async () => {
+    let answer: unknown = { error: 'channel_not_found' };
+    const { store, runtime, card } = sending((tool) => (tool.endsWith('profile') ? { result: 'Johan Lund' } : answer), draftOnce(johan));
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    await runtime.sendDraft(id, 'Hej');
+    await until(() => card(id).state === 'failed');
+    expect(card(id).error).toBe('Slack said: channel_not_found');
+    runtime.updateDraft(id, 'Hej Johan');
+    answer = new Error('MCP error -32001: Request timed out');
+    await runtime.sendDraft(id, 'Hej Johan');
+    await until(() => card(id).state === 'unknown');
+    expect(card(id).error).toContain('timed out');
+  });
+
+  it('sends email only while Superhuman still has the recipients the card shows', async () => {
+    let update = created;
+    const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('send_draft')
+      ? { success: true, sent_at: '2026-10-06T07:12:00Z', open_url: 'https://mail.superhuman.com/malcolm@example.com/thread/t1' }
+      : update), draftOnce(petra, (input) => input.onToolResult?.('mcp__claude_ai_Superhuman_Mail__create_or_update_draft', { type: 'new', acting_email: 'malcolm@example.com' }, created)));
+    const thread = store.createThread(store.groups()[0].id, 'Reply to Petra');
+    await runtime.sendMessage(thread.id, 'Draft the reply');
+    const id = firstCard(store, thread.id);
+    // Superhuman's own answer confirmed it while Claude worked, so there is nothing to check.
+    expect(card(id)).toMatchObject({ state: 'pending', email: { confirmed: true, to: ['petra@nordvik.example'] } });
+    update = created.replace('petra@nordvik.example', 'someone@else.com');
+    await runtime.sendDraft(id, 'Hej Petra!');
+    await until(() => card(id).state === 'failed');
+    expect(card(id).error).toContain('now goes to someone@else.com');
+    expect(card(id).email?.to).toEqual(['someone@else.com']);
+    expect(calls.some(([tool]) => tool.endsWith('send_draft'))).toBe(false);
+    update = created.replace('petra@nordvik.example', 'someone@else.com');
+    await runtime.sendDraft(id, 'Hej Petra, igen!');
+    await until(() => card(id).state === 'sent');
+    expect(calls.filter(([tool]) => tool.endsWith('create_or_update_draft')).at(-1)?.[1]).toEqual({ type: 'new', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', body: '<div>Hej Petra, igen!</div>', acting_email: 'malcolm@example.com' });
+    expect(calls.at(-1)).toEqual(['mcp__claude_ai_Superhuman_Mail__send_draft', { draft_id: 'draft00b7d9728c5a1a45', acting_email: 'malcolm@example.com' }]);
+    expect(card(id)).toMatchObject({ sentBy: 'legolas', link: 'https://mail.superhuman.com/malcolm@example.com/thread/t1' });
+  });
+
+  it('settles sends Legolas quit in the middle of, without resending', async () => {
+    const { store, runtime, card, reopen } = sending(() => ({ result: 'Johan Lund' }), draftOnce(johan));
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    const other = store.addMessage(thread.id, null, 'system', 'Slack draft', 'complete', { ...card(id), state: 'sending' });
+    store.setMessageMeta(id, { ...card(id), state: 'queued', queuedAt: new Date().toISOString() });
+    reopen();
+    expect(card(id)).toMatchObject({ state: 'failed', error: 'Legolas closed before sending it. Nothing went out.' });
+    expect(card(other.id)).toMatchObject({ state: 'unknown', error: 'Legolas closed while sending it. Check Slack before sending again.' });
+  });
+
+  it('reopens a card marked sent by mistake so it can be sent after all; a card Legolas sent stays sent', async () => {
+    const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('profile') ? { result: 'Johan Lund' } : { ok: true, ts: '1.2' }), draftOnce(johan));
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    runtime.markDraftSent(id, 'Hej Johan');
+    expect(card(id)).toMatchObject({ state: 'sent', sentBy: 'you' });
+    runtime.reopenDraft(id);
+    expect(card(id)).toMatchObject({ state: 'pending', text: 'Hej Johan' });
+    expect(card(id).sentBy).toBeUndefined();
+    await runtime.sendDraft(id, 'Hej Johan');
+    await until(() => card(id).state === 'sent');
+    expect(calls.filter(([tool]) => tool.endsWith('slack_send_message'))).toHaveLength(1);
+    expect(() => runtime.reopenDraft(id)).toThrow('Legolas sent this one');
+  });
+
+  it('checks cards from before Send existed when Legolas starts, and a reopened one, so they can be sent too', async () => {
+    const { store, card, reopen } = sending(() => ({ result: 'Johan Lund (johan)' }), async () => 'Done');
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    const old = (state: 'pending' | 'sent') => store.addMessage(thread.id, null, 'system', 'Slack draft: DM till Johan', 'complete',
+      { type: 'message-draft', channel: 'slack', label: 'DM till Johan', original: 'Hej', text: 'Hej', state, slack: { channelId: 'U0AEXAMPL06' }, ...(state === 'sent' ? { sentAt: '2026-10-06T04:26:00.000Z' } : {}) }).id;
+    const waiting = old('pending');
+    const marked = old('sent');
+    const started = reopen();
+    cleanup.push(() => started.stop());
+    started.start();
+    await until(() => card(waiting).state === 'pending' && !!card(waiting).slack?.name);
+    expect(card(waiting).slack).toEqual({ channelId: 'U0AEXAMPL06', name: 'Johan Lund' });
+    expect(card(marked).state).toBe('sent');
+    started.reopenDraft(marked);
+    expect(card(marked).state).toBe('checking');
+    await until(() => card(marked).state === 'pending');
+    expect(card(marked).slack?.name).toBe('Johan Lund');
+  });
+
+  it("won't send what Slack couldn't confirm, nor without Claude Code", async () => {
+    const { store, runtime, card } = sending(() => ({ text: 'Error: user_not_found' }), draftOnce(johan));
+    const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
+    await runtime.sendMessage(thread.id, 'Draft it');
+    const id = firstCard(store, thread.id);
+    await until(() => card(id).state === 'pending');
+    expect(card(id).slack?.name).toBeNull();
+    await expect(runtime.sendDraft(id, 'Hej')).rejects.toThrow("couldn't confirm where this goes");
+    const codex = sending(() => ({}), draftOnce(johan), { gated: false });
+    const other = codex.store.createThread(codex.store.groups()[0].id, 'Tell Johan');
+    await codex.runtime.sendMessage(other.id, 'Draft it');
+    const plain = firstCard(codex.store, other.id);
+    expect(codex.card(plain).state).toBe('pending');
+    await expect(codex.runtime.sendDraft(plain, 'Hej')).rejects.toThrow('needs the Claude Code engine');
   });
 });

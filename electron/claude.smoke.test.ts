@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Approval } from '../shared/types.js';
 import { ClaudeProvider } from './claude.js';
 import { findClaudeBinary } from './engine.js';
+import { profileName, readToolResponse } from './message-drafts.js';
 
 // Live check against the installed Claude Code CLI. Opt in with AEGIR_CLAUDE_SMOKE=1.
 const binary = findClaudeBinary();
@@ -61,5 +62,19 @@ describe.skipIf(!process.env.AEGIR_CLAUDE_SMOKE || !binary)('Claude Code engine 
     expect(result.status).toBe('completed');
     expect(approvals).toEqual([]);
     expect(readFileSync(join(brain, 'note.md'), 'utf8').trim()).toBe('ok');
+  }, 180_000);
+
+  // Read-only: looks up the user's own Slack profile. Needs the claude.ai Slack connector.
+  it('runs a locked call with Legolas input, and releases nothing when the commit says no', async () => {
+    const provider = new ClaudeProvider(binary!);
+    const approvals: Approval[] = [];
+    provider.on('approval', (approval: Approval) => approvals.push(approval));
+    const tool = 'mcp__claude_ai_Slack__slack_read_user_profile';
+    const done = await provider.sendGated([{ tool, input: () => ({ response_format: 'concise' }) }], undefined, readToolResponse);
+    expect(done).toMatchObject({ completed: true, released: 1 });
+    expect(profileName(done.results[0])).toBeTruthy();
+    const held = await provider.sendGated([{ tool, input: () => ({ response_format: 'concise' }), commit: () => false }], undefined, readToolResponse);
+    expect(held).toMatchObject({ completed: false, released: 0, toolSaidNo: true });
+    expect(approvals).toEqual([]);
   }, 180_000);
 });

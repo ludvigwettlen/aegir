@@ -45,20 +45,48 @@ const messages: Message[] = [
     email: { to: ['petra.berg@example.com'], cc: ['johan.lund@example.com'], bcc: ['crm-log+nordvik-rollout-pilot-2026@example.com'], subject: 'Re: Nordvik rollout plan',
       draftId: 'draft-7f3a', threadId: '18f2c3a4b5d6e7f8', account: 'malcolm@example.com' },
     text: 'Hi Petra,\n\nThanks for the call today. Here is the rollout plan we agreed:\n\n1. Pilot with the Stockholm team from 14 October.\n2. Review it together on 28 October.\n3. Roll out to everyone in November if the pilot holds.\n\nBest,\nMalcolm' }),
+  // Cards Legolas can send: the destination confirmed by Slack or Superhuman itself.
+  line('send', 'user', 'Now the ones I can send from here.', ago(5)),
+  line('sendable', 'agent', 'Four more below. Send them from the cards.', ago(4)),
+  draft('slack-ready', ago(3.9), { channel: 'slack', label: 'DM to Johan', state: 'pending', slack: { channelId: 'U06TESTUSR1', name: 'Johan Lund' },
+    text: 'Hej Johan! Mailet till Petra är ute.' }),
+  draft('slack-checking', ago(3.8), { channel: 'slack', label: 'DM to Tove', state: 'checking', slack: { channelId: 'U07EXAMPL04' }, text: 'Hej Tove, siffrorna kommer i morgon.' }),
+  draft('slack-unconfirmed', ago(3.7), { channel: 'slack', label: 'DM to Maja', state: 'pending', slack: { channelId: 'D0EXAMPL07', name: null },
+    error: 'Slack has no DM with this id that you can see', text: 'Hej Maja, kort fråga om lanseringen.' }),
+  draft('email-ready', ago(3.6), { channel: 'email', label: 'Note to Harborlight', state: 'pending',
+    email: { to: ['elin@example.com'], cc: [], bcc: [], subject: 'Northwind <> Harborlight', draftId: 'draft001f', threadId: 'draft0013', type: 'new', account: 'malcolm@example.com', confirmed: true },
+    text: 'Hi Elin,\n\nLong overdue from my side.\n\nMalcolm' }),
+  draft('slack-unknown', ago(3.5), { channel: 'slack', label: '#mgmt', state: 'unknown', slack: { channelId: 'C05MGMT0001', name: 'mgmt' },
+    error: 'Legolas closed while sending it.', text: 'Mgmt: piloten startar 14 oktober.' }),
 ];
 
 const listeners = new Set<(event: AppEvent) => void>();
-const fixture = { calls: [] as Array<[string, ...unknown[]]>, clipboard: '' };
+const fixture = { calls: [] as Array<[string, ...unknown[]]>, clipboard: '', undoMs: 5000, failNext: false };
 Object.assign(window, { fixture });
 const record = (name: string, ...args: unknown[]) => { fixture.calls.push([name, ...args]); };
-// Like the app: a draft changes only while pending, and the changed message comes back as an event.
-const change = (id: string, update: Partial<MessageDraft>) => {
+const open: MessageDraft['state'][] = ['checking', 'pending', 'failed', 'unknown'];
+// Like the app: a draft changes only from the states the app allows, and the changed message comes back as an event.
+const change = (id: string, update: Partial<MessageDraft>, from = open) => {
   const message = messages.find((item) => item.id === id);
   if (message?.meta?.type !== 'message-draft') throw new Error(`No draft ${id}`);
-  if (message.meta.state !== 'pending') throw new Error('This draft is no longer open.');
+  if (!from.includes(message.meta.state)) throw new Error('This draft is no longer open.');
   message.meta = { ...message.meta, ...update };
   const value = structuredClone(message);
   for (const listener of listeners) listener({ type: 'message', value });
+};
+const state = (id: string) => (messages.find((item) => item.id === id)?.meta as MessageDraft).state;
+// Send as the app does it: queued with an undo window, then sending, then sent, or not sent when failNext is set.
+const send = (id: string, text: string) => {
+  change(id, { text, state: 'queued', queuedAt: new Date().toISOString(), error: undefined }, ['pending', 'failed', 'unknown']);
+  setTimeout(() => {
+    if (state(id) !== 'queued') return;
+    change(id, { state: 'sending' }, ['queued']);
+    setTimeout(() => {
+      const card = messages.find((item) => item.id === id)?.meta as MessageDraft;
+      if (fixture.failNext) { fixture.failNext = false; change(id, { state: 'failed', error: 'Superhuman said: draft not found' }, ['sending']); return; }
+      change(id, { state: 'sent', sentBy: 'legolas', sentAt: new Date().toISOString(), link: card.channel === 'slack' ? 'https://app.slack.com/client/D04EXAMPL01' : 'https://mail.superhuman.com/malcolm@example.com/thread/1a0773' }, ['sending']);
+    }, 150);
+  }, fixture.undoMs);
 };
 // The card copies through navigator.clipboard; keep what it wrote instead of touching the real clipboard.
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
@@ -74,7 +102,10 @@ window.aegir = {
   runEvents: async () => [],
   claudeRoutines: async () => ({ source: null, tasks: [] }),
   updateDraft: async (id: string, text: string) => { record('updateDraft', id, text); change(id, { text }); },
-  markDraftSent: async (id: string, text: string) => { record('markDraftSent', id, text); change(id, { text, state: 'sent', sentAt: new Date().toISOString() }); },
+  markDraftSent: async (id: string, text: string) => { record('markDraftSent', id, text); change(id, { text, state: 'sent', sentBy: 'you', sentAt: new Date().toISOString() }); },
+  sendDraft: async (id: string, text: string) => { record('sendDraft', id, text); send(id, text); },
+  reopenDraft: async (id: string) => { record('reopenDraft', id); change(id, { state: 'pending', sentAt: undefined, sentBy: undefined }, ['sent']); },
+  undoDraftSend: async (id: string) => { record('undoDraftSend', id); change(id, { state: 'pending', queuedAt: undefined }, ['queued']); },
   discardDraft: async (id: string) => { record('discardDraft', id); change(id, { state: 'discarded' }); },
   openExternal: async (url: string) => { record('openExternal', url); },
   copyChatTranscript: async (id: string) => { record('copyChatTranscript', id); },

@@ -1,20 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Copy, ExternalLink, Mail, MessageSquare } from 'lucide-react';
+import { Check, ChevronRight, Copy, ExternalLink, Mail, MessageSquare, Send, Undo2 } from 'lucide-react';
 import type { Message, MessageDraft } from '../../../shared/types';
 import { api, time, type Run } from './common';
 
 // Edits save after this long without typing, and on blur.
 const SAVE_AFTER_MS = 600;
-const stateLabel: Record<MessageDraft['state'], string> = { pending: 'Draft', sent: 'Sent', discarded: 'Discarded', replaced: 'Replaced' };
+// Matches UNDO_MS in electron/message-drafts.ts: Send waits this long before anything goes out.
+const UNDO_MS = 5000;
+const stateLabel: Record<MessageDraft['state'], string> = {
+  checking: 'Checking', pending: 'Draft', queued: 'Sending soon', sending: 'Sending', sent: 'Sent',
+  failed: 'Not sent', unknown: 'Check before resending', discarded: 'Discarded', replaced: 'Replaced',
+};
+const editableStates: MessageDraft['state'][] = ['checking', 'pending', 'failed', 'unknown'];
 const joined = (items?: string[]) => (items || []).filter(Boolean).join(', ');
 
-// An email or Slack message the agent wrote for the user to send. Legolas sends nothing: the user edits the text
-// here, copies it, sends it from Slack or Superhuman, and "I sent it" records that they did, with the text as it was.
-export function DraftCard({ message, draft, agentName, run }: { message: Message; draft: MessageDraft; agentName?: string; run: Run }) {
-  const editable = draft.state === 'pending';
+// An email or Slack message the agent wrote for the user to send. The user edits the text here and presses Send: after
+// five seconds to undo, Legolas sends exactly this text to the destination Slack or Superhuman confirmed. Or they copy
+// it, send it themselves, and say so. `canSend` is false on engines that can't send (Codex).
+export function DraftCard({ message, draft, agentName, canSend, run }: { message: Message; draft: MessageDraft; agentName?: string; canSend: boolean; run: Run }) {
+  const editable = editableStates.includes(draft.state);
   const [text, setText] = useState(draft.text);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const field = useRef<HTMLTextAreaElement>(null);
   const latest = useRef(draft.text); // what the field holds right now
   const saved = useRef<string | null>(draft.text); // the last text handed to the app; null after a failed save
@@ -48,7 +56,7 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
     };
   }, []);
   // The stored text replaces the field only while it is idle: not focused, nothing waiting or in flight, no unsaved
-  // edit. Once the card leaves pending, the stored text is shown as is.
+  // edit. Once the card leaves an editable state, the stored text is shown as is.
   useEffect(() => {
     if (!editable) {
       window.clearTimeout(saveTimer.current);
@@ -61,6 +69,13 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
     saved.current = draft.text;
     setText(draft.text);
   }, [draft.text, editable]);
+  // The undo countdown.
+  useEffect(() => {
+    if (draft.state !== 'queued') return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [draft.state]);
 
   const edit = (value: string) => {
     latest.current = value;
@@ -93,21 +108,34 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
       finally { acting.current = false; if (alive.current) setBusy(false); }
     });
   };
-  const markSent = () => {
+  const withText = (send: (value: string) => Promise<unknown>) => {
     const value = current();
-    if (value.trim()) act(async () => { await api.markDraftSent(message.id, value); saved.current = value; });
+    if (value.trim()) act(async () => { await send(value); saved.current = value; latest.current = value; });
   };
 
   const Icon = draft.channel === 'slack' ? MessageSquare : Mail;
   const shown = editable ? text : draft.text;
   const email = draft.email;
+  const slack = draft.slack;
+  const where = draft.channel === 'email' ? 'Superhuman' : 'Slack';
   const superhuman = email?.account && email.threadId ? `https://mail.superhuman.com/${email.account}/thread/${email.threadId}` : null;
-  const name = draft.channel === 'slack' ? `Slack draft: ${draft.label}` : `Email draft: ${email?.subject || draft.label}`;
-  // The agent's words for where it goes, then the raw facts to check them against.
-  const destination = (check: boolean) => (
+  // Send needs the destination confirmed by the connector itself; while that check runs, Send shows but waits.
+  const confirmed = draft.channel === 'slack' ? !!slack?.name : !!(email?.confirmed && email.draftId && email.threadId && email.type);
+  const showSend = canSend && (confirmed || draft.state === 'checking');
+  const sendReady = showSend && confirmed && (draft.state === 'pending' || draft.state === 'failed' || draft.state === 'unknown');
+  const seconds = draft.queuedAt ? Math.max(0, Math.ceil((Date.parse(draft.queuedAt) + UNDO_MS - now) / 1000)) : 0;
+  const name = draft.channel === 'slack' ? `Slack draft: ${slack?.name || draft.label}` : `Email draft: ${email?.subject || draft.label}`;
+
+  // The agent's words for where it goes, then what Slack or Superhuman confirm.
+  const destination = (live: boolean) => (
     <div className="ws-draft-to">
       {draft.label && <p className="ws-draft-label">{agentName ? `${agentName}'s draft for:` : 'Drafted for:'} <strong>{draft.label}</strong></p>}
-      {draft.slack && <p className="ws-draft-facts"><code>{draft.slack.channelId}</code>{draft.slack.threadTs ? ' · in a thread' : ''}</p>}
+      {slack && (
+        <p className="ws-draft-facts">
+          {slack.name && <span className="ws-draft-confirmed">Slack: {slack.channelId.startsWith('C') || slack.channelId.startsWith('G') ? `#${slack.name}` : `DM to ${slack.name}`} · </span>}
+          <code>{slack.channelId}</code>{slack.threadTs ? ' · in a thread' : ''}
+        </p>
+      )}
       {email && (
         <dl className="ws-draft-rows">
           <div><dt>To</dt><dd>{joined(email.to) || <span className="ws-draft-none">No recipients</span>}</dd></div>
@@ -117,7 +145,17 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
           {email.account && <div><dt>From</dt><dd>{email.account}</dd></div>}
         </dl>
       )}
-      {check && <p className="ws-draft-check">Check where it goes before you send it.</p>}
+      {live && (draft.state === 'checking'
+        ? <p className="ws-draft-check" role="status">Checking where it goes with {where}…</p>
+        : slack?.name === null
+          ? <p className="ws-draft-warning">Couldn't confirm where this goes{draft.error ? `: ${draft.error}` : ''}. Legolas won't send it; copy it instead.</p>
+          : email?.draftId && !email.confirmed && draft.error
+            ? <p className="ws-draft-warning">{draft.error}. Legolas won't send it; copy it or open it in Superhuman.</p>
+            : email && !email.draftId
+              ? <p className="ws-draft-check">Not in Superhuman yet, so Legolas can't send it. Copy it, or ask Claude to put it there.</p>
+              : confirmed
+                ? (email && <p className="ws-draft-check">As Superhuman holds it.</p>)
+                : <p className="ws-draft-check">Check where it goes before you send it.</p>)}
     </div>
   );
 
@@ -166,20 +204,41 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
           onKeyDown={(event) => {
             if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || event.nativeEvent.isComposing) return;
             event.preventDefault();
-            copy();
+            if (showSend) { if (sendReady && !busy) withText((value) => api.sendDraft(message.id, value)); }
+            else copy();
           }}
         />
       ) : (
         <div className="ws-draft-readonly">{draft.text}</div>
       )}
+      {draft.state === 'failed' && draft.error && <p className="ws-draft-error" role="alert">{draft.error}</p>}
+      {draft.state === 'unknown' && (
+        <p className="ws-draft-warning" role="alert">Legolas lost track of this send. Check {where} before sending again.{draft.error ? ` ${draft.error}` : ''}</p>
+      )}
       {editable ? (
         <div className="ws-draft-actions">
-          <button type="button" className="ws-btn primary" title="Copy the text (⌘↵)" disabled={!text.trim()} onClick={copy}>
-            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-          <button type="button" className="ws-btn" title="Mark it sent once you have sent it yourself" disabled={busy || !text.trim()} onClick={markSent}>I sent it</button>
-          <button type="button" className="ws-btn" disabled={busy} onClick={() => act(() => api.discardDraft(message.id))}>Discard</button>
+          {showSend ? <>
+            <button type="button" className="ws-btn primary" disabled={!sendReady || busy || !text.trim()}
+              title={sendReady ? `Send it now from ${where}, with five seconds to undo (⌘↵)` : `Waiting for ${where} to confirm where it goes`}
+              onClick={() => withText((value) => api.sendDraft(message.id, value))}>
+              <Send size={13} aria-hidden="true" />{draft.state === 'failed' || draft.state === 'unknown' ? 'Send again' : 'Send'}
+            </button>
+            <button type="button" className="ws-btn" title="Copy the text" disabled={!text.trim()} onClick={copy}>
+              {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button type="button" className="ws-btn" disabled={busy} onClick={() => act(() => api.discardDraft(message.id))}>Discard</button>
+            <button type="button" className="ws-btn ghost ws-draft-open" title="Mark it sent once you have sent it yourself" disabled={busy || !text.trim()}
+              onClick={() => withText((value) => api.markDraftSent(message.id, value))}>I sent it myself</button>
+          </> : <>
+            <button type="button" className="ws-btn primary" title="Copy the text (⌘↵)" disabled={!text.trim()} onClick={copy}>
+              {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button type="button" className="ws-btn" title="Mark it sent once you have sent it yourself" disabled={busy || !text.trim()}
+              onClick={() => withText((value) => api.markDraftSent(message.id, value))}>I sent it</button>
+            <button type="button" className="ws-btn" disabled={busy} onClick={() => act(() => api.discardDraft(message.id))}>Discard</button>
+          </>}
           {superhuman && (
             <button type="button" className="ws-btn ghost ws-draft-open" onClick={() => void run(() => api.openExternal(superhuman))}>
               <ExternalLink size={13} aria-hidden="true" />Open in Superhuman
@@ -187,8 +246,30 @@ export function DraftCard({ message, draft, agentName, run }: { message: Message
           )}
           <span className="ws-draft-announce" role="status">{copied ? 'Copied the draft text.' : ''}</span>
         </div>
+      ) : draft.state === 'queued' ? (
+        <div className="ws-draft-actions">
+          <p className="ws-draft-status" role="status">{seconds > 0 ? `Sending in ${seconds} s` : 'Sending…'}</p>
+          <button type="button" className="ws-btn" disabled={busy || seconds === 0} onClick={() => act(() => api.undoDraftSend(message.id))}>
+            <Undo2 size={13} aria-hidden="true" />Undo
+          </button>
+        </div>
+      ) : draft.state === 'sending' ? (
+        <p className="ws-draft-status" role="status">Sending…</p>
       ) : (
-        <p className="ws-draft-status" role="status">{draft.sentAt ? `You sent it ${time(draft.sentAt)}` : 'You sent it'}</p>
+        <div className="ws-draft-actions">
+          <p className="ws-draft-status" role="status">
+            {draft.sentBy === 'legolas' ? `Sent from Legolas${draft.sentAt ? ` ${time(draft.sentAt)}` : ''}` : `You sent it${draft.sentAt ? ` ${time(draft.sentAt)}` : ''}`}
+          </p>
+          {draft.link && (
+            <button type="button" className="ws-btn ghost ws-draft-open" onClick={() => void run(() => api.openExternal(draft.link!))}>
+              <ExternalLink size={13} aria-hidden="true" />Open in {where}
+            </button>
+          )}
+          {draft.sentBy !== 'legolas' && (
+            <button type="button" className="ws-btn ghost ws-draft-open" disabled={busy} title="Didn't send it after all? Reopen the draft"
+              onClick={() => act(() => api.reopenDraft(message.id))}>Reopen</button>
+          )}
+        </div>
       )}
     </article>
   );

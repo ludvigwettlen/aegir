@@ -115,6 +115,14 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
     const log = await calls();
     expect(log.slice(log.findIndex(call => call[0] === 'markDraftSent')).filter(call => call[0] === 'updateDraft')).toEqual([]);
 
+    // "I sent it" by mistake: Reopen brings the draft back, text intact. A card Legolas sent has no Reopen.
+    await slack.getByRole('button', { name: 'Reopen' }).click();
+    await called('reopenDraft', 'slack');
+    await slack.getByRole('textbox', { name: 'Draft text' }).waitFor();
+    expect(await slack.getByRole('textbox', { name: 'Draft text' }).inputValue()).toBe(final);
+    await slack.getByRole('button', { name: 'I sent it' }).click();
+    await slack.getByText(/^You sent it/).waitFor();
+
     // Leaving the task during the pause still saves the edit: Cmd+N moves to Today while the field has focus.
     const emailField = email.getByRole('textbox', { name: 'Draft text' });
     const body = 'Hi Petra,\n\nShort version: we pilot with the Stockholm team from 14 October.\n\nBest,\nMalcolm';
@@ -137,6 +145,55 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
     expect(await email.getByRole('button', { name: actions }).count()).toBe(0);
     await email.getByText('Discarded draft').click();
     await email.getByText('Short version: we pilot', { exact: false }).waitFor();
+
+    // Cards Legolas can send show the destination as Slack confirmed it, and Send first.
+    const ready = page.getByRole('article', { name: 'Slack draft: Johan Lund', exact: true });
+    await ready.scrollIntoViewIfNeeded();
+    expect(await ready.textContent()).toContain('Slack: DM to Johan Lund');
+    expect(await ready.getByRole('button', { name: /^(Send|Copy|Discard|I sent it myself)$/ }).allInnerTexts()).toEqual(['Send', 'Copy', 'Discard', 'I sent it myself']);
+    // While Slack checks, Send waits. When it couldn't confirm, there is no Send, only Copy.
+    const checking = page.getByRole('article', { name: 'Slack draft: DM to Tove', exact: true });
+    await checking.getByText('Checking where it goes with Slack…').waitFor();
+    expect(await checking.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true);
+    const unconfirmed = page.getByRole('article', { name: 'Slack draft: DM to Maja', exact: true });
+    await unconfirmed.getByText("Couldn't confirm where this goes: Slack has no DM with this id that you can see. Legolas won't send it; copy it instead.").waitFor();
+    expect(await unconfirmed.getByRole('button', { name: 'Send', exact: true }).count()).toBe(0);
+    const lost = page.getByRole('article', { name: 'Slack draft: mgmt', exact: true });
+    await lost.getByText('Legolas lost track of this send. Check Slack before sending again.', { exact: false }).waitFor();
+    await lost.getByRole('button', { name: 'Send again' }).waitFor();
+
+    // Cmd+Enter sends exactly what the field holds, with a countdown to take it back.
+    const readyField = ready.getByRole('textbox', { name: 'Draft text' });
+    const shorter = 'Hej Johan! Mailet till Petra är ute nu.';
+    await readyField.fill('');
+    await page.keyboard.type(shorter);
+    await page.keyboard.press('Meta+Enter');
+    await called('sendDraft', 'slack-ready', shorter);
+    await ready.getByText(/^Sending in \d s$/).waitFor();
+    expect(await ready.getByRole('textbox').count()).toBe(0);
+    await ready.getByRole('button', { name: 'Undo' }).click();
+    await called('undoDraftSend', 'slack-ready');
+    await ready.getByRole('textbox', { name: 'Draft text' }).waitFor();
+    expect(await readyField.inputValue()).toBe(shorter);
+    // Send again and let it go: Sent from Legolas, with a link to the message.
+    await page.evaluate(() => { (window as any).fixture.undoMs = 300; });
+    await ready.getByRole('button', { name: 'Send', exact: true }).click();
+    await ready.getByText(/^Sent from Legolas \d{1,2}[:.]\d{2}/).waitFor();
+    expect(await ready.locator('.ws-draft-readonly').innerText()).toBe(shorter);
+    expect(await ready.getByRole('button', { name: 'Reopen' }).count()).toBe(0);
+    await ready.getByRole('button', { name: 'Open in Slack' }).click();
+    await called('openExternal', 'https://app.slack.com/client/D04EXAMPL01');
+
+    // Email rows as Superhuman holds them. A refused send says why and stays editable; Send again goes through.
+    const mail = page.getByRole('article', { name: 'Email draft: Northwind <> Harborlight', exact: true });
+    await mail.getByText('As Superhuman holds it.').waitFor();
+    await page.evaluate(() => { (window as any).fixture.failNext = true; });
+    await mail.getByRole('button', { name: 'Send', exact: true }).click();
+    await mail.getByRole('alert').filter({ hasText: 'Superhuman said: draft not found' }).waitFor();
+    await mail.getByRole('button', { name: 'Send again' }).click();
+    await mail.getByText(/^Sent from Legolas/).waitFor();
+    await mail.getByRole('button', { name: 'Open in Superhuman' }).waitFor();
+    await page.screenshot({ path: '/tmp/aegir-message-drafts-send.png', fullPage: true });
 
     // The same cards in the group chat, at the narrowest window.
     await page.getByRole('button', { name: 'Thread in #Team' }).click();
