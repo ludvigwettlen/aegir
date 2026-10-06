@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
+  Archive, Bot, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
   Undo2, Users, Wand2, type LucideIcon,
 } from 'lucide-react';
 import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
@@ -27,7 +27,7 @@ const sections: CommandSection[] = ['task', 'go', 'create', 'routines', 'app'];
 const sectionTitles: Record<CommandSection, string> = { task: '', go: 'Go to', create: 'Create', routines: 'Routines', app: 'App' };
 const lists: Array<[TaskView, string, LucideIcon, string]> = [
   ['needs', 'Needs you', Inbox, 'N'], ['inbox', 'Inbox', Archive, 'I'], ['today', 'Today', Sun, 'T'],
-  ['upcoming', 'Upcoming', CalendarDays, 'U'], ['team', 'Delegated', Users, 'W'], ['completed', 'Completed', CheckCheck, 'C'],
+  ['upcoming', 'Upcoming', CalendarDays, 'U'], ['team', 'Delegated', Bot, 'W'], ['completed', 'Completed', CheckCheck, 'C'],
 ];
 
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.

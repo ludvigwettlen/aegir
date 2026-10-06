@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users, Archive as Tray } from 'lucide-react';
+import { Bot, CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Archive as Tray } from 'lucide-react';
 import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
 import { claudeRoutineName } from '../../../shared/cron';
 import { tasksFor } from '../../../shared/tasks';
@@ -95,7 +95,7 @@ export function Sidebar({
       <Item
         active={isList('team')}
         onClick={() => go({ view: 'tasks', list: 'team' })}
-        icon={<Users size={16} />}
+        icon={<Bot size={16} />}
         label="Delegated"
         count={tasksFor('team', data.tasks).length}
       />
