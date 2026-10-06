@@ -300,6 +300,8 @@ export interface DesktopApi extends SkillsApi {
     label?: string | null;
     dueAt?: string | null;
   }): Promise<Task>;
+  // Add with Claude: turns a dictated note into a title, notes, label and date. Nothing is saved.
+  polishTask(text: string): Promise<{ title: string; notes: string; label: string | null; dueAt: string | null }>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;

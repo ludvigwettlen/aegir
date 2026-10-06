@@ -107,6 +107,7 @@ export function TasksView({
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
+  const [polishing, setPolishing] = useState(false);
   const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
   // The task you last sent to the agent, as it was then. It stays in this list until you move on (withHeld).
   const [held, setHeld] = useState<{ list: TaskView; task: Task } | null>(null);
@@ -354,22 +355,41 @@ export function TasksView({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const create = async (input: { title: string; notes?: string; label: string | null; dueAt: string | null }) => {
+    // Adding from Today means today; elsewhere an undated task goes to the Inbox.
+    const parsed = list === 'today' && !input.dueAt ? { ...input, dueAt: isoDate(new Date()) } : input;
+    const task = await api.createTask(parsed);
+    if (!tasksFor(list, [task]).length) notify(`Added to ${tasksFor('inbox', [task]).length ? 'Inbox' : 'Upcoming'}`);
+    setDraft('');
+    setEditTarget(null);
+    setCursor(task.id);
+    setCreatedTask({ id: task.id, list });
+  };
   const add = () => {
     const quick = parseQuickAdd(draft);
     if (!quick.title || adding.current) return;
-    // Adding from Today means today; elsewhere an undated task goes to the Inbox.
-    const parsed = list === 'today' && !quick.dueAt ? { ...quick, dueAt: isoDate(new Date()) } : quick;
     adding.current = true;
     void run(async () => {
       try {
-        const task = await api.createTask(parsed);
-        if (!tasksFor(list, [task]).length) notify(`Added to ${tasksFor('inbox', [task]).length ? 'Inbox' : 'Upcoming'}`);
-        setDraft('');
-        setEditTarget(null);
-        setCursor(task.id);
-        setCreatedTask({ id: task.id, list });
+        await create(quick);
       } finally {
         adding.current = false;
+      }
+    });
+  };
+  // Cmd+Enter or the sparkle button: Claude writes the task from everything you said, with the context as notes.
+  // If it fails, what you typed stays in the field and Enter adds it as typed.
+  const addWithClaude = () => {
+    const text = draft.trim();
+    if (!text || adding.current) return;
+    adding.current = true;
+    setPolishing(true);
+    void run(async () => {
+      try {
+        await create(await api.polishTask(text));
+      } finally {
+        adding.current = false;
+        setPolishing(false);
       }
     });
   };
@@ -400,16 +420,34 @@ export function TasksView({
               ref={quickAdd}
               data-quick-add
               aria-label="New task"
-              placeholder="New task — try: Summarise calls #customers fri"
+              placeholder={polishing ? 'Claude is writing the task…' : 'New task — try: Summarise calls #customers fri'}
               value={draft}
+              readOnly={polishing}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Escape') {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  addWithClaude();
+                } else if (event.key === 'Escape' && !polishing) {
                   setDraft('');
                   event.currentTarget.blur();
                 }
               }}
             />
+            {(draft.trim() || polishing) && (
+              <button
+                type="button"
+                className="ws-quick-add-claude"
+                aria-label="Add with Claude"
+                title="Add with Claude: a clean title, the rest as notes (⌘↩)"
+                disabled={polishing}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={addWithClaude}
+              >
+                <Sparkles size={14} aria-hidden="true" className={polishing ? 'ws-pulse' : undefined} />
+                {polishing ? 'Writing…' : 'Claude'}
+              </button>
+            )}
           </form>
         )}
         <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>

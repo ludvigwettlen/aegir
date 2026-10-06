@@ -37,6 +37,7 @@ const api: DesktopApi = {
   stopThread: threadId => ipcRenderer.invoke('stop-thread', threadId),
   closeThread: threadId => ipcRenderer.invoke('close-thread', threadId),
   createTask: input => ipcRenderer.invoke('create-task', input),
+  polishTask: text => ipcRenderer.invoke('polish-task', text),
   updateTask: (taskId, change) => ipcRenderer.invoke('update-task', taskId, change),
   deleteTask: taskId => ipcRenderer.invoke('delete-task', taskId),
   addTaskLink: (taskId, url) => ipcRenderer.invoke('add-task-link', taskId, url),

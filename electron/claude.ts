@@ -283,7 +283,8 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           systemPrompt: quick ? input.instructions : { type: 'preset', preset: 'claude_code', append: input.instructions },
           permissionMode: this.options.approvals?.() === 'ask' ? 'default' : 'auto',
           ...(quick
-            ? { settingSources: [], tools: [], mcpServers: {}, strictMcpConfig: true, model: 'haiku' }
+            // Thinking off: Haiku otherwise spends thousands of tokens and most of a minute on a one-line JSON answer.
+            ? { settingSources: [], tools: [], mcpServers: {}, strictMcpConfig: true, model: 'haiku', thinking: { type: 'disabled' as const } }
             : {
                 mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
                 allowedTools: this.allowRules([...tools.keys()]),

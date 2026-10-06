@@ -20,7 +20,7 @@ function contextFor(route: Route): Context {
     const label = target?.getAttribute('aria-label');
     const hints: Hint[] = [['⌘Z', 'Undo text edit'], ['Tab / ⇧Tab', 'Move between controls']];
     if (label === 'Message') hints.unshift(['Enter', 'Send message'], ['⇧Enter', 'New line'], ['@', 'Mention an agent or routine'], ['/', 'Choose a skill'], ['↑ / ↓', 'Choose a suggestion'], ['Enter / Tab', 'Insert selected suggestion'], ['Esc', route.view === 'tasks' ? 'Dismiss picker or return to task list' : 'Dismiss picker or return to thread list']);
-    else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['Esc', 'Clear and leave quick add']);
+    else if (label === 'New task') hints.unshift(['Enter', 'Create task'], ['⌘↩', 'Claude writes the task'], ['Esc', 'Clear and leave quick add']);
     else if (label === 'Start a thread') hints.unshift(['Enter', 'Start thread']);
     else if (label === 'Task title') hints.unshift(['Enter', 'Save title'], ['Esc', 'Cancel title edit and return to list']);
     if (target?.closest('.ws-task-detail')) { hints.push(['⌘O', 'Open task output or attachment']); if (label === 'Task context') hints.push(['Esc', 'Leave the context field and return to list']); }

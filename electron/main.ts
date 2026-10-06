@@ -34,6 +34,7 @@ import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
 import { exportTasks, importInbox, type ExportFile } from './brain-bridge.js';
+import { brainPeople } from './task-polish.js';
 import { readClaudeRoutines } from './claude-schedule.js';
 import { findRemindersHelper, parseLedger, RemindersError, RemindersHelper, syncReminders } from './reminders.js';
 import { Runtime } from './runtime.js';
@@ -467,6 +468,10 @@ function registerIpc() {
       return task;
     },
   );
+  handle('polish-task', (text: string) => {
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000) throw new Error('Write the task first');
+    return runtime.polishTask(text, brainPeople(brain?.dir));
+  });
   handle('update-task', (id: string, change: TaskChange) => {
     const allowed: TaskChange = {};
     for (const key of ['title', 'notes', 'status', 'label', 'dueAt'] as const)

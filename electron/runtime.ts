@@ -52,6 +52,7 @@ import {
   taskReadTools,
   type RunKind,
 } from './agent-tools.js';
+import { polishInstructions, polishPrompt, readPolished, type PolishedTask } from './task-polish.js';
 
 type Context = {
   kind: RunKind;
@@ -270,6 +271,20 @@ export class Runtime {
   async stopTask(taskId: string) {
     const task = this.store.get('tasks', taskId);
     if (task?.threadId) await this.stopThread(task.threadId);
+  }
+  // Add with Claude: one quick call without tools turns a dictated note into a clean task (see task-polish.ts).
+  async polishTask(text: string, people: string[], today = new Date()): Promise<PolishedTask> {
+    const labels = [...new Set(this.store.list('tasks').map((task) => task.label).filter((label): label is string => !!label))].sort();
+    const result = await this.codex.run({
+      kind: 'route',
+      cwd: this.paths.routineCwd,
+      instructions: polishInstructions(),
+      prompt: polishPrompt(text, { today, labels, people }),
+      tools: [],
+      modelTier: 'lightweight',
+      onDelta: () => {},
+    });
+    return readPolished(result.text, text, labels, today);
   }
   private async routeTask(task: Task, brief: string): Promise<Group> {
     if (task.threadId) {

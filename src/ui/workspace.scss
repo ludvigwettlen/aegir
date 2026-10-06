@@ -99,6 +99,13 @@
   &:focus-within { border-color: var(--ds-color-lime-strong); box-shadow: 0 0 0 3px var(--ds-color-lime-soft); }
   input { flex: 1; min-width: 0; border: 0 !important; box-shadow: none !important; background: transparent; padding: 0; font-size: 13px; }
 }
+.ws-quick-add-claude { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--ds-color-line); border-radius: 7px; background: #fff; color: #45523f; font-size: 12px; font-weight: 600; cursor: pointer;
+  &:hover:not(:disabled) { background: var(--ds-color-lime-soft); border-color: #c6e39a; }
+  &:disabled { cursor: default; color: #7c8876; }
+  &:focus-visible { outline: 1px solid var(--ds-color-focus); outline-offset: 1px; }
+}
+.ws-pulse { animation: ws-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ws-pulse { animation: none; } }
 
 /* Tasks */
 .ws-tasks { display: flex; min-width: 0; }
