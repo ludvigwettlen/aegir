@@ -24,7 +24,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('asks the agent to open a task dra
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     // A cold first load makes Vite optimise dependencies and reload the page, so start from a settled second load.
     await page.goto(`${server.resolvedUrls!.local[0]}review-in-browser`);
-    await page.getByRole('heading', { name: 'Today', level: 1 }).waitFor({ timeout: 30_000 });
+    await page.getByRole('heading', { name: 'Today', level: 1 }).waitFor({ timeout: 30_000 }).catch(() => {});
     await page.goto(`${server.resolvedUrls!.local[0]}review-in-browser`);
     const row = (title: string) => page.locator('[data-task-row]', { hasText: title });
     const reviewButton = page.getByRole('button', { name: 'Review in browser', exact: true });

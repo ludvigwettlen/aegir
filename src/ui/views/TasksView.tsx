@@ -220,7 +220,8 @@ export function TasksView({
     const threadId = open?.threadId;
     if (!threadId) return;
     let live = true;
-    api.listDocuments(threadId).then(
+    // Any failure, even a synchronous one, just means no drafts to offer; it must never take the task list down.
+    Promise.resolve().then(() => api.listDocuments(threadId)).then(
       (files) => { if (live) setDocuments({ threadId, files }); },
       () => { if (live) setDocuments({ threadId, files: [] }); },
     );
