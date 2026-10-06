@@ -1,3 +1,4 @@
+import yaml from 'js-yaml';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -106,11 +107,21 @@ describe('filing an attachment in the brain', () => {
     fileToBrain(brainDir, 'q3-close', file, join(taskDir, file.path), { taskTitle: 'Close Q3', taskId: 'task-1' });
     const page = readFileSync(join(brainDir, 'sources', 'q3-close', 'index.md'), 'utf8');
     expect(page).toContain('sha256: abc123');
-    expect(page).toContain('legolas_task: Close Q3 (task-1)');
-    expect(page).toContain('original_path: /elsewhere/notes.md');
+    expect(page).toContain('legolas_task: "Close Q3 (task-1)"');
+    expect(page).toContain('original_path: "/elsewhere/notes.md"');
     expect(page).toContain('Raw file: `memo.md`');
     fileToBrain(brainDir, 'q3-close', row({ ...file, name: 'second.md' }), join(taskDir, file.path), { taskTitle: 'Close Q3', taskId: 'task-1' });
     expect(readFileSync(join(brainDir, 'sources', 'q3-close', 'index.md'), 'utf8')).toContain('## second.md');
+  });
+
+  it('keeps the front matter valid YAML when the task title has a colon', () => {
+    const brainDir = brain();
+    const taskDir = join(outputRoot, 'task-2');
+    const file = row({ name: 'board: pack.md', path: writeAttachment(taskDir, 'attachments', readSource(source('memo.md'))) });
+    fileToBrain(brainDir, 'board-pack', file, join(taskDir, file.path), { taskTitle: 'Legolas prd: allow me to attach files', taskId: 'task-2' });
+    const page = readFileSync(join(brainDir, 'sources', 'board-pack', 'index.md'), 'utf8');
+    const front = yaml.load(page.split('---')[1]) as Record<string, unknown>;
+    expect(front).toMatchObject({ title: 'board: pack.md', legolas_task: 'Legolas prd: allow me to attach files (task-2)', type: 'source' });
   });
 
   it('refuses a slug that would file outside sources/, and a brain that is not there', () => {

@@ -183,7 +183,7 @@ it('files an attachment in the brain on request, and nothing before it', async (
   expect(filedPack.brainPath).toBe(join(brainDir, 'sources', 'q3-close', '.raw', 'Q3 pack.pdf'));
   expect(filedPack.brainFiledAt).toBeTruthy();
   const page = readFileSync(join(brainDir, 'sources', 'q3-close', 'index.md'), 'utf8');
-  expect(page).toContain(`legolas_task: Close Q3 (${task.id})`);
+  expect(page).toContain(`legolas_task: "Close Q3 (${task.id})"`);
   expect(page).toContain(`sha256: ${memo.file!.sha256}`);
   expect(readFileSync(join(brainDir, '.gitignore'), 'utf8')).toContain('sources/*/.raw/');
   // The staged copy stays until the task ages out; the brain copy is the one that opens.

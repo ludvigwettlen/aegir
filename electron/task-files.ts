@@ -154,13 +154,15 @@ export function fileToBrain(
   if (existsSync(page)) {
     writeFileSync(page, `${readFileSync(page, 'utf8').trimEnd()}\n\n## ${file.name}\n\nFiled from ${origin} on ${ingested.slice(0, 10)}. Raw file: \`${where}\`. sha256 \`${file.sha256}\`.\n`);
   } else {
+    // Quoted, so a name or task title with a colon ("Legolas prd: …") stays valid YAML for the brain's fact store.
+    const quoted = (value: string) => JSON.stringify(value);
     writeFileSync(page, [
       '---',
-      `title: ${file.name}`,
+      `title: ${quoted(file.name)}`,
       'type: source',
       'source: legolas-attachment',
-      `original_path: ${file.originalPath || 'unknown'}`,
-      `legolas_task: ${context.taskTitle || 'none'}${context.taskId ? ` (${context.taskId})` : ''}`,
+      `original_path: ${quoted(file.originalPath || 'unknown')}`,
+      `legolas_task: ${quoted(`${context.taskTitle || 'none'}${context.taskId ? ` (${context.taskId})` : ''}`)}`,
       `sha256: ${file.sha256}`,
       `bytes: ${file.bytes}`,
       `ingested: ${ingested}`,
