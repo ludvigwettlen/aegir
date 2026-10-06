@@ -28,6 +28,17 @@ export type GatedOutcome = {
 
 export type Decision = { allow: true; input?: Record<string, unknown> } | { allow: false; reason: string };
 
+// Planned tools a session can't offer. A tool whose connector is still connecting doesn't count: claude.ai connectors
+// often finish after the session starts, and ToolSearch waits for them.
+export function unavailableTools(calls: GatedCall[], tools: string[], servers: { name: string; status: string }[]): string[] {
+  const normalize = (name: string) => name.replace(/[^A-Za-z0-9_-]/g, '_');
+  return calls.map((call) => call.tool).filter((tool) => {
+    if (tools.includes(tool)) return false;
+    const server = tool.split('__')[1] || '';
+    return !servers.some((item) => normalize(item.name) === server && item.status === 'pending');
+  });
+}
+
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 export class CallGate {

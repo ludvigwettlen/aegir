@@ -52,6 +52,7 @@ const api: DesktopApi = {
   undoDraftSend: messageId => ipcRenderer.invoke('draft-undo', messageId),
   markDraftSent: (messageId, text) => ipcRenderer.invoke('draft-sent', messageId, text),
   reopenDraft: messageId => ipcRenderer.invoke('draft-reopen', messageId),
+  recheckDraft: messageId => ipcRenderer.invoke('draft-recheck', messageId),
   discardDraft: messageId => ipcRenderer.invoke('draft-discard', messageId),
   runEvents: runId => ipcRenderer.invoke('run-events', runId),
   resolveApproval: (id, approved) => ipcRenderer.invoke('resolve-approval', id, approved),

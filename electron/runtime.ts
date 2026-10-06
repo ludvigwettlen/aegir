@@ -80,8 +80,10 @@ export class Runtime {
   private sends = new Map<string, AbortController>();
   // Destination checks run one at a time, each in its own locked run.
   private checks: Promise<void> = Promise.resolve();
-  // The draft card undo window. Tests shorten it.
+  // The draft card undo window, and the pause before a destination check that came too early tries once more.
+  // Tests shorten both.
   undoMs = UNDO_MS;
+  checkRetryMs = 5000;
   private timer: NodeJS.Timeout | null = null;
   private startupTimer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -739,6 +741,15 @@ ${memoryGuidance}`;
     const check = needsCheck(draft) && !!this.codex.sendGated;
     if (this.moveDraft(messageId, ['sent'], { state: check ? 'checking' : 'pending', sentAt: undefined, sentBy: undefined }) && check) this.queueCheck(messageId);
   }
+  // Checks the destination again for a card Slack or Superhuman couldn't confirm, so it can be sent after all.
+  recheckDraft(messageId: string) {
+    const draft = this.draftCard(messageId);
+    const unconfirmed = draft.slack?.name === null || (!!draft.email?.draftId && !draft.email.confirmed);
+    if (draft.state !== 'pending' || !unconfirmed) throw new Error('This draft has nothing to check again');
+    if (!this.codex.sendGated) throw new Error('Checking needs the Claude Code engine');
+    if (this.moveDraft(messageId, ['pending'], { state: 'checking', error: undefined, ...(draft.slack ? { slack: { ...draft.slack, name: undefined } } : {}) }))
+      this.queueCheck(messageId);
+  }
   discardDraft(messageId: string) {
     this.draftCard(messageId);
     this.moveDraft(messageId, Runtime.editable, { state: 'discarded' });
@@ -754,8 +765,13 @@ ${memoryGuidance}`;
     if (!plan || !this.codex.sendGated) { this.moveDraft(messageId, ['checking'], { state: 'pending' }); return; }
     let results: unknown[] = [];
     let error: string | undefined;
-    try { ({ results, error } = await this.codex.sendGated(plan.calls, undefined, readToolResponse)); }
-    catch (cause) { error = String(cause).replace(/^Error: /, ''); }
+    // A check that got no answer at all (a connector still connecting, Claude Code ending early) tries once more.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await new Promise((done) => setTimeout(done, this.checkRetryMs));
+      try { ({ results, error } = await this.codex.sendGated(plan.calls, undefined, readToolResponse)); }
+      catch (cause) { results = []; error = String(cause).replace(/^Error: /, ''); }
+      if (results.length || !error || !this.available) break;
+    }
     const found = plan.read(results);
     this.moveDraft(messageId, ['checking'], { ...found, state: 'pending', ...(found.error && error && error !== 'not found' ? { error: `${found.error} (${error})` } : {}) });
   }
@@ -804,6 +820,7 @@ ${memoryGuidance}`;
     for (const message of this.store.draftsIn(['checking', 'pending'])) {
       const draft = message.meta as MessageDraft;
       if (draft.state === 'checking') this.queueCheck(message.id);
+      else if (draft.slack?.name === null && this.codex.sendGated) this.recheckDraft(message.id); // a check that failed earlier
       else if (needsCheck(draft) && this.codex.sendGated && this.moveDraft(message.id, ['pending'], { state: 'checking' })) this.queueCheck(message.id);
     }
   }

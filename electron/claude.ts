@@ -10,7 +10,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import type { Approval } from '../shared/types.js';
 import type { RunInput, Tool, ToolHandler } from './codex.js';
 import type { EngineProvider } from './engine.js';
-import { CallGate, type Decision, type GatedCall, type GatedOutcome } from './gated.js';
+import { CallGate, unavailableTools, type Decision, type GatedCall, type GatedOutcome } from './gated.js';
 import { ToolResult } from './tool-result.js';
 
 const SERVER = 'aegir';
@@ -407,9 +407,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
       });
       for await (const message of session as AsyncIterable<SDKMessage>) {
         if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
-          const tools = (message as { tools?: string[] }).tools || [];
-          const missing = calls.find((call) => !tools.includes(call.tool));
-          if (missing) { gate.stop(`Your Claude Code setup has no ${missing.tool}`, true); abort.abort(); }
+          const init = message as { tools?: string[]; mcp_servers?: { name: string; status: string }[] };
+          const missing = unavailableTools(calls, init.tools || [], init.mcp_servers || []);
+          if (missing.length) { gate.stop(`Your Claude Code setup has no ${missing[0]}`, true); abort.abort(); }
         }
       }
     } catch (error) {

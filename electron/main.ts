@@ -446,6 +446,7 @@ function registerIpc() {
   handle('draft-undo', (messageId: string) => runtime.undoDraftSend(messageId));
   handle('draft-sent', (messageId: string, text: string) => runtime.markDraftSent(messageId, text));
   handle('draft-reopen', (messageId: string) => runtime.reopenDraft(messageId));
+  handle('draft-recheck', (messageId: string) => runtime.recheckDraft(messageId));
   handle('draft-discard', (messageId: string) => runtime.discardDraft(messageId));
   handle('run-events', (runId: string) => store.runEvents(runId));
   handle('resolve-approval', (id: string, approved: boolean) => {

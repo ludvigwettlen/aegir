@@ -156,8 +156,14 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
     await checking.getByText('Checking where it goes with Slack…').waitFor();
     expect(await checking.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true);
     const unconfirmed = page.getByRole('article', { name: 'Slack draft: DM to Maja', exact: true });
-    await unconfirmed.getByText("Couldn't confirm where this goes: Slack has no DM with this id that you can see. Legolas won't send it; copy it instead.").waitFor();
+    await unconfirmed.getByText("Couldn't confirm where this goes: Slack has no DM with this id that you can see. Legolas won't send it until it can; copy it instead.", { exact: false }).waitFor();
     expect(await unconfirmed.getByRole('button', { name: 'Send', exact: true }).count()).toBe(0);
+    // Check again: a check that failed (a connector still connecting) may work now, and then Send appears.
+    await unconfirmed.getByRole('button', { name: 'Check again' }).click();
+    await called('recheckDraft', 'slack-unconfirmed');
+    const lin = page.getByRole('article', { name: 'Slack draft: Maja Holm', exact: true });
+    await lin.getByText('Slack: DM to Maja Holm', { exact: false }).waitFor();
+    await lin.getByRole('button', { name: 'Send', exact: true }).waitFor();
     const lost = page.getByRole('article', { name: 'Slack draft: mgmt', exact: true });
     await lost.getByText('Legolas lost track of this send. Check Slack before sending again.', { exact: false }).waitFor();
     await lost.getByRole('button', { name: 'Send again' }).waitFor();

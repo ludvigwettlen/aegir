@@ -105,6 +105,13 @@ window.aegir = {
   markDraftSent: async (id: string, text: string) => { record('markDraftSent', id, text); change(id, { text, state: 'sent', sentBy: 'you', sentAt: new Date().toISOString() }); },
   sendDraft: async (id: string, text: string) => { record('sendDraft', id, text); send(id, text); },
   reopenDraft: async (id: string) => { record('reopenDraft', id); change(id, { state: 'pending', sentAt: undefined, sentBy: undefined }, ['sent']); },
+  // Like the app: back to checking, then Slack confirms the name.
+  recheckDraft: async (id: string) => {
+    record('recheckDraft', id);
+    const card = messages.find((item) => item.id === id)?.meta as MessageDraft;
+    change(id, { state: 'checking', error: undefined, slack: { channelId: card.slack!.channelId } }, ['pending']);
+    setTimeout(() => change(id, { state: 'pending', slack: { channelId: card.slack!.channelId, name: 'Maja Holm' } }, ['checking']), 200);
+  },
   undoDraftSend: async (id: string) => { record('undoDraftSend', id); change(id, { state: 'pending', queuedAt: undefined }, ['queued']); },
   discardDraft: async (id: string) => { record('discardDraft', id); change(id, { state: 'discarded' }); },
   openExternal: async (url: string) => { record('openExternal', url); },

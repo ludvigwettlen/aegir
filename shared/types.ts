@@ -242,6 +242,8 @@ export interface DesktopApi extends SkillsApi {
   markDraftSent(messageId: string, text: string): Promise<void>;
   // Takes back "I sent it" when it didn't actually go out. A card Legolas sent can't be reopened.
   reopenDraft(messageId: string): Promise<void>;
+  // Checks the destination again when Slack or Superhuman couldn't confirm it.
+  recheckDraft(messageId: string): Promise<void>;
   discardDraft(messageId: string): Promise<void>;
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;

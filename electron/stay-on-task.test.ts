@@ -25,6 +25,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('keeps you on a task after you sen
     await page.goto(`${server.resolvedUrls!.local[0]}stay-on-task`);
     await page.getByRole('heading', { name: 'Today', level: 1 }).waitFor({ timeout: 30_000 }).catch(() => {});
     await page.goto(`${server.resolvedUrls!.local[0]}stay-on-task`);
+    await page.getByRole('heading', { name: 'Today', level: 1 }).waitFor({ timeout: 30_000 });
+    // Errors from the first load, which Vite reloaded, don't count.
+    errors.length = 0;
     const row = (title: string) => page.locator('[data-task-row]', { hasText: title });
     const selected = () => page.locator('[data-task-row][aria-current="true"]').innerText();
     const panelTitle = () => page.getByRole('textbox', { name: 'Task title' }).inputValue();

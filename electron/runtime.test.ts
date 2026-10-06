@@ -672,7 +672,7 @@ describe('sending draft cards', () => {
 
   it('confirms a Slack card with Slack, then sends exactly the card text once the undo window has passed', async () => {
     const { store, runtime, calls, runs, card } = sending((tool) => tool.endsWith('slack_read_user_profile')
-      ? [{ type: 'text', text: '{"result":"Johan Lund (johan.lund)\\nNorthwind"}' }]
+      ? [{ type: 'text', text: '{"result":"johan.lund (Johan Lund)\\nNorthwind"}' }]
       : '{"ok":true,"channel":"D04EXAMPL01","ts":"1759740000.1","permalink_hint":"https://app.slack.com/client/D04EXAMPL01"}', draftOnce(johan));
     const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
     await runtime.sendMessage(thread.id, 'Draft a DM to Johan');
@@ -766,7 +766,7 @@ describe('sending draft cards', () => {
   });
 
   it('reopens a card marked sent by mistake so it can be sent after all; a card Legolas sent stays sent', async () => {
-    const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('profile') ? { result: 'Johan Lund' } : { ok: true, ts: '1.2' }), draftOnce(johan));
+    const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('profile') ? { result: 'johan (Johan Lund)' } : { ok: true, ts: '1.2' }), draftOnce(johan));
     const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
     await runtime.sendMessage(thread.id, 'Draft it');
     const id = firstCard(store, thread.id);
@@ -783,7 +783,7 @@ describe('sending draft cards', () => {
   });
 
   it('checks cards from before Send existed when Legolas starts, and a reopened one, so they can be sent too', async () => {
-    const { store, card, reopen } = sending(() => ({ result: 'Johan Lund (johan)' }), async () => 'Done');
+    const { store, card, reopen } = sending(() => ({ result: 'johan (Johan Lund)' }), async () => 'Done');
     const thread = store.createThread(store.groups()[0].id, 'Tell Johan');
     const old = (state: 'pending' | 'sent') => store.addMessage(thread.id, null, 'system', 'Slack draft: DM till Johan', 'complete',
       { type: 'message-draft', channel: 'slack', label: 'DM till Johan', original: 'Hej', text: 'Hej', state, slack: { channelId: 'U0AEXAMPL06' }, ...(state === 'sent' ? { sentAt: '2026-10-06T04:26:00.000Z' } : {}) }).id;
@@ -799,6 +799,35 @@ describe('sending draft cards', () => {
     expect(card(marked).state).toBe('checking');
     await until(() => card(marked).state === 'pending');
     expect(card(marked).slack?.name).toBe('Johan Lund');
+  });
+
+  it('tries a check once more when it got no answer, and checks again on request or at the next start', async () => {
+    let early = 1;
+    const { store, runtime, card, reopen } = sending(() => {
+      if (early > 0) { early--; return new Error('Your Claude Code setup has no mcp__claude_ai_Slack__slack_read_user_profile'); }
+      return { result: 'noor (Noor Ellis)' };
+    }, draftOnce({ ...johan, label: 'Reply to Noor', slack: { channel_id: 'U02EXAMPL05' } }));
+    runtime.checkRetryMs = 10;
+    const thread = store.createThread(store.groups()[0].id, 'Answer Noor');
+    await runtime.sendMessage(thread.id, 'Draft the reply');
+    const id = firstCard(store, thread.id);
+    // The first check failed outright and the second, a moment later, confirmed it.
+    await until(() => card(id).state === 'pending');
+    expect(card(id).slack?.name).toBe('Noor Ellis');
+    expect(() => runtime.recheckDraft(id)).toThrow('nothing to check again');
+
+    // A card that stayed unconfirmed: Check again, and the next start, both try again.
+    store.setMessageMeta(id, { ...card(id), slack: { channelId: 'U02EXAMPL05', name: null }, error: 'Slack has no DM with this id that you can see' });
+    runtime.recheckDraft(id);
+    expect(card(id).state).toBe('checking');
+    await until(() => card(id).state === 'pending');
+    expect(card(id)).toMatchObject({ slack: { name: 'Noor Ellis' } });
+    expect(card(id).error).toBeUndefined();
+    store.setMessageMeta(id, { ...card(id), slack: { channelId: 'U02EXAMPL05', name: null } });
+    const started = reopen();
+    cleanup.push(() => started.stop());
+    started.start();
+    await until(() => card(id).state === 'pending' && card(id).slack?.name === 'Noor Ellis');
   });
 
   it("won't send what Slack couldn't confirm, nor without Claude Code", async () => {

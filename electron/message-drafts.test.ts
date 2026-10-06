@@ -31,7 +31,7 @@ describe('sending draft cards', () => {
     const user = checkPlan(draftFromTool(slack))!;
     expect(user.calls.map((call) => call.tool)).toEqual([`${SLACK}slack_read_user_profile`]);
     expect(run(user.calls)).toEqual([{ user_id: 'U06TESTUSR1', response_format: 'concise' }]);
-    expect(user.read([readToolResponse([{ type: 'text', text: '{"result":"Johan Lund (johan.lund)\\nNorthwind\\nCSM\\n"}' }])])).toEqual({ slack: { channelId: 'U06TESTUSR1', threadTs: '1759687412.123456', name: 'Johan Lund' }, error: undefined });
+    expect(user.read([readToolResponse([{ type: 'text', text: '{"result":"johan.lund (Johan Lund)\\nNorthwind\\nCSM\\n"}' }])])).toEqual({ slack: { channelId: 'U06TESTUSR1', threadTs: '1759687412.123456', name: 'Johan Lund' }, error: undefined });
     expect(user.read([])).toMatchObject({ slack: { name: null }, error: "Slack didn't say who this is" });
 
     const dm = checkPlan(draftFromTool({ ...slack, slack: { channel_id: 'D04EXAMPL01' } }))!;
@@ -39,7 +39,7 @@ describe('sending draft cards', () => {
     expect(dm.calls[0].input([])).toMatchObject({ channel_types: 'im' });
     expect(dm.calls[0].check?.(list)).toBeNull();
     expect(dm.calls[1].input([list])).toEqual({ user_id: 'U06TESTUSR1', response_format: 'concise' });
-    expect(dm.read([list, { result: 'Johan Lund (johan.lund)' }]).slack?.name).toBe('Johan Lund');
+    expect(dm.read([list, { result: 'johan.lund (Johan Lund)' }]).slack?.name).toBe('Johan Lund');
     expect(dm.calls[0].check?.({ channels: [] })).toBe('not found');
 
     const channel = checkPlan(draftFromTool({ ...slack, slack: { channel_id: 'C01EXAMPL03' } }))!;
@@ -95,6 +95,9 @@ describe('sending draft cards', () => {
 
   it('reads Slack profile answers', () => {
     expect(profileName({ result: 'malcolm (malcolm)\nNorthwind\nCEO' })).toBe('malcolm');
+    // Slack answers "handle (Real Name)": the card shows the real name.
+    expect(profileName({ result: 'people (Nora Palmer)\nNorthwind\nHead of People' })).toBe('Nora Palmer');
+    expect(profileName({ result: 'lin' })).toBe('lin');
     expect(profileName({ real_name: 'Johan Lund' })).toBe('Johan Lund');
     expect(profileName({ text: 'Error: user_not_found' })).toBeNull();
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CallGate, type GatedCall } from './gated.js';
+import { CallGate, unavailableTools, type GatedCall } from './gated.js';
 
 const send: GatedCall = { tool: 'mcp__slack__send', input: () => ({ channel_id: 'U1', text: 'Hej' }) };
 
@@ -53,6 +53,14 @@ describe('locked runs', () => {
     await gate.before('mcp__slack__send');
     gate.after('mcp__slack__send', { channel_id: 'C9', text: 'Hej' }, { ok: true });
     expect(gate.outcome()).toMatchObject({ completed: false, toolSaidNo: false, error: 'The call ran with different input than Legolas released' });
+  });
+
+  it("doesn't count a tool as missing while its connector is still connecting", () => {
+    const calls = [{ tool: 'mcp__claude_ai_Slack__slack_read_user_profile', input: () => ({}) }];
+    expect(unavailableTools(calls, [], [{ name: 'claude.ai Slack', status: 'pending' }])).toEqual([]);
+    expect(unavailableTools(calls, [], [{ name: 'claude.ai Slack', status: 'connected' }])).toEqual(['mcp__claude_ai_Slack__slack_read_user_profile']);
+    expect(unavailableTools(calls, [], [{ name: 'claude.ai Slack', status: 'needs-auth' }])).toEqual(['mcp__claude_ai_Slack__slack_read_user_profile']);
+    expect(unavailableTools(calls, ['mcp__claude_ai_Slack__slack_read_user_profile'], [])).toEqual([]);
   });
 
   it('parses answers with the reader it was given', async () => {

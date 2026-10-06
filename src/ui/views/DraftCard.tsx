@@ -126,6 +126,10 @@ export function DraftCard({ message, draft, agentName, canSend, run }: { message
   const seconds = draft.queuedAt ? Math.max(0, Math.ceil((Date.parse(draft.queuedAt) + UNDO_MS - now) / 1000)) : 0;
   const name = draft.channel === 'slack' ? `Slack draft: ${slack?.name || draft.label}` : `Email draft: ${email?.subject || draft.label}`;
 
+  // A check that failed may work now (a connector that was still connecting): try again from the card.
+  const recheck = canSend && draft.state === 'pending'
+    ? <> <button type="button" className="ws-draft-recheck" disabled={busy} onClick={() => act(() => api.recheckDraft(message.id))}>Check again</button></>
+    : null;
   // The agent's words for where it goes, then what Slack or Superhuman confirm.
   const destination = (live: boolean) => (
     <div className="ws-draft-to">
@@ -148,9 +152,9 @@ export function DraftCard({ message, draft, agentName, canSend, run }: { message
       {live && (draft.state === 'checking'
         ? <p className="ws-draft-check" role="status">Checking where it goes with {where}…</p>
         : slack?.name === null
-          ? <p className="ws-draft-warning">Couldn't confirm where this goes{draft.error ? `: ${draft.error}` : ''}. Legolas won't send it; copy it instead.</p>
+          ? <p className="ws-draft-warning">Couldn't confirm where this goes{draft.error ? `: ${draft.error}` : ''}. Legolas won't send it until it can; copy it instead.{recheck}</p>
           : email?.draftId && !email.confirmed && draft.error
-            ? <p className="ws-draft-warning">{draft.error}. Legolas won't send it; copy it or open it in Superhuman.</p>
+            ? <p className="ws-draft-warning">{draft.error}. Legolas won't send it until it can; copy it or open it in Superhuman.{recheck}</p>
             : email && !email.draftId
               ? <p className="ws-draft-check">Not in Superhuman yet, so Legolas can't send it. Copy it, or ask Claude to put it there.</p>
               : confirmed

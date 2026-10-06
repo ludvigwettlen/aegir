@@ -18,6 +18,8 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows Claude Code scheduled tasks
     await page.getByText('Claude Code', { exact: true }).waitFor({ timeout: 30_000 }).catch(() => {});
     await page.goto(`${server.resolvedUrls!.local[0]}claude-routines`);
     await page.getByText('Claude Code', { exact: true }).waitFor({ timeout: 20000 });
+    // Errors from the first load, which Vite reloaded, don't count.
+    errors.length = 0;
     expect(await page.getByRole('button', { name: 'daily-brief', exact: true }).innerText()).toContain('On');
     expect(await page.getByRole('button', { name: 'queue-reconciler', exact: true }).innerText()).toContain('Paused');
     await page.getByRole('button', { name: 'daily-brief', exact: true }).click();

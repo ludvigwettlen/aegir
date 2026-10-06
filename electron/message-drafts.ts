@@ -144,7 +144,7 @@ export function slackKind(channelId: string): 'dm' | 'channel' | 'group' {
   return channelId.startsWith('C') ? 'channel' : channelId.startsWith('G') ? 'group' : 'dm';
 }
 
-// slack_read_user_profile answers "Name (handle)\nCompany\nTitle…" as text, or a profile object.
+// slack_read_user_profile answers "handle (Real Name)\nCompany\nTitle…" as text, or a profile object.
 export function profileName(result: unknown): string | null {
   const value = object(readToolResponse(result));
   const named = string(value.real_name) || string(value.display_name) || string(object(value.profile).real_name);
@@ -152,7 +152,9 @@ export function profileName(result: unknown): string | null {
   const text = string(value.result) || string(value.text);
   const first = text.split('\n').map(line => line.trim()).find(Boolean) || '';
   if (!first || /^error\b|not[_ ]found/i.test(first)) return null;
-  return first.replace(/\s*\([^)]*\)$/, '').trim() || first;
+  // "people (Nora Palmer)": the real name in brackets reads better on a card than the handle.
+  const handle = first.match(/^(.*?)\s*\(([^)]+)\)$/);
+  return handle ? handle[2].trim() || handle[1].trim() : first;
 }
 
 function channelEntry(result: unknown, id: string): Record<string, unknown> | undefined {
