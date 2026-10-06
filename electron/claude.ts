@@ -16,6 +16,18 @@ import { ToolResult } from './tool-result.js';
 const SERVER = 'aegir';
 const PREFIX = `mcp__${SERVER}__`;
 const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
+// Tools that send as the user. Legolas runs never call them: a message leaves Legolas only through a draft card the
+// user sees and sends, which uses its own locked run (see gated.ts). Malcolm's call, 6 Oct 2026, because his Claude
+// Code settings pre-approve Slack's send for his other sessions.
+export const SEND_TOOLS = [
+  'mcp__claude_ai_Slack__slack_send_message',
+  'mcp__claude_ai_Slack__slack_schedule_message',
+  'mcp__claude_ai_Superhuman_Mail__send_draft',
+];
+// What a run may not use: the send tools always, and file writes in unattended routines.
+export function disallowedFor(kind: RunInput['kind']): string[] {
+  return [...SEND_TOOLS, ...(kind === 'routine' ? WRITE_TOOLS : [])];
+}
 
 // Claude tool names are capped at 64 characters including the mcp__aegir__ prefix.
 // Aegir's per-agent memory tools carry a full agent id, so long names get a stable hashed suffix.
@@ -270,8 +282,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
             : {
                 mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
                 allowedTools: this.allowRules([...tools.keys()]),
-                // Unattended routines stay read-only; chats and tasks behave like the user's own Claude Code.
-                disallowedTools: input.kind === 'routine' ? WRITE_TOOLS : [],
+                // Chats and tasks behave like the user's own Claude Code, except they never send as the user;
+                // unattended routines are also read-only.
+                disallowedTools: disallowedFor(input.kind),
                 additionalDirectories: this.options.workDirs || [],
                 model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
               }),

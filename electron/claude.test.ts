@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalTitle, describeToolRequest, exposedToolName, isInside, mcpContent, permissionResult } from './claude.js';
+import { approvalTitle, describeToolRequest, disallowedFor, exposedToolName, isInside, mcpContent, permissionResult, SEND_TOOLS } from './claude.js';
 import { brainKeywords, parseGbrainResults } from './gbrain-memory.js';
 import { chooseEngine } from './engine.js';
 import { ToolResult } from './tool-result.js';
@@ -12,6 +12,14 @@ describe('Claude Code engine helpers', () => {
     expect(`mcp__aegir__${exposed}`.length).toBeLessThanOrEqual(64);
     expect(exposedToolName(long)).toBe(exposed);
     expect(exposedToolName(`${long}x`)).not.toBe(exposed);
+  });
+
+  it('never lets a run send as the user, and keeps routines from writing files', () => {
+    for (const kind of ['chat', 'task', 'routine'] as const) expect(disallowedFor(kind)).toEqual(expect.arrayContaining(SEND_TOOLS));
+    expect(SEND_TOOLS).toContain('mcp__claude_ai_Slack__slack_send_message');
+    expect(SEND_TOOLS).toContain('mcp__claude_ai_Superhuman_Mail__send_draft');
+    expect(disallowedFor('task')).not.toContain('Write');
+    expect(disallowedFor('routine')).toContain('Write');
   });
 
   it('only auto-allows writes inside the task folder', () => {
