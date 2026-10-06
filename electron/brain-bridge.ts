@@ -13,6 +13,11 @@ import { taskSourceKey } from './agent-tools.js';
 // A close entry ({ close: <sourceKey>, reason? }, or front matter with close: and no title) marks the
 // suggestion with that key done when the user already acted at the source. Closes run after every
 // suggestion in the same pass, and only touch tasks that are still suggested or to do.
+// An update entry ({ update: <sourceKey>, reason?, title?, label?, dueAt?, notes }) refreshes a task
+// a sweep made earlier, so nothing goes stale when the thread moves on before the user gets to it.
+// A suggestion still waiting under Needs you is rewritten in full. Once the user has accepted it,
+// their title, label, date and notes stay; the sweep's latest note sits in one section at the end of
+// the notes, replaced on every update. Tasks an agent holds or that are finished are left alone.
 export type InboxItem = { title: string; notes: string; sourceUrl: string | null; sourceKey: string | null; label: string | null; dueAt: string | null };
 
 export function parseInboxItem(raw: unknown): InboxItem {
@@ -42,6 +47,38 @@ export function parseInboxClose(value: Record<string, unknown>): InboxClose {
   return { close, reason };
 }
 
+export type InboxUpdate = { update: string; reason: string | null; title: string | null; notes: string; label: string | null; dueAt: string | null };
+
+export function parseInboxUpdate(value: Record<string, unknown>): InboxUpdate {
+  if (value.close !== undefined) throw new Error('An entry can update or close, not both');
+  const update = typeof value.update === 'string' ? value.update.trim() : '';
+  if (!/^[\w:.\-/]{1,200}$/.test(update)) throw new Error('update must be a sourceKey of letters, digits and : . - _ /');
+  const reason = typeof value.reason === 'string' && value.reason.trim() ? value.reason.trim().split(/\r?\n/)[0].slice(0, 240) : null;
+  const title = typeof value.title === 'string' && value.title.trim() ? value.title.trim() : null;
+  if (title && title.length > 240) throw new Error('title must be at most 240 characters');
+  const notes = typeof value.notes === 'string' ? value.notes.trim() : '';
+  if (notes.length > 20_000) throw new Error('notes must be at most 20,000 characters');
+  if (!reason && !title && !notes) throw new Error('An update needs a reason, a title or notes');
+  const label = typeof value.label === 'string' && value.label.trim() ? value.label.trim().replace(/^#/, '').toLowerCase().slice(0, 40) : null;
+  const dueAt = typeof value.dueAt === 'string' && value.dueAt.trim() ? value.dueAt.trim() : null;
+  if (dueAt && !/^\d{4}-\d{2}-\d{2}$/.test(dueAt)) throw new Error('dueAt must be YYYY-MM-DD');
+  return { update, reason, title, notes, label, dueAt };
+}
+
+// The heading that starts the sweep's section in an accepted task's notes.
+export const SWEEP_UPDATE_HEADING = '#### Latest from the sweep';
+
+export function updatedNotes(current: string, { reason, notes }: InboxUpdate, status: Task['status'], stamp: string) {
+  const header = `Updated ${stamp}${reason ? `: ${reason}` : ''}`;
+  if (status === 'proposed') return notes ? `${header}\n\n${notes}` : `${header}\n\n${current.replace(/^Updated [^\n]*\n\n/, '')}`;
+  const at = current.indexOf(SWEEP_UPDATE_HEADING);
+  const own = (at === -1 ? current : current.slice(0, at)).trimEnd();
+  return `${own ? `${own}\n\n` : ''}${SWEEP_UPDATE_HEADING}\n${header}${notes ? `\n\n${notes}` : ''}`;
+}
+
+const stampOf = (now: number) => new Date(now).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+const isUpdate = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw) && 'update' in raw;
 const isClose = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw) && 'close' in raw;
 
 export function parseInboxMarkdown(text: string): Record<string, string> {
@@ -56,9 +93,10 @@ export function parseInboxMarkdown(text: string): Record<string, string> {
 }
 
 export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 'taskBySource' | 'updateTask'>, dir: string, now = Date.now()) {
-  const counts = { created: 0, skipped: 0, rejected: 0, closed: 0 };
+  const counts = { created: 0, skipped: 0, rejected: 0, updated: 0, closed: 0 };
   if (!existsSync(dir)) return counts;
   const closes: InboxClose[] = [];
+  const updates: InboxUpdate[] = [];
   for (const name of readdirSync(dir).filter((file) => file.endsWith('.json') || file.endsWith('.md')).sort()) {
     const path = join(dir, name);
     if (now - statSync(path).mtimeMs < 2000) continue;
@@ -66,8 +104,9 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 
       const text = readFileSync(path, 'utf8');
       const raw: unknown = name.endsWith('.md') ? parseInboxMarkdown(text) : JSON.parse(text);
       const entries = Array.isArray(raw) ? raw : [raw];
-      const fileCloses = entries.filter(isClose).map(parseInboxClose);
-      const items = entries.filter((entry) => !isClose(entry)).map(parseInboxItem);
+      const fileUpdates = entries.filter(isUpdate).map(parseInboxUpdate);
+      const fileCloses = entries.filter((entry) => !isUpdate(entry) && isClose(entry)).map(parseInboxClose);
+      const items = entries.filter((entry) => !isUpdate(entry) && !isClose(entry)).map(parseInboxItem);
       for (const item of items) {
         // The same key never comes back, even after the task is dismissed or done.
         const key = item.sourceKey ? `inbox:${item.sourceKey}` : taskSourceKey('inbox', item.sourceUrl || '', item.title);
@@ -75,6 +114,7 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 
         store.createTask({ title: item.title, notes: item.notes, label: item.label, dueAt: item.dueAt, status: 'proposed', sourceUrl: item.sourceUrl, sourceKey: key });
         counts.created++;
       }
+      updates.push(...fileUpdates);
       closes.push(...fileCloses);
       mkdirSync(join(dir, 'processed'), { recursive: true });
       renameSync(path, join(dir, 'processed', name));
@@ -84,6 +124,15 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 
       renameSync(path, join(dir, 'rejected', name));
       counts.rejected++;
     }
+  }
+  for (const change of updates) {
+    const task = store.taskBySource(`inbox:${change.update}`);
+    if (!task || (task.status !== 'proposed' && task.status !== 'ready')) { counts.skipped++; continue; }
+    const notes = updatedNotes(task.notes, change, task.status, stampOf(now));
+    store.updateTask(task.id, task.status === 'proposed'
+      ? { notes, ...(change.title && { title: change.title }), ...(change.label && { label: change.label }), ...(change.dueAt && { dueAt: change.dueAt }) }
+      : { notes });
+    counts.updated++;
   }
   for (const { close, reason } of closes) {
     const task = store.taskBySource(`inbox:${close}`);

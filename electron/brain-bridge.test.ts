@@ -45,7 +45,7 @@ describe('suggestion inbox', () => {
     const young = drop(dir, 'd.json', { title: 'Still being written' }, 0);
     drop(dir, 'e.md', '---\ntitle: "Prep for Greenfield, Tue 10:00"\nsourceKey: calendar-abc123def456\nlabel: Investor\ndueAt: 2026-10-06\n---\n#### Recommendation: enrich\n- Two partners have no brain page.\n');
     drop(dir, 'f.md', 'no header here');
-    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2, closed: 0 });
+    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2, updated: 0, closed: 0 });
     expect(store.tasks[2]).toMatchObject({ title: 'Prep for Greenfield, Tue 10:00', label: 'investor', dueAt: '2026-10-06', notes: '#### Recommendation: enrich\n- Two partners have no brain page.', sourceKey: 'inbox:calendar-abc123def456' });
     expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Anna', 'proposed'], ['Prep Nordvik', 'proposed'], ['Prep for Greenfield, Tue 10:00', 'proposed']]);
     expect(store.tasks[0].sourceKey).toBe('inbox:gmail-malcolm-1a0c3d33');
@@ -60,7 +60,7 @@ describe('suggestion inbox', () => {
     drop(dir, 'a-close.md', '---\nclose: slack-C1-123\nreason: Replied in the thread\n---\n');
     drop(dir, 'b.json', [{ title: 'Reply to Maja', sourceKey: 'slack-C1-123', notes: 'Context' }, { title: 'Prep Nordvik', sourceKey: 'cal-nordvik' }, { title: 'Read memo', sourceKey: 'gmail-9' }]);
     drop(dir, 'c-close.json', [{ close: 'cal-nordvik' }, { close: 'never-seen', reason: 'gone' }]);
-    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 0, closed: 2 });
+    expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 0, updated: 0, closed: 2 });
     expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Maja', 'done'], ['Prep Nordvik', 'done'], ['Read memo', 'proposed']]);
     expect(store.tasks[0].notes).toBe('Context\n\nClosed automatically: Replied in the thread');
     expect(store.tasks[1].notes).toBe('Closed automatically: acted on at the source');
@@ -77,10 +77,58 @@ describe('suggestion inbox', () => {
     drop(dir, 'a.json', ['r', 'v', 'b', 'd', 't'].map((close) => ({ close })));
     drop(dir, 'b.json', { close: 'x', title: 'Both' });
     drop(dir, 'c.md', '---\nclose: bad key\n---\n');
-    expect(importInbox(store, dir)).toEqual({ created: 0, skipped: 4, rejected: 2, closed: 1 });
+    expect(importInbox(store, dir)).toEqual({ created: 0, skipped: 4, rejected: 2, updated: 0, closed: 1 });
     expect(store.tasks.map((task) => task.status)).toEqual(['running', 'review', 'blocked', 'dismissed', 'done']);
     expect(readFileSync(join(dir, 'rejected', 'b.json.error.txt'), 'utf8')).toMatch(/title/);
     expect(readFileSync(join(dir, 'rejected', 'c.md.error.txt'), 'utf8')).toMatch(/close/);
+  });
+});
+
+describe('suggestion updates', () => {
+  const now = Date.now();
+
+  it('rewrites a waiting suggestion and keeps what the user wrote on an accepted task', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
+    const store = fakeStore();
+    store.tasks.push(
+      { id: 'p', title: 'Reply to Anna', notes: 'Old draft', label: 'gtm', dueAt: null, status: 'proposed', sourceKey: 'inbox:gmail-1' } as Task,
+      { id: 'r', title: 'My own title', notes: 'My notes', label: 'board', dueAt: '2026-10-09', status: 'ready', sourceKey: 'inbox:gmail-2' } as Task,
+    );
+    drop(dir, 'a.md', '---\nupdate: gmail-1\nreason: Anna sent the signed contract\ntitle: "File Anna\'s signed contract"\ndueAt: 2026-10-07\n---\n#### Recommendation: file it\n- Signed today.\n', 10_000);
+    drop(dir, 'b.md', '---\nupdate: gmail-2\nreason: Bea replied\ntitle: Ignored\ndueAt: 2026-12-01\n---\nNew draft v1\n', 10_000);
+    expect(importInbox(store, dir, now)).toMatchObject({ updated: 2, rejected: 0 });
+    expect(store.tasks[0]).toMatchObject({ title: "File Anna's signed contract", dueAt: '2026-10-07', label: 'gtm', status: 'proposed' });
+    expect(store.tasks[0].notes).toMatch(/^Updated \d+ \w+.*: Anna sent the signed contract\n\n#### Recommendation: file it/);
+    expect(store.tasks[1]).toMatchObject({ title: 'My own title', dueAt: '2026-10-09', label: 'board', status: 'ready' });
+    expect(store.tasks[1].notes).toMatch(/^My notes\n\n#### Latest from the sweep\nUpdated .*: Bea replied\n\nNew draft v1$/);
+
+    drop(dir, 'c.md', '---\nupdate: gmail-2\nreason: Bea signed off\n---\n', 10_000);
+    importInbox(store, dir, now);
+    expect(store.tasks[1].notes).toMatch(/^My notes\n\n#### Latest from the sweep\nUpdated .*: Bea signed off$/);
+  });
+
+  it('leaves tasks an agent holds or that are finished, and rejects malformed updates', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
+    const store = fakeStore();
+    for (const status of ['running', 'review', 'blocked', 'done', 'dismissed'] as const)
+      store.tasks.push({ id: status, title: status, notes: 'n', status, sourceKey: `inbox:${status}` } as Task);
+    drop(dir, 'a.json', [...store.tasks.map((task) => ({ update: task.id, reason: 'moved' })), { update: 'never-seen', reason: 'x' }]);
+    drop(dir, 'b.json', { update: 'x', close: 'x' });
+    drop(dir, 'c.md', '---\nupdate: x\n---\n');
+    drop(dir, 'd.md', '---\nupdate: bad key\nreason: y\n---\n');
+    expect(importInbox(store, dir, now)).toEqual({ created: 0, skipped: 6, rejected: 3, updated: 0, closed: 0 });
+    expect(store.tasks.every((task) => task.notes === 'n')).toBe(true);
+  });
+
+  it('updates a suggestion created earlier in the same pass, then lets a close finish it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
+    const store = fakeStore();
+    drop(dir, 'a.json', { title: 'Prep Nordvik', sourceKey: 'cal-nordvik', notes: 'v1' });
+    drop(dir, 'b.json', { update: 'cal-nordvik', notes: 'v2' });
+    drop(dir, 'c.json', { close: 'cal-nordvik', reason: 'Meeting passed' });
+    expect(importInbox(store, dir, now)).toMatchObject({ created: 1, updated: 1, closed: 1 });
+    expect(store.tasks[0].status).toBe('done');
+    expect(store.tasks[0].notes).toMatch(/v2\n\nClosed automatically: Meeting passed$/);
   });
 });
 
