@@ -36,13 +36,15 @@ describe('sending draft cards', () => {
 
     const dm = checkPlan(draftFromTool({ ...slack, slack: { channel_id: 'D04EXAMPL01' } }))!;
     const list = readToolResponse('{"channels":[{"id":"D04EXAMPL01","name":"U06TESTUSR1","is_im":true}]}');
-    expect(dm.calls[0].input([])).toMatchObject({ channel_types: 'im' });
+    // The check asks for the one conversation by id, never for a list it would have to scan.
+    expect(dm.calls[0].input([])).toMatchObject({ query: 'D04EXAMPL01', channel_types: 'im' });
     expect(dm.calls[0].check?.(list)).toBeNull();
     expect(dm.calls[1].input([list])).toEqual({ user_id: 'U06TESTUSR1', response_format: 'concise' });
     expect(dm.read([list, { result: 'johan.lund (Johan Lund)' }]).slack?.name).toBe('Johan Lund');
     expect(dm.calls[0].check?.({ channels: [] })).toBe('not found');
 
     const channel = checkPlan(draftFromTool({ ...slack, slack: { channel_id: 'C01EXAMPL03' } }))!;
+    expect(channel.calls[0].input([])).toMatchObject({ query: 'C01EXAMPL03', limit: 5 });
     expect(channel.read([{ channels: [{ id: 'C01EXAMPL03', name: 'mgmt' }] }]).slack?.name).toBe('mgmt');
     expect(channel.read([{ channels: [] }])).toMatchObject({ slack: { name: null }, error: 'Slack has no channel with this id that you can see' });
   });

@@ -180,9 +180,11 @@ export function checkPlan(draft: MessageDraft): Check | null {
     const named = (name: string | null, why: string): Partial<MessageDraft> => ({ slack: { ...slack, name }, error: name ? undefined : why });
     if (slack.channelId.startsWith('U'))
       return { calls: [profile(() => slack.channelId)], read: ([result]) => named(result === undefined ? null : profileName(result), "Slack didn't say who this is") };
+    // Asks for this one conversation by its id (the bridge answers an id with Slack's conversations.info). Scanning
+    // a list missed it: Slack hands conversations out a page at a time, and Malcolm is in 1,739 of them (7 Oct 2026).
     const list: GatedCall = {
       tool: `${SLACK}slack_search_channels`,
-      input: () => ({ query: '', channel_types: slack.channelId.startsWith('D') ? 'im' : 'public_channel,private_channel,mpim', limit: 999 }),
+      input: () => ({ query: slack.channelId, channel_types: slack.channelId.startsWith('D') ? 'im' : 'public_channel,private_channel,mpim', limit: 5 }),
       check: result => (channelEntry(result, slack.channelId) ? null : 'not found'),
     };
     if (slack.channelId.startsWith('D'))

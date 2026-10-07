@@ -93,13 +93,15 @@ describe('prioritizing', () => {
       const fresh = store.createTask({ title: 'New today' });
       const fake = engine(everything(2));
       const onChange = vi.fn();
-      const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange, now: () => wednesday });
+      // The real clock: the tasks above carry real times, and a fixed earlier time would make them look changed since.
+      const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange });
       expect(await triage.run('new')).toEqual({ set: 2, changed: 2 });
       expect(fake.runs[0]).toMatchObject({ kind: 'triage', tools: [], cwd: '/tmp' });
       expect(store.get('tasks', fresh.id)).toMatchObject({ priority: 2, prioritySource: 'agent', priorityReason: 'Band 2, on purpose' });
       expect(store.get('tasks', old.id)?.priority).toBe(2);
       expect(store.priorityEvents().filter((event) => event.runId === 'run-1')).toHaveLength(2);
-      expect(triage.state).toMatchObject({ state: 'idle', detail: 'Claude prioritized 2 · 09:30' });
+      expect(triage.state.state).toBe('idle');
+      expect(triage.state.detail).toMatch(/^Claude prioritized 2 · \d\d:\d\d$/);
       expect(onChange).toHaveBeenCalled();
       // Later the same day only new tasks are decided, and nothing new means no run at all.
       expect(await triage.run('new')).toEqual({ set: 0, changed: 0 });
