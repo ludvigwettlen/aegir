@@ -158,9 +158,10 @@ export function withHeld(view: TaskView, tasks: Task[], held: Task | null | unde
 
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 // Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
-// suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue, plus
-// every open P1 whatever its date or status, plus everything an agent is working on or has handed back (working, ready for review,
-// stopped), so delegating a task never takes it off the list you open (Malcolm, 7 Oct 2026). Upcoming = later.
+// suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or
+// overdue, plus, when they have no date, every P1 and everything an agent is working on or has handed back (working, ready for
+// review, stopped), so delegating a task never takes it off the list you open. A date always wins: a P1 or a delegated task dated
+// Friday waits in Upcoming until Friday (Malcolm, 7 Oct 2026). Upcoming = later.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
@@ -168,6 +169,8 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
   if (view === 'inbox') return open.filter(task => task.status === 'proposed' || (task.status === 'ready' && !task.dueAt));
-  if (view === 'today') return open.filter(task => task.priority === 1 || inHand(task) || (task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now));
+  if (view === 'today') return open.filter(task => (task.dueAt === null
+    ? task.priority === 1 || inHand(task)
+    : task.dueAt <= now && (task.status !== 'proposed' || task.priority === 1)));
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }

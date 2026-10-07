@@ -31,9 +31,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
       `${group.querySelector('.ws-group-label')!.firstChild!.textContent}: ${[...group.querySelectorAll('.ws-task-title')].map((title) => title.textContent).join(' | ')}`));
     const calls = () => page.evaluate(() => (window as any).fixture.calls);
 
-    // Today holds every open P1, whatever its date or status: the suggestion and next week's two join today's one.
+    // Today holds undated P1s (the suggestion) and today's; next week's two P1s wait in Upcoming, since a date wins.
     expect(await groups()).toEqual([
-      'P1: Prep for Jobbsprånget | Answer Tove on the September report | Sign off the board pack | Customer advisory board with Harborlight',
+      'P1: Prep for Jobbsprånget | Answer Tove on the September report',
       'P2: Prep Greenfield call with Dana Whitfield',
       'P3: Can I add my grok bots to Legolas? | Read the Cognition playbook piece',
       'Not prioritized yet: Map direct reports to level and stage',
@@ -51,7 +51,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.getByText('Claude: Investor intro call, prep can wait a day').waitFor();
     await page.keyboard.press('1');
     await page.getByText('P1 · ⌘Z to undo').waitFor();
-    expect((await groups())[0]).toBe('P1: Prep for Jobbsprånget | Prep Greenfield call with Dana Whitfield | Answer Tove on the September report | Sign off the board pack | Customer advisory board with Harborlight');
+    expect((await groups())[0]).toBe('P1: Prep for Jobbsprånget | Prep Greenfield call with Dana Whitfield | Answer Tove on the September report');
     await page.getByText('5 P1s, aim for 3').waitFor();
     await page.getByText('You set P1. Claude said P2: Investor intro call, prep can wait a day').waitFor();
     expect(await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P1' }).getAttribute('aria-pressed')).toBe('true');
@@ -84,16 +84,16 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.keyboard.press('g');
     await page.keyboard.press('3');
 
-    // Demoting a P1 that is not due today takes it off Today; the notice says where it went.
-    await page.locator('.ws-task-row', { hasText: 'Customer advisory board' }).click();
+    // Demoting an undated P1 takes it off Today; the notice says where it went.
+    await page.locator('.ws-task-row', { hasText: 'Prep for Jobbsprånget' }).click();
     await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
-    await page.getByText('P2 · moved to Upcoming · ⌘Z to undo').waitFor();
+    await page.getByText('P2 · moved to Inbox · ⌘Z to undo').waitFor();
     await page.locator('.ws-task-row', { hasText: 'Map direct reports' }).click();
     await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.ws-row-group')].some((group) => group.textContent!.startsWith('P2') && group.textContent!.includes('Map direct reports')));
     expect(await calls()).toEqual([
       ['setTaskPriority', 'greenfield', 1], ['setTaskPriority', 'cognition', 2], ['setTaskPriority', 'cognition', null],
-      ['setTaskPriority', 'harborlight', 2], ['setTaskPriority', 'people', 2],
+      ['setTaskPriority', 'jobb', 2], ['setTaskPriority', 'people', 2],
     ]);
 
     // ⌘K runs Claude's prioritization over everything; quick add takes !1.
@@ -111,7 +111,10 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     // Needs you keeps its status groups and shows the band as a chip.
     await page.getByRole('button', { name: 'Needs you' }).click();
     await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
-    expect(await page.locator('.ws-task-row', { hasText: 'Prep for Jobbsprånget' }).locator('.ws-priority').textContent()).toBe('P1');
+    // It shows the band the user gave it above, filled because it is theirs.
+    const chip = page.locator('.ws-task-row', { hasText: 'Prep for Jobbsprånget' }).locator('.ws-priority');
+    expect(await chip.textContent()).toBe('P2');
+    expect(await chip.getAttribute('class')).toContain('user');
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 90000);

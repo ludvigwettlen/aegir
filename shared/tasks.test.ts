@@ -151,20 +151,29 @@ describe('priority bands', () => {
     expect(names(taskGroups('needs', tasks, status))).toEqual(['Ready for your review: review', 'Stopped: blocked', 'Suggested: suggested']);
     expect(names(taskGroups('team', tasks.slice(0, 2), status))).toEqual(['#gtm: review', 'No label: blocked']);
   });
-  it('puts every open P1 on Today, whatever its date or status, and nothing else that is not due', () => {
+  // Malcolm, 7 Oct 2026: a date set on a task always wins. Undated P1s and undated delegated work are on Today.
+  it('puts undated P1s on Today, and a dated task on its day, P1 or not', () => {
     const tasks: Task[] = [
       { ...base, id: 'review-p1', status: 'review', threadId: 't', priority: 1, prioritySource: 'agent' },
-      { ...base, id: 'later-p1', dueAt: '2026-10-20', priority: 1, prioritySource: 'user' },
+      { ...base, id: 'later-p1', dueAt: '2026-10-09', priority: 1, prioritySource: 'user' },
       { ...base, id: 'suggested-p1', status: 'proposed', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 'due-suggested-p1', status: 'proposed', dueAt: '2026-10-07', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 'due-suggested-p3', status: 'proposed', dueAt: '2026-10-07', priority: 3, prioritySource: 'agent' },
       { ...base, id: 'later-p2', dueAt: '2026-10-20', priority: 2, prioritySource: 'agent' },
       { ...base, id: 'done-p1', status: 'done', priority: 1, prioritySource: 'agent' },
     ];
-    expect(tasksFor('today', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'review-p1', 'suggested-p1']);
+    expect(tasksFor('today', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['due-suggested-p1', 'review-p1', 'suggested-p1']);
     expect(tasksFor('upcoming', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'later-p2']);
+    // On its day it is on Today.
+    expect(tasksFor('today', tasks, new Date(2026, 9, 9)).map((task) => task.id)).toContain('later-p1');
   });
   it('keeps everything an agent has in hand or handed back on Today, and says whose move it is', () => {
     const delegated: Task[] = (['running', 'review', 'blocked'] as const).map((status) => ({ ...base, id: status, status, threadId: 't', priority: 3, prioritySource: 'agent' }));
     expect(tasksFor('today', [...delegated, { ...base, id: 'undated' }], new Date(2026, 9, 7)).map((task) => task.id)).toEqual(['running', 'review', 'blocked']);
+    // Snoozed to Monday while Claude has it: Monday, not today.
+    const snoozed: Task = { ...base, id: 'snoozed', status: 'review', threadId: 't', dueAt: '2026-10-12', priority: 3, prioritySource: 'agent' };
+    expect(tasksFor('today', [snoozed], new Date(2026, 9, 7))).toEqual([]);
+    expect(tasksFor('upcoming', [snoozed], new Date(2026, 9, 7)).map((task) => task.id)).toEqual(['snoozed']);
     expect(delegated.map((task) => ballText(task))).toEqual([{ text: 'Claude working', yours: false }, { text: 'Your review', yours: true }, { text: 'Stopped, your move', yours: true }]);
     expect(ballText({ status: 'ready' })).toBeNull();
     // Inside a band, your move comes first.
