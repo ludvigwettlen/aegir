@@ -35,9 +35,11 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     expect(await groups()).toEqual([
       'P1: Prep for Jobbsprånget | Answer Tove on the September report | Sign off the board pack | Customer advisory board with Harborlight',
       'P2: Prep Greenfield call with Dana Whitfield',
-      'P3: Read the Cognition playbook piece',
+      'P3: Can I add my grok bots to Legolas? | Read the Cognition playbook piece',
       'Not prioritized yet: Map direct reports to level and stage',
     ]);
+    // Delegated work stays on Today with whose move it is; with no date it would otherwise only be in Needs you.
+    expect(await page.locator('.ws-task-row', { hasText: 'grok bots' }).locator('.ws-ball').textContent()).toBe('Your review');
     // Four P1s: said in the header, not blocked. The sweep's "P1: " prefix shows as a flag, not as a second P1.
     await page.getByText('4 P1s, aim for 3').waitFor();
     expect(await page.locator('.ws-task-row', { hasText: 'Answer Tove' }).locator('.ws-sweep-flag').textContent()).toBe('urgent');

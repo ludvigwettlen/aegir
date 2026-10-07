@@ -129,6 +129,11 @@
   &.user.p1 { background: #fbe9e1; } &.user.p2 { background: #eef2e8; } &.user.p3 { background: #f4f6f1; }
 }
 .ws-triage-failed { color: var(--ds-color-danger); }
+// Whose move it is on a delegated task: lemon when it is yours, lime while Claude works.
+.ws-ball { flex: none; height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; white-space: nowrap;
+  &.yours { background: #fff3b0; color: #5c4a00; }
+  &.agent { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }
+}
 .ws-task-row {
   position: relative; display: flex; align-items: center; gap: 11px; height: 34px; padding: 0 12px; border-radius: 7px; cursor: default;
   &:hover { background: rgba(237, 248, 210, 0.45); }

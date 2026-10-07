@@ -14,7 +14,7 @@ import { taskLinkLabel } from '../../../shared/task-links';
 import { brainFilingRequest, brainSlug, fileSize } from '../../../shared/task-files';
 import { KindIcon } from './Attachments';
 import { reviewRequest, reviewTargets, type ReviewTarget } from '../../../shared/review';
-import { bandedLists, isoDate, parseDue, parseQuickAdd, parseWhen, PRIORITY_GROUPS, taskCursor, taskGroups, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
+import { ballText, bandedLists, isoDate, parseDue, parseQuickAdd, parseWhen, PRIORITY_GROUPS, taskCursor, taskGroups, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -488,6 +488,7 @@ export function TasksView({
                   key={task.id}
                   task={task}
                   data={data}
+                  list={list}
                   showLabel={list === 'needs' || banded}
                   showPriority={!PRIORITY_GROUPS.includes(name as typeof PRIORITY_GROUPS[number]) && list !== 'completed'}
                   hasAttachedLink={linkedTaskIds.has(task.id)}
@@ -575,6 +576,7 @@ function Empty({ list }: { list: TaskView }) {
 function TaskRow({
   task,
   data,
+  list,
   showLabel,
   showPriority,
   hasAttachedLink,
@@ -588,6 +590,7 @@ function TaskRow({
 }: {
   task: Task;
   data: Snapshot;
+  list: TaskView;
   showLabel: boolean;
   showPriority: boolean;
   hasAttachedLink: boolean;
@@ -609,14 +612,9 @@ function TaskRow({
   const title = flag ? task.title.slice(flag[0].length) : task.title;
   const authors =
     data.threads.find((thread) => thread.id === task.threadId)?.agentIds.slice(0, 3) || [];
-  const state =
-    task.status === 'running'
-      ? 'working'
-      : task.status === 'review'
-        ? 'review'
-        : task.status === 'blocked' && task.threadId
-          ? 'blocked'
-          : '';
+  // Delegated work stays on Today and the other lists you work from, so each row says whose move it is.
+  // Needs you is grouped by status already; there only a task you just sent (still held in place) says Claude is on it.
+  const ball = list === 'needs' && task.status !== 'running' ? null : ballText(task);
   return (
     <div
       className={`ws-task-row ${selected ? 'selected' : ''} ${opened ? 'opened' : ''}`}
@@ -651,12 +649,12 @@ function TaskRow({
         />
       )}
       {showLabel && task.label && <span className="ws-label">#{task.label}</span>}
+      {ball && <span className={`ws-ball ${ball.yours ? 'yours' : 'agent'}`}>{ball.text}</span>}
       {authors.length > 0 && (
         <span className="ws-agents">
           {authors.map((id) => (
             <Avatar key={id} agent={data.agents.find((agent) => agent.id === id)} size={18} />
           ))}
-          {state && <span>{state}</span>}
         </span>
       )}
       <span

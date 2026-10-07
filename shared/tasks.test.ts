@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareTasks, parseDue, parseQuickAdd, parseWhen, sourceKind, taskCursor, taskGroups, tasksFor, withHeld } from './tasks.js';
+import { ballText, compareTasks, parseDue, parseQuickAdd, parseWhen, sourceKind, taskCursor, taskGroups, tasksFor, withHeld } from './tasks.js';
 import type { Task } from './types.js';
 
 const saturday = new Date(2026, 8, 26);
@@ -46,7 +46,8 @@ describe('task lists', () => {
   ];
   it('splits inbox, today, upcoming, team and needs-you', () => {
     expect(tasksFor('inbox', tasks, saturday).map(x => x.id)).toEqual(['undated', 'suggested']);
-    expect(tasksFor('today', tasks, saturday).map(x => x.id)).toEqual(['overdue']);
+    // Today keeps delegated work (here the blocked task) whatever its date.
+    expect(tasksFor('today', tasks, saturday).map(x => x.id)).toEqual(['overdue', 'blocked']);
     expect(tasksFor('upcoming', tasks, saturday).map(x => x.id)).toEqual(['later']);
     expect(tasksFor('team', tasks, saturday).map(x => x.id)).toEqual(['blocked']);
     expect(tasksFor('needs', tasks, saturday).map(x => x.id)).toEqual(['suggested', 'blocked']);
@@ -160,6 +161,14 @@ describe('priority bands', () => {
     ];
     expect(tasksFor('today', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'review-p1', 'suggested-p1']);
     expect(tasksFor('upcoming', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'later-p2']);
+  });
+  it('keeps everything an agent has in hand or handed back on Today, and says whose move it is', () => {
+    const delegated: Task[] = (['running', 'review', 'blocked'] as const).map((status) => ({ ...base, id: status, status, threadId: 't', priority: 3, prioritySource: 'agent' }));
+    expect(tasksFor('today', [...delegated, { ...base, id: 'undated' }], new Date(2026, 9, 7)).map((task) => task.id)).toEqual(['running', 'review', 'blocked']);
+    expect(delegated.map((task) => ballText(task))).toEqual([{ text: 'Claude working', yours: false }, { text: 'Your review', yours: true }, { text: 'Stopped, your move', yours: true }]);
+    expect(ballText({ status: 'ready' })).toBeNull();
+    // Inside a band, your move comes first.
+    expect(names(taskGroups('today', [...delegated].reverse(), status))).toEqual(['P3: review,blocked,running']);
   });
   it('sorts by band, then status, then date, then age', () => {
     const order = [

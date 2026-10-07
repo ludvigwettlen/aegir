@@ -121,6 +121,16 @@ export function taskGroups(list: TaskView, tasks: Task[], statusText: Record<Tas
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
 
+// An agent has the task, or has handed it back: working on it, finished and waiting for review, or stopped.
+export const inHand = (task: Pick<Task, 'status'>) => task.status === 'running' || task.status === 'review' || task.status === 'blocked';
+// Whose move it is on a delegated task, as the row says it. Everything is Malcolm's in the end; this says who acts next.
+export function ballText(task: Pick<Task, 'status'>): { text: string; yours: boolean } | null {
+  if (task.status === 'review') return { text: 'Your review', yours: true };
+  if (task.status === 'blocked') return { text: 'Stopped, your move', yours: true };
+  if (task.status === 'running') return { text: 'Claude working', yours: false };
+  return null;
+}
+
 // Keep selection near a removed task in the previous visible order.
 export function taskCursor(order: string[], previousOrder: string[], selected?: string): string | undefined {
   if (selected && order.includes(selected)) return selected;
@@ -149,7 +159,8 @@ export function withHeld(view: TaskView, tasks: Task[], held: Task | null | unde
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 // Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
 // suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue, plus
-// every open P1 whatever its date or status, so the few things that matter this week are on the list you open; Upcoming = later.
+// every open P1 whatever its date or status, plus everything an agent is working on or has handed back (working, ready for review,
+// stopped), so delegating a task never takes it off the list you open (Malcolm, 7 Oct 2026). Upcoming = later.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
@@ -157,6 +168,6 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
   if (view === 'inbox') return open.filter(task => task.status === 'proposed' || (task.status === 'ready' && !task.dueAt));
-  if (view === 'today') return open.filter(task => task.priority === 1 || (task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now));
+  if (view === 'today') return open.filter(task => task.priority === 1 || inHand(task) || (task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now));
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }
