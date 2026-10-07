@@ -592,6 +592,31 @@ describe('draft cards', () => {
     expect(state(cards[3])).toMatchObject({ state: 'pending', text: 'Hej Petra, kort.' });
   });
 
+  // Malcolm, 7 Oct 2026: the reply to Tove went to the group DM instead of his thread, because each revision
+  // dropped thread_ts. A Slack reply now always continues in the thread.
+  it('keeps a Slack reply in its thread across revisions, and takes the thread from the task\'s Slack link', async () => {
+    const group = { channel: 'slack', label: 'Group DM: Tove + Christoffer', text: 'Svar', slack: { channel_id: 'C07EXAMPL02' } };
+    const cards: string[] = [];
+    const calls = [
+      () => ({ ...group, slack: { channel_id: 'C07EXAMPL02', thread_ts: '1791328703.276349' } }),
+      (previous: string) => ({ ...group, text: 'Kortare', replaces: previous }),
+    ];
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      const next = calls[cards.length] || (() => group);
+      cards.push((await rt.handleInternalTool('messages', 'draft', next(cards.at(-1) || ''), id) as { card: string }).card);
+      return 'Done';
+    });
+    const chat = store.createThread(store.groups()[0].id, 'Drafts');
+    await runtime.sendMessage(chat.id, 'draft it');
+    await runtime.sendMessage(chat.id, 'shorter');
+    expect(store.message(cards[1])?.meta).toMatchObject({ state: 'pending', text: 'Kortare', slack: { channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' } });
+
+    // A task from the Slack sweep: the first draft names no thread, the task's permalink supplies it.
+    const task = store.createTask({ title: "Answer Tove's four questions", sourceUrl: 'https://example.slack.com/archives/C07EXAMPL02/p1791328703276349', sourceKey: 'inbox:slack-mpdm-1' });
+    await runtime.handOff(task.id, 'Draft the reply');
+    expect(store.message(cards[2])?.meta).toMatchObject({ slack: { channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' } });
+  });
+
   it('offers drafts in chats and tasks, never in routines', async () => {
     const { store, runtime, runs } = setup();
     await runtime.handOff(store.createTask({ title: 'Reply to Petra' }).id, 'Draft the reply');

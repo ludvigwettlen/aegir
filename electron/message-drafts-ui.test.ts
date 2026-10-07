@@ -43,7 +43,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
 
     // The agent's words for where it goes, then the raw facts to check them against.
     const slackText = await slack.textContent();
-    for (const part of ['Slack message', 'Draft', "Claude's draft for: DM to Johan Lund", 'D04TESTDM01 · in a thread', 'Check where it goes before you send it.'])
+    for (const part of ['Slack message', 'Draft', "Claude's draft for: DM to Johan Lund", 'D04TESTDM01 · Reply in thread', 'Check where it goes before you send it.'])
       expect(slackText).toContain(part);
     expect(await slack.locator('code').innerText()).toBe('D04TESTDM01');
     expect(slackText).not.toContain('Edited');

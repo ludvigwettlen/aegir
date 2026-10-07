@@ -30,7 +30,7 @@ import type { SkillProposal } from '../shared/skills.js';
 import { mentionsAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
 import {
-  canSend, checkPlan, cleanDraftText, draftFromTool, draftHistory, learnFromToolResult, needsCheck, nothingKnown,
+  canSend, checkPlan, cleanDraftText, draftFromTool, draftHistory, learnFromToolResult, needsCheck, nothingKnown, slackThreadFromUrl, withThread,
   readToolResponse, sameDestination, sendPlan, UNDO_MS, type Known, type SendPlan,
 } from './message-drafts.js';
 import { attachmentPrompt, FILES_ONLY, type PromptFile } from '../shared/task-files.js';
@@ -636,7 +636,19 @@ ${memoryGuidance}`;
     if (provider === 'messages' && tool === 'draft') {
       if (!context?.threadId || (context.kind !== 'chat' && context.kind !== 'task') || this.runningThreads.get(context.threadId)?.cancelled)
         throw new Error('Draft cards can only be shown in a conversation, while you answer');
-      const draft = draftFromTool(args, this.knownFor(context.threadId));
+      const known = this.knownFor(context.threadId);
+      const appThread = this.store.get('threads', context.threadId);
+      const task = appThread?.taskId ? this.store.get('tasks', appThread.taskId) : undefined;
+      const earlier = this.store.messagesForThread(context.threadId)
+        .map((message) => (message.meta?.type === 'message-draft' && message.meta.channel === 'slack' ? message.meta.slack : undefined))
+        .filter(Boolean).reverse();
+      // A Slack reply stays in its thread, even when a revision forgets to say so (Malcolm, 7 Oct 2026).
+      const draft = withThread(draftFromTool(args, known), [
+        ...earlier,
+        ...[...known.threads].map(([channelId, threadTs]) => ({ channelId, threadTs })),
+        slackThreadFromUrl(task?.sourceUrl),
+        ...(task ? this.store.taskLinks(task.id).map((link) => slackThreadFromUrl(link.url)) : []),
+      ]);
       // Send waits until Slack or Superhuman confirm where it goes. Without Claude Code it can only be copied.
       if (needsCheck(draft) && this.codex.sendGated) draft.state = 'checking';
       const card = this.store.addMessage(context.threadId, context.agentId ?? null, 'system', `${draft.channel === 'email' ? 'Email' : 'Slack'} draft: ${draft.label}`, 'complete', draft);

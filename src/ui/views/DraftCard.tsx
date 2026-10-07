@@ -137,7 +137,10 @@ export function DraftCard({ message, draft, agentName, canSend, run }: { message
       {slack && (
         <p className="ws-draft-facts">
           {slack.name && <span className="ws-draft-confirmed">Slack: {slack.channelId.startsWith('C') || slack.channelId.startsWith('G') ? `#${slack.name}` : `DM to ${slack.name}`} · </span>}
-          <code>{slack.channelId}</code>{slack.threadTs ? ' · in a thread' : ''}
+          <code>{slack.channelId}</code>
+          {slack.threadTs ? <span className="ws-draft-thread"> · Reply in thread</span>
+            : slack.channelId.startsWith('C') || slack.channelId.startsWith('G') ? <span className="ws-draft-thread none"> · Posts to the channel, not in a thread</span>
+              : <span> · New message</span>}
         </p>
       )}
       {email && (

@@ -56,8 +56,27 @@ export function cleanDraftText(value: unknown): string {
 }
 
 // What the connectors themselves returned in this conversation: Slack names by id, Superhuman drafts by draft id.
-export type Known = { slack: Map<string, string>; email: Map<string, EmailDestination> };
-export const nothingKnown = (): Known => ({ slack: new Map(), email: new Map() });
+// threads: the Slack threads the agent read here, by channel id, so a reply lands in the thread it answers.
+export type Known = { slack: Map<string, string>; email: Map<string, EmailDestination>; threads: Map<string, string> };
+export const nothingKnown = (): Known => ({ slack: new Map(), email: new Map(), threads: new Map() });
+
+// A Slack permalink's channel and thread: https://x.slack.com/archives/C07EXAMPL02/p1791328703276349, plus
+// ?thread_ts=… when the linked message is itself a reply (the thread then starts at thread_ts).
+export function slackThreadFromUrl(url: string | null | undefined): { channelId: string; threadTs: string } | null {
+  const match = (url || '').match(/^https:\/\/[\w-]+\.slack\.com\/archives\/([CDG][A-Z0-9]{6,15})\/p(\d{10})(\d{6})(?:[?#](.*))?$/);
+  if (!match) return null;
+  const root = new URLSearchParams(match[4] || '').get('thread_ts');
+  return { channelId: match[1], threadTs: root && slackTs.test(root) ? root : `${match[2]}.${match[3]}` };
+}
+
+// Malcolm's rule, 7 Oct 2026: a Slack reply always continues in the thread it answers. A draft that names no thread
+// takes the first thread known for its channel: an earlier draft here, a thread the agent read, the task's source.
+export function withThread(draft: MessageDraft, known: Array<{ channelId: string; threadTs?: string } | null | undefined>): MessageDraft {
+  if (draft.channel !== 'slack' || !draft.slack || draft.slack.threadTs) return draft;
+  const channelId = draft.slack.channelId;
+  const threadTs = known.find((item) => item?.channelId === channelId && item.threadTs && slackTs.test(item.threadTs))?.threadTs;
+  return threadTs ? { ...draft, slack: { ...draft.slack, threadTs } } : draft;
+}
 
 // Validates a messages__draft call and builds the card. A destination the connectors already confirmed in this
 // conversation is used as is; anything else is checked next (see needsCheck).
@@ -124,6 +143,11 @@ export function learnFromToolResult(name: string, input: unknown, response: unkn
     return;
   }
   if (!name.startsWith(SLACK)) return;
+  if (name === `${SLACK}slack_read_thread`) {
+    const args = object(input);
+    const channelId = string(args.channel_id); const threadTs = string(args.thread_ts) || string(args.message_ts);
+    if (slackId.test(channelId) && slackTs.test(threadTs)) known.threads.set(channelId, threadTs);
+  }
   const result = object(readToolResponse(response));
   for (const user of Array.isArray(result.users) ? result.users : []) {
     const item = object(user);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canSend, checkPlan, draftFromTool, draftHistory, draftTranscript, emailHtml, learnFromToolResult, needsCheck, nothingKnown,
+  canSend, checkPlan, draftFromTool, slackThreadFromUrl, withThread, draftHistory, draftTranscript, emailHtml, learnFromToolResult, needsCheck, nothingKnown,
   profileName, readToolResponse, sendPlan, slackVerdict, superhumanVerdict, SLACK, SUPERHUMAN,
 } from './message-drafts.js';
 
@@ -10,6 +10,25 @@ const sentEmail = `{"success":true,"message_id":"draft00b7d9728c5a1a45","thread_
 
 describe('sending draft cards', () => {
   const run = (calls: { input: (results: unknown[]) => Record<string, unknown> }[], results: unknown[] = []) => calls.map((call, index) => call.input(results.slice(0, index)));
+
+  it('reads a Slack permalink as its channel and thread', () => {
+    expect(slackThreadFromUrl('https://example.slack.com/archives/C07EXAMPL02/p1791328703276349')).toEqual({ channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' });
+    expect(slackThreadFromUrl('https://example.slack.com/archives/C07EXAMPL02/p1791328999000100?thread_ts=1791328703.276349&cid=C07EXAMPL02')).toEqual({ channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' });
+    expect(slackThreadFromUrl('https://mail.google.com/x')).toBeNull();
+    expect(slackThreadFromUrl(null)).toBeNull();
+  });
+
+  // Malcolm, 7 Oct 2026: a reply always continues in the thread; a revision that forgets thread_ts keeps it.
+  it('puts a Slack reply in the thread known for its channel, and never overrides one the agent chose', () => {
+    const draft = draftFromTool({ channel: 'slack', label: 'Group DM', text: 'Svar', slack: { channel_id: 'C07EXAMPL02' } });
+    expect(withThread(draft, [{ channelId: 'D04EXAMPL01', threadTs: '1.000001' }, null, { channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' }]).slack?.threadTs).toBe('1791328703.276349');
+    expect(withThread(draft, [{ channelId: 'D04EXAMPL01', threadTs: '1791328703.276349' }]).slack?.threadTs).toBeUndefined();
+    const chosen = draftFromTool({ channel: 'slack', label: 'x', text: 'y', slack: { channel_id: 'C07EXAMPL02', thread_ts: '1700000000.000001' } });
+    expect(withThread(chosen, [{ channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' }]).slack?.threadTs).toBe('1700000000.000001');
+    const known = nothingKnown();
+    learnFromToolResult(`${SLACK}slack_read_thread`, { channel_id: 'C07EXAMPL02', thread_ts: '1791328703.276349' }, '{"messages":[]}', known);
+    expect(known.threads.get('C07EXAMPL02')).toBe('1791328703.276349');
+  });
 
   it('learns Superhuman drafts and Slack names from what the connectors returned, and confirms cards with them', () => {
     const known = nothingKnown();
