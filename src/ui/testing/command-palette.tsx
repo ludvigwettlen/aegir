@@ -10,7 +10,7 @@ const now = new Date().toISOString();
 const today = isoDate(new Date());
 const task = (id: string, title: string, extra: Partial<Task>): Task => ({
   id, title, notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null,
-  sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null, ...extra,
+  sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null, ...extra,
 });
 const data = {
   agents: [{ id: 'lead', name: 'Claude', role: 'Lead', color: '#ede7fc', instructions: '', createdAt: now }],

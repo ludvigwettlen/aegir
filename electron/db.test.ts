@@ -354,7 +354,7 @@ describe('store', () => {
     expect(store.undoTaskAction()?.action).toBe('link attachment');
     expect(store.taskLinks(task.id)).toEqual([]);
     expect(store.undoTaskAction()?.action).toBe('task edit');
-    expect(store.get('tasks', task.id)).toMatchObject({ title: 'Draft', status: 'ready', completedAt: null });
+    expect(store.get('tasks', task.id)).toMatchObject({ title: 'Draft', status: 'ready', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null });
     expect(store.undoTaskAction()?.action).toBe('task creation');
     expect(store.get('tasks', task.id)).toBeUndefined();
     store.close();
@@ -400,5 +400,144 @@ describe('reply ordering', () => {
     const order = store.messagePage(thread.id).messages.map((message) => message.content);
     expect(order).toEqual(['Check Harborlight', 'Approved: Search the web', 'Reach out to Elin']);
     store.close();
+  });
+});
+
+describe('priority', () => {
+  it('adds the priority columns to an existing database without touching its tasks', () => {
+    const file = path();
+    const old = new Database(file);
+    old.exec("CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,status TEXT NOT NULL,agentId TEXT,sourceUrl TEXT,sourceKey TEXT UNIQUE,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL,label TEXT,dueAt TEXT,threadId TEXT,outputDir TEXT,completedAt TEXT)");
+    old.prepare("INSERT INTO tasks VALUES ('t1','Board deck','notes','ready',NULL,NULL,'reminders:1','2026-10-01T00:00:00Z','2026-10-02T00:00:00Z','board','2026-10-09',NULL,NULL,NULL)").run();
+    old.close();
+    const store = new Store(file);
+    try {
+      expect(store.get('tasks', 't1')).toMatchObject({ title: 'Board deck', notes: 'notes', label: 'board', dueAt: '2026-10-09', updatedAt: '2026-10-02T00:00:00Z', priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null });
+      expect(store.priorityEvents()).toEqual([]);
+    } finally { store.close(); }
+  });
+
+  it('lets Claude band a task, never over a band the user set, and logs only real changes', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Prep Greenfield call', label: 'investor', sourceKey: 'inbox:calendar-abc' });
+      expect(store.setPriority(task.id, 2, 'agent', { reason: 'Investor call, not this week', runId: 'run-1' })).toBe(true);
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 2, prioritySource: 'agent', agentPriority: 2, priorityReason: 'Investor call, not this week', updatedAt: task.updatedAt });
+      // Same band, new reason: the task follows, the log does not.
+      expect(store.setPriority(task.id, 2, 'agent', { reason: 'Still next week' })).toBe(true);
+      expect(store.priorityEvents()).toHaveLength(1);
+      expect(store.priorityEvents()[0]).toMatchObject({ actor: 'agent', priority: 2, previous: null, previousActor: null, runId: 'run-1', source: 'calendar', title: 'Prep Greenfield call', label: 'investor' });
+      // The user overrides: logged with what Claude said and why.
+      expect(store.setPriority(task.id, 1, 'user')).toBe(true);
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 1, prioritySource: 'user', agentPriority: 2, priorityReason: 'Still next week' });
+      expect(store.setPriority(task.id, 3, 'agent', { reason: 'Try again' })).toBe(false);
+      expect(store.get('tasks', task.id)?.priority).toBe(1);
+      expect(store.priorityOverrides()).toEqual([expect.objectContaining({ actor: 'user', priority: 1, previous: 2, previousActor: 'agent', agentPriority: 2, reason: 'Still next week' })]);
+    } finally { store.close(); }
+  });
+
+  it('learns only from his last word per task: a confirmation, a clear or a fixed mis-key is no correction', () => {
+    const store = new Store(path());
+    try {
+      const confirmed = store.createTask({ title: 'Confirmed' });
+      const cleared = store.createTask({ title: 'Cleared' });
+      const miskeyed = store.createTask({ title: 'Mis-keyed' });
+      const moved = store.createTask({ title: 'Moved' });
+      for (const task of [confirmed, cleared, miskeyed, moved]) store.setPriority(task.id, 2, 'agent', { reason: 'r' });
+      store.setPriority(confirmed.id, 2, 'user');
+      store.setPriority(cleared.id, null, 'user');
+      store.setPriority(miskeyed.id, 3, 'user');
+      store.setPriority(miskeyed.id, 2, 'user');
+      store.setPriority(moved.id, 3, 'user');
+      store.setPriority(moved.id, 1, 'user');
+      expect(store.get('tasks', cleared.id)).toMatchObject({ priority: null, prioritySource: null, agentPriority: 2 });
+      expect(store.priorityEvents().filter((event) => event.actor === 'user')).toHaveLength(6);
+      expect(store.priorityOverrides()).toEqual([expect.objectContaining({ title: 'Moved', priority: 1, agentPriority: 2 })]);
+      // Cleared hands it back: Claude may band it again.
+      expect(store.setPriority(cleared.id, 2, 'agent', { reason: 'again' })).toBe(true);
+    } finally { store.close(); }
+  });
+
+  it('shows only corrections newer than the rubric refresh, but always the newest few', () => {
+    const store = new Store(path());
+    try {
+      for (const title of ['a', 'b', 'c']) {
+        const task = store.createTask({ title });
+        store.setPriority(task.id, 2, 'agent', { reason: 'r' });
+        store.setPriority(task.id, 1, 'user');
+      }
+      expect(store.priorityOverrides(30, '2999-01-01T00:00:00Z', 2).map((event) => event.title)).toEqual(['c', 'b']);
+      expect(store.priorityOverrides(30, '2000-01-01T00:00:00Z', 0)).toHaveLength(3);
+    } finally { store.close(); }
+  });
+
+  it('records what became of a banded task, keeps sweep closes apart, and forgets the outcome on undo', () => {
+    const store = new Store(path());
+    try {
+      const done = store.createTask({ title: 'Done by him' });
+      const closed = store.createTask({ title: 'Closed by a sweep' });
+      const gone = store.createTask({ title: 'Deleted' });
+      const unbanded = store.createTask({ title: 'Never banded' });
+      for (const task of [done, closed, gone]) store.setPriority(task.id, 2, 'agent', { reason: 'r' });
+      store.updateTask(done.id, { status: 'done' }, true, 'user');
+      store.updateTask(closed.id, { status: 'done' }, false, 'sweep');
+      store.updateTask(unbanded.id, { status: 'done' }, true, 'user');
+      store.deleteTask(gone.id, true);
+      const outcomes = () => store.priorityEvents().filter((event) => event.kind !== 'band').map((event) => `${event.kind}:${event.actor}:${event.title}:P${event.priority}`).sort();
+      expect(outcomes()).toEqual(['deleted:user:Deleted:P2', 'done:sweep:Closed by a sweep:P2', 'done:user:Done by him:P2']);
+      store.undoTaskAction(); // the deletion
+      store.undoTaskAction(); // the unbanded task's done
+      store.undoTaskAction(); // done by him
+      expect(outcomes()).toEqual(['done:sweep:Closed by a sweep:P2']);
+      expect(store.get('tasks', gone.id)?.priority).toBe(2);
+    } finally { store.close(); }
+  });
+
+  it('hands a P1 the user set back to Claude with the same band, logged as the system', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Old commitment', priority: 1 });
+      expect(store.expireUserPriority(task.id, 'Your P1 from last week')).toBe(true);
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 1, prioritySource: 'agent', agentPriority: 1, priorityReason: 'Your P1 from last week' });
+      expect(store.priorityEvents()[0]).toMatchObject({ kind: 'band', actor: 'system', priority: 1, previousActor: 'user' });
+      expect(store.priorityOverrides()).toEqual([]);
+      expect(store.expireUserPriority(task.id, 'again')).toBe(false);
+    } finally { store.close(); }
+  });
+
+  it('undoes a user priority change, removes its log row, and refuses once Claude has moved on', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Undo me' });
+      store.setPriority(task.id, 3, 'agent', { reason: 'Reading' });
+      store.setPriority(task.id, 1, 'user', {}, true);
+      expect(store.undoTaskAction()).toEqual({ taskId: task.id, action: 'priority change' });
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 3, prioritySource: 'agent', priorityReason: 'Reading' });
+      expect(store.priorityOverrides()).toEqual([]);
+      store.updateTask(task.id, { dueAt: '2026-10-09' }, true);
+      store.setPriority(task.id, null, 'user', {}, true);
+      store.setPriority(task.id, 2, 'agent', { reason: 'Rebanded' });
+      expect(() => store.undoTaskAction()).toThrow('changed');
+      // The stale entry is gone, so the next ⌘Z reaches the date change below it.
+      expect(store.undoTaskAction()).toEqual({ taskId: task.id, action: 'task edit' });
+      expect(store.get('tasks', task.id)?.dueAt).toBeNull();
+    } finally { store.close(); }
+  });
+
+  it('keeps a quick-add priority as the user band, and brings priority back when a deleted task is restored', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Board pack !1', priority: 1 }, true);
+      expect(task).toMatchObject({ priority: 1, prioritySource: 'user', agentPriority: null });
+      expect(store.priorityEvents()).toEqual([expect.objectContaining({ actor: 'user', priority: 1, previous: null, previousActor: null })]);
+      store.setPriority(task.id, 1, 'agent', { reason: 'ignored' });
+      store.deleteTask(task.id, true);
+      store.undoTaskAction();
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 1, prioritySource: 'user' });
+      // Undoing the creation takes its log rows with it.
+      const quick = store.createTask({ title: 'Typed by mistake', priority: 2 }, true);
+      store.undoTaskAction();
+      expect(store.priorityEvents().some((event) => event.taskId === quick.id)).toBe(false);
+    } finally { store.close(); }
   });
 });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld } from './tasks.js';
+import { compareTasks, parseDue, parseQuickAdd, parseWhen, sourceKind, taskCursor, taskGroups, tasksFor, withHeld } from './tasks.js';
 import type { Task } from './types.js';
 
 const saturday = new Date(2026, 8, 26);
 describe('quick add', () => {
   it('extracts a label and a due date and keeps the rest as the title', () => {
-    expect(parseQuickAdd('Summarise calls #Customers fri', saturday)).toEqual({ title: 'Summarise calls', label: 'customers', dueAt: '2026-10-02' });
+    expect(parseQuickAdd('Summarise calls #Customers fri', saturday)).toEqual({ title: 'Summarise calls', label: 'customers', dueAt: '2026-10-02', priority: null });
   });
   it('treats a weekday as the next occurrence, including today', () => {
     expect(parseDue('sat', saturday)).toBe('2026-09-26');
@@ -14,8 +14,13 @@ describe('quick add', () => {
     expect(parseDue('wednesday', saturday)).toBe('2026-09-30');
     expect(parseDue('tues', saturday)).toBe('2026-09-29');
   });
+  it('reads !1, !2 and !3 as a priority, once, and leaves other exclamations alone', () => {
+    expect(parseQuickAdd('Prep board deck !1 #board fri', saturday)).toEqual({ title: 'Prep board deck', label: 'board', dueAt: '2026-10-02', priority: 1 });
+    expect(parseQuickAdd('Ship it !3 !1', saturday)).toEqual({ title: 'Ship it !1', label: null, dueAt: null, priority: 3 });
+    expect(parseQuickAdd('Wow! !4 !!1', saturday).priority).toBeNull();
+  });
   it('leaves ordinary words alone', () => {
-    expect(parseQuickAdd('Monitor #ops dashboards', saturday)).toEqual({ title: 'Monitor dashboards', label: 'ops', dueAt: null });
+    expect(parseQuickAdd('Monitor #ops dashboards', saturday)).toEqual({ title: 'Monitor dashboards', label: 'ops', dueAt: null, priority: null });
   });
 });
 
@@ -34,7 +39,7 @@ describe('snooze and due-date phrases', () => {
 });
 
 describe('task lists', () => {
-  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
+  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null };
   const tasks: Task[] = [
     { ...base, id: 'undated' }, { ...base, id: 'later', dueAt: '2026-10-02' }, { ...base, id: 'overdue', dueAt: '2026-09-20' },
     { ...base, id: 'suggested', status: 'proposed' }, { ...base, id: 'blocked', status: 'blocked', threadId: 't' }, { ...base, id: 'done', status: 'done', completedAt: '2026-09-25' }, { ...base, id: 'recently-done', status: 'done', completedAt: '2026-09-26' }
@@ -65,7 +70,7 @@ describe('task lists', () => {
 });
 
 describe('a task held after sending it to the agent', () => {
-  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
+  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null };
   const sent: Task = { ...base, id: 'sent', label: 'board' };
   const other: Task = { ...base, id: 'other' };
   const ids = (view: Parameters<typeof withHeld>[0], tasks: Task[], held: Task | null) => withHeld(view, tasks, held, saturday).map(task => task.id);
@@ -83,7 +88,7 @@ describe('a task held after sending it to the agent', () => {
     const review: Task = { ...sent, status: 'review', threadId: 't' };
     expect(ids('needs', [{ ...review, status: 'running' }], review)).toEqual(['sent']);
     const done: Task = { ...sent, status: 'done', threadId: 't', completedAt: '2026-09-25' };
-    expect(ids('completed', [{ ...done, status: 'running', completedAt: null }], done)).toEqual(['sent']);
+    expect(ids('completed', [{ ...done, status: 'running', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null }], done)).toEqual(['sent']);
   });
   it('drops out when it is finished or deleted', () => {
     for (const status of ['done', 'dismissed'] as const) expect(ids('inbox', [{ ...sent, status, threadId: 't' }, other], sent)).toEqual(['other']);
@@ -111,5 +116,65 @@ describe('task cursor', () => {
   it('handles empty and newly opened lists', () => {
     expect(taskCursor([], ['only'], 'only')).toBeUndefined();
     expect(taskCursor(['first', 'second'], [])).toBe('first');
+  });
+});
+
+describe('priority bands', () => {
+  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '2026-10-01', updatedAt: '', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null };
+  const status = { proposed: 'Suggested', ready: 'Open', running: 'Working', review: 'Ready for your review', blocked: 'Stopped', done: 'Done', dismissed: 'Dismissed' } as const;
+  const names = (groups: [string, Task[]][]) => groups.map(([name, list]) => `${name}: ${list.map((task) => task.id).join(',')}`);
+  it('groups Today by band, P1 first and untriaged last, overdue first inside a band', () => {
+    const tasks: Task[] = [
+      { ...base, id: 'none', label: 'finance' },
+      { ...base, id: 'p3', priority: 3, prioritySource: 'agent' },
+      { ...base, id: 'p1-today', priority: 1, prioritySource: 'user', dueAt: '2026-10-07' },
+      { ...base, id: 'p1-overdue', priority: 1, prioritySource: 'agent', dueAt: '2026-10-02' },
+      { ...base, id: 'p2', priority: 2, prioritySource: 'agent', label: 'board' },
+    ];
+    expect(names(taskGroups('today', tasks, status))).toEqual(['P1: p1-overdue,p1-today', 'P2: p2', 'P3: p3', 'Not prioritized yet: none']);
+  });
+  it('keeps suggestions on top of the Inbox, ordered by band', () => {
+    const tasks: Task[] = [
+      { ...base, id: 'mine', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 's3', status: 'proposed', priority: 3, prioritySource: 'agent' },
+      { ...base, id: 's1', status: 'proposed', priority: 1, prioritySource: 'agent' },
+    ];
+    expect(names(taskGroups('inbox', tasks, status))).toEqual(['Suggested: s1,s3', 'P1: mine']);
+  });
+  it('leaves Needs you grouped by status and Delegated by label', () => {
+    const tasks: Task[] = [
+      { ...base, id: 'blocked', status: 'blocked', threadId: 't', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 'review', status: 'review', threadId: 't', label: 'gtm', priority: 3, prioritySource: 'agent' },
+      { ...base, id: 'suggested', status: 'proposed', label: 'board' },
+    ];
+    expect(names(taskGroups('needs', tasks, status))).toEqual(['Ready for your review: review', 'Stopped: blocked', 'Suggested: suggested']);
+    expect(names(taskGroups('team', tasks.slice(0, 2), status))).toEqual(['#gtm: review', 'No label: blocked']);
+  });
+  it('puts every open P1 on Today, whatever its date or status, and nothing else that is not due', () => {
+    const tasks: Task[] = [
+      { ...base, id: 'review-p1', status: 'review', threadId: 't', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 'later-p1', dueAt: '2026-10-20', priority: 1, prioritySource: 'user' },
+      { ...base, id: 'suggested-p1', status: 'proposed', priority: 1, prioritySource: 'agent' },
+      { ...base, id: 'later-p2', dueAt: '2026-10-20', priority: 2, prioritySource: 'agent' },
+      { ...base, id: 'done-p1', status: 'done', priority: 1, prioritySource: 'agent' },
+    ];
+    expect(tasksFor('today', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'review-p1', 'suggested-p1']);
+    expect(tasksFor('upcoming', tasks, new Date(2026, 9, 7)).map((task) => task.id).sort()).toEqual(['later-p1', 'later-p2']);
+  });
+  it('sorts by band, then status, then date, then age', () => {
+    const order = [
+      { ...base, id: 'c', priority: 2 as const, dueAt: '2026-10-09' },
+      { ...base, id: 'b', priority: 2 as const, dueAt: '2026-10-08' },
+      { ...base, id: 'a', priority: 1 as const },
+      { ...base, id: 'd' },
+    ].sort(compareTasks).map((task) => task.id);
+    expect(order).toEqual(['a', 'b', 'c', 'd']);
+  });
+  it('names where a task came from', () => {
+    expect(sourceKind('inbox:gmail-malcolm-1a0c3d33d742')).toBe('gmail');
+    expect(sourceKind('inbox:slack-mpdm-malcolm')).toBe('slack');
+    expect(sourceKind('inbox:calendar-53nfjhe')).toBe('calendar');
+    expect(sourceKind('reminders:527AF46D')).toBe('reminders');
+    expect(sourceKind(null)).toBeNull();
   });
 });

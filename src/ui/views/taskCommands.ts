@@ -1,8 +1,8 @@
 import {
-  AlarmClock, CalendarDays, CalendarX, Check, ExternalLink, FilePenLine, FileText, Hash, Maximize2, MessageSquare, Minimize2, Paperclip,
-  PenLine, Plus, RotateCcw, Sparkles, Square, Tag, Trash2, X,
+  AlarmClock, CalendarDays, CalendarX, Check, ExternalLink, FilePenLine, FileText, Flag, Hash, ListOrdered, Maximize2, MessageSquare, Minimize2, Paperclip,
+  PenLine, Plus, RotateCcw, Sparkles, Square, Tag, Trash2, Undo2, X,
 } from 'lucide-react';
-import type { Snapshot, Task, TaskChange } from '../../../shared/types';
+import type { Priority, Snapshot, Task, TaskChange } from '../../../shared/types';
 import type { ReviewTarget } from '../../../shared/review';
 import { rankCommands } from '../../../shared/command-search';
 import { parseWhen } from '../../../shared/tasks';
@@ -13,6 +13,9 @@ export type TaskActions = {
   agent: string;
   focused: boolean;
   update: (change: TaskChange) => void;
+  // Your band (null hands it back to Claude), and a run of Claude's prioritization over every task now.
+  setPriority: (priority: Priority | null) => void;
+  prioritize: () => void;
   openBox: (kind: 'handoff' | 'due' | 'snooze') => void;
   edit: (target: 'title' | 'notes' | 'chat') => void;
   toggleFocus: () => void;
@@ -84,6 +87,19 @@ export function taskCommands(task: Task, a: TaskActions): Command[] {
     step: { title: 'Set label', placeholder: 'Search or create a label…', empty: 'No labels yet. Type a name to create one.', options: (query) => labelOptions(task, a, query) },
   });
   if (task.label) add({ id: 'task.label.clear', title: 'Clear label', icon: X, keys: '⇧ B', keywords: ['remove label', 'untag'], run: () => a.update({ label: null }) });
+  if (status !== 'done' && status !== 'dismissed') {
+    const meaning = { 1: 'a commitment this week', 2: 'real work, this week or next', 3: 'would be good, no rush' } as const;
+    for (const band of [1, 2, 3] as Priority[])
+      add({
+        id: `task.priority.${band}`, title: `Set priority P${band}`, subtitle: task.priority === band ? `${task.prioritySource === 'agent' ? 'Claude set this' : 'Current'} · ${meaning[band]}` : meaning[band],
+        icon: Flag, keys: String(band), keywords: ['priority', 'importance', `p${band}`, ...(band === 1 ? ['urgent', 'top', 'important'] : band === 3 ? ['low', 'someday', 'later'] : ['medium', 'normal'])],
+        run: () => a.setPriority(band),
+      });
+    if (task.prioritySource === 'user')
+      add({ id: 'task.priority.clear', title: 'Hand priority back to Claude', icon: Undo2, keys: '0', keywords: ['clear priority', 'remove priority', 'claude decides', 'reset'], run: () => a.setPriority(null) });
+  }
+  add({ id: 'tasks.prioritize', title: 'Prioritize with Claude', subtitle: 'Claude bands every task you have not set yourself', icon: ListOrdered,
+    keywords: ['triage', 'rank', 'sort', 'priorities', 'reprioritize', 'order'], run: a.prioritize });
   add({ id: 'task.title', title: 'Edit title', icon: PenLine, keys: 'Enter', keywords: ['rename'], run: () => a.edit('title') });
   add({ id: 'task.notes', title: 'Edit context', icon: FileText, keys: 'N', keywords: ['notes', 'details', 'description'], run: () => a.edit('notes') });
   if (thread && a.data.groups.some((group) => group.id === thread.groupId))

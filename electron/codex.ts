@@ -15,7 +15,7 @@ export type ToolHandler = (provider: string, tool: string, args: Record<string, 
 // kind: what the run is for; engines that enforce their own permissions use it (Codex ignores it).
 // onToolResult sees every tool result in a chat or task run (Claude Code only), so Legolas can learn what a connector
 // itself returned, such as a Superhuman draft's recipients.
-export type RunInput = { kind?: 'chat' | 'task' | 'routine' | 'route'; threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void; onToolResult?: (name: string, input: unknown, response: unknown) => void };
+export type RunInput = { kind?: 'chat' | 'task' | 'routine' | 'route' | 'triage'; threadId?: string; cwd: string; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void; onToolResult?: (name: string, input: unknown, response: unknown) => void };
 export interface ModelProvider {
   run(input: RunInput): Promise<{ threadId: string; text: string; status: string }>;
   stop(threadId: string): Promise<void>;

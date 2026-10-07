@@ -44,7 +44,7 @@ window.aegir = {
   },
   createTask: async (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null }) => {
     const task: Task = { id: `t${data.tasks.length + 1}`, title: input.title, notes: input.notes || '', label: input.label ?? null, dueAt: input.dueAt ?? null,
-      status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null };
+      status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null };
     data.tasks = [...data.tasks, task];
     emit();
     return task;

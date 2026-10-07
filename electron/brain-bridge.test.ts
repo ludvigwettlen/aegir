@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../shared/types.js';
-import { exportTasks, importInbox, parseInboxItem, renderTaskExport } from './brain-bridge.js';
+import { exportPriorityEvents, exportTasks, importInbox, parseInboxItem, renderTaskExport } from './brain-bridge.js';
 
 function fakeStore() {
   const tasks: Task[] = [];
@@ -133,7 +133,7 @@ describe('suggestion updates', () => {
 });
 
 describe('task export', () => {
-  const base = { notes: '', label: null, dueAt: null, agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', completedAt: null };
+  const base = { notes: '', label: null, dueAt: null, agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null };
   const tasks = [
     { ...base, id: '1', title: 'Approve Q4 hiring plan', status: 'proposed', notes: 'From Maja\nSecond line', sourceUrl: 'https://mail.google.com/x' },
     { ...base, id: '2', title: 'Board deck', status: 'ready', label: 'board', dueAt: '2026-10-05' },
@@ -160,6 +160,29 @@ describe('task export', () => {
       { name: 'pack.pdf', path: '/Users/m/Documents/Legolas/board-abc123/attachments/pack.pdf', bytes: 2_517_291, brainPath: '/Users/m/brain/sources/q3-close/.raw/pack.pdf' },
     ]);
     expect(exported.find(task => task.id === '2')).not.toHaveProperty('files');
+  });
+
+  it('puts the most important task first in each section and says who set its priority', () => {
+    const ranked = [
+      { ...base, id: 'a', title: 'Read the Cognition piece', status: 'ready', priority: 3, prioritySource: 'agent' },
+      { ...base, id: 'b', title: 'Investor AB follow-up', status: 'ready', priority: 1, prioritySource: 'user' },
+      { ...base, id: 'c', title: 'Webinar talking points', status: 'ready', priority: 2, prioritySource: 'agent' },
+    ] as Task[];
+    const markdown = renderTaskExport(ranked, new Date('2026-10-05T10:00:00'));
+    const inbox = markdown.slice(markdown.indexOf('## Inbox'));
+    expect(inbox.indexOf('Investor AB')).toBeLessThan(inbox.indexOf('Webinar'));
+    expect(inbox.indexOf('Webinar')).toBeLessThan(inbox.indexOf('Cognition'));
+    expect(markdown).toContain('- P1 · **Investor AB follow-up** · to do');
+    expect(markdown).toContain('- P2 (Claude) · **Webinar talking points** · to do');
+  });
+
+  it('writes the priority log for the weekly eval, only when it changed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aegir-events-'));
+    const events = [{ id: 'e1', taskId: 'b', at: '2026-10-07T08:00:00Z', kind: 'band', actor: 'user', priority: 1, previous: 2, previousActor: 'agent', agentPriority: 2, reason: 'Can wait', runId: null, p1Free: null, title: 'Investor AB follow-up', label: null, dueAt: null, status: 'ready', source: 'reminders', notes: '' }] as const;
+    expect(exportPriorityEvents([...events], dir)).toBe(true);
+    expect(exportPriorityEvents([...events], dir)).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, 'legolas-priority-events.json'), 'utf8'))).toEqual(events);
+    expect(exportPriorityEvents([], join(dir, 'missing'))).toBe(false);
   });
 
   it('writes only when something changed', () => {

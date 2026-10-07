@@ -10,7 +10,7 @@ const threadId = 'board-thread';
 const task: Task = {
   id: 'board', title: 'Read the Q3 board pack', notes: '', label: 'board', dueAt: null, status: 'review',
   agentId: 'lead', threadId, outputDir: '/Users/m/Documents/Legolas/board-abc123', sourceUrl: null,
-  sourceKey: null, createdAt: now, updatedAt: now, completedAt: null,
+  sourceKey: null, createdAt: now, updatedAt: now, completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null,
 };
 const data = {
   agents: [{ id: 'lead', name: 'Claude', role: 'Lead', color: '#ede7fc', instructions: '', createdAt: now }],

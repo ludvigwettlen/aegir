@@ -1,4 +1,4 @@
-import type { Task } from './types.js';
+import type { Priority, Task } from './types.js';
 
 const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 export const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -59,17 +59,62 @@ export function parseWhen(text: string, today: Date): string | null {
   return null;
 }
 
-// "Summarise calls #customers fri" → title, label and due date. Only the first label and date are used.
-export function parseQuickAdd(text: string, today = new Date()): { title: string; label: string | null; dueAt: string | null } {
-  let label: string | null = null; let dueAt: string | null = null;
+// "Summarise calls #customers fri !1" → title, label, due date and priority. Only the first of each is used.
+export function parseQuickAdd(text: string, today = new Date()): { title: string; label: string | null; dueAt: string | null; priority: Priority | null } {
+  let label: string | null = null; let dueAt: string | null = null; let priority: Priority | null = null;
   const kept = text.trim().split(/\s+/).filter(token => {
     const tag = token.match(/^#([\w-]+)$/);
     if (tag && !label) { label = tag[1].toLowerCase(); return false; }
+    const band = token.match(/^!([123])$/);
+    if (band && !priority) { priority = Number(band[1]) as Priority; return false; }
     const due = dueAt ? null : parseDue(token, today);
     if (due) { dueAt = due; return false; }
     return true;
   });
-  return { title: kept.join(' '), label, dueAt };
+  return { title: kept.join(' '), label, dueAt, priority };
+}
+
+// Where a task came from, in one word: the sweep that suggested it (gmail, slack, calendar), reminders, or null
+// for a task typed in Legolas.
+export function sourceKind(sourceKey: string | null | undefined): string | null {
+  if (!sourceKey) return null;
+  if (sourceKey.startsWith('reminders:')) return 'reminders';
+  const key = sourceKey.replace(/^inbox:/, '');
+  return key.match(/^(gmail|slack|calendar|notion|hubspot|fathom|meeting)/)?.[1] ?? (sourceKey.startsWith('inbox:') ? 'inbox' : sourceKey.split(':')[0]);
+}
+
+// The lists you work from are grouped by how much a task matters, not by label.
+export const PRIORITY_GROUPS = ['P1', 'P2', 'P3', 'Not prioritized yet'] as const;
+export const priorityGroup = (task: Pick<Task, 'priority'>) => PRIORITY_GROUPS[(task.priority ?? 4) - 1];
+export const bandedLists: TaskView[] = ['today', 'upcoming', 'inbox'];
+
+const statusRank: Record<Task['status'], number> = { review: 0, blocked: 1, proposed: 2, running: 3, ready: 4, done: 5, dismissed: 6 };
+// Priority first, then what needs you, then the earliest date (overdue comes first on its own), then the oldest.
+export function compareTasks(a: Task, b: Task): number {
+  return (a.priority ?? 4) - (b.priority ?? 4)
+    || statusRank[a.status] - statusRank[b.status]
+    || (a.dueAt || '9999').localeCompare(b.dueAt || '9999')
+    || a.createdAt.localeCompare(b.createdAt);
+}
+
+// The groups a list shows, in order. Today, Upcoming and the Inbox group by priority band, with suggestions
+// pinned on top of the Inbox. Needs you groups by status (it is a review queue); Delegated by label.
+export function taskGroups(list: TaskView, tasks: Task[], statusText: Record<Task['status'], string>): [string, Task[]][] {
+  if (list === 'completed') return tasks.length ? [['Completed', tasks]] : [];
+  const groups = new Map<string, Task[]>();
+  const keyOf = (task: Task) =>
+    list === 'needs' ? statusText[task.status]
+      : list === 'inbox' && task.status === 'proposed' ? 'Suggested'
+        : bandedLists.includes(list) ? priorityGroup(task)
+          : task.label ? `#${task.label}` : 'No label';
+  for (const task of [...tasks].sort(compareTasks)) groups.set(keyOf(task), [...(groups.get(keyOf(task)) || []), task]);
+  const order = (name: string) => name === 'Suggested' ? -1 : PRIORITY_GROUPS.includes(name as typeof PRIORITY_GROUPS[number]) ? PRIORITY_GROUPS.indexOf(name as typeof PRIORITY_GROUPS[number]) : 10;
+  if (list === 'needs') {
+    const statuses = (Object.keys(statusRank) as Task['status'][]).map((status) => statusText[status]);
+    return [...groups].sort(([a], [b]) => statuses.indexOf(a) - statuses.indexOf(b));
+  }
+  if (list === 'team') return [...groups].sort(([a], [b]) => (a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b)));
+  return [...groups].sort(([a], [b]) => order(a) - order(b));
 }
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
@@ -100,7 +145,8 @@ export function withHeld(view: TaskView, tasks: Task[], held: Task | null | unde
 
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 // Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
-// suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue; Upcoming = later.
+// suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or overdue, plus
+// every open P1 whatever its date or status, so the few things that matter this week are on the list you open; Upcoming = later.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
@@ -108,6 +154,6 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
   if (view === 'inbox') return open.filter(task => task.status === 'proposed' || (task.status === 'ready' && !task.dueAt));
-  if (view === 'today') return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now);
+  if (view === 'today') return open.filter(task => task.priority === 1 || (task.status !== 'proposed' && task.dueAt !== null && task.dueAt <= now));
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }

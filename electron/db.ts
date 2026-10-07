@@ -13,6 +13,10 @@ import type {
   RoutineRun,
   RoutineSchedule,
   RunEvent,
+  Priority,
+  PriorityEvent,
+  PriorityEventKind,
+  PrioritySource,
   Task,
   TaskFile,
   TaskLink,
@@ -24,6 +28,7 @@ import type {
 import { defaultAgents, legacyAgents , singleLeadInstructions } from './default-agents.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import { MAX_FILES_PER_MESSAGE } from '../shared/task-files.js';
+import { sourceKind } from '../shared/tasks.js';
 import type { SkillProposal } from '../shared/skills.js';
 
 const now = () => new Date().toISOString();
@@ -34,11 +39,21 @@ type MessageRow = Omit<Message, 'meta'> & { meta: string | null };
 type RoutineRow = Omit<Routine, 'schedule' | 'enabled'> & { schedule: string; enabled: number };
 type TaskUndo =
   | { kind: 'created'; taskId: string }
-  | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[] }
-  | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[]; files: TaskFile[] }
+  | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[]; eventId?: string | null }
+  | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[]; files: TaskFile[]; eventId?: string | null }
   | { kind: 'link-added'; link: TaskLink; previous?: TaskLink }
   | { kind: 'link-removed'; link: TaskLink }
-  | { kind: 'file-removed'; file: TaskFile };
+  | { kind: 'file-removed'; file: TaskFile }
+  | { kind: 'priority'; taskId: string; before: PriorityFields; after: PriorityFields; eventId: string | null };
+type PriorityFields = Pick<Task, 'priority' | 'prioritySource' | 'agentPriority' | 'priorityReason' | 'prioritySetAt' | 'priorityCheckedAt'>;
+const priorityFields = (task: Partial<PriorityFields>): PriorityFields => ({
+  priority: task.priority ?? null, prioritySource: task.prioritySource ?? null, agentPriority: task.agentPriority ?? null,
+  priorityReason: task.priorityReason ?? null, prioritySetAt: task.prioritySetAt ?? null, priorityCheckedAt: task.priorityCheckedAt ?? null,
+});
+const SET_PRIORITY = 'UPDATE tasks SET priority=@priority,prioritySource=@prioritySource,agentPriority=@agentPriority,priorityReason=@priorityReason,prioritySetAt=@prioritySetAt,priorityCheckedAt=@priorityCheckedAt WHERE id=@id';
+const EVENT_COLUMNS = 'id,taskId,at,kind,actor,priority,previous,previousActor,agentPriority,reason,runId,p1Free,title,label,dueAt,status,source,notes';
+const TASK_COLUMNS = 'id,title,notes,label,dueAt,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,priority,prioritySource,agentPriority,priorityReason,prioritySetAt,priorityCheckedAt';
+const TASK_VALUES = TASK_COLUMNS.split(',').map((column) => `@${column}`).join(',');
 const toGroup = (row: GroupRow): Group => ({
   ...row,
   agentIds: JSON.parse(row.agentIds) as string[],
@@ -190,6 +205,16 @@ export class Store {
     add('tasks', 'threadId', 'TEXT');
     add('tasks', 'outputDir', 'TEXT');
     add('tasks', 'completedAt', 'TEXT');
+    add('tasks', 'priority', 'INTEGER');
+    add('tasks', 'prioritySource', 'TEXT');
+    add('tasks', 'agentPriority', 'INTEGER');
+    add('tasks', 'priorityReason', 'TEXT');
+    add('tasks', 'prioritySetAt', 'TEXT');
+    add('tasks', 'priorityCheckedAt', 'TEXT');
+    // Every priority decision, Claude's and the user's, and what became of banded tasks: the eval log. Rows outlive their task.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS priority_events(id TEXT PRIMARY KEY,taskId TEXT NOT NULL,at TEXT NOT NULL,kind TEXT NOT NULL,actor TEXT NOT NULL,priority INTEGER,previous INTEGER,previousActor TEXT,agentPriority INTEGER,reason TEXT,runId TEXT,p1Free INTEGER,title TEXT NOT NULL,label TEXT,dueAt TEXT,status TEXT NOT NULL,source TEXT,notes TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS priority_events_at ON priority_events(at);
+      CREATE INDEX IF NOT EXISTS priority_events_task ON priority_events(taskId,at);`);
     this.db.prepare("UPDATE tasks SET completedAt=updatedAt WHERE status='done' AND completedAt IS NULL").run();
     const hasTable = (name: string) =>
       this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name) !==
@@ -580,6 +605,8 @@ export class Store {
     status?: Task['status'];
     sourceUrl?: string | null;
     sourceKey?: string | null;
+    // A band typed in quick add (!1) is the user's own from the start.
+    priority?: Priority | null;
   }, undoable = false): Task {
     const title = input.title.trim();
     if (!title) throw new Error('A task needs a title');
@@ -598,19 +625,97 @@ export class Store {
       createdAt: now(),
       updatedAt: now(),
       completedAt: input.status === 'done' ? now() : null,
+      ...priorityFields({}),
     };
-    this.db
-      .prepare(
-        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)',
-      )
-      .run(row);
+    this.db.transaction(() => {
+      const inserted = this.db.prepare(`INSERT OR IGNORE INTO tasks(${TASK_COLUMNS}) VALUES (${TASK_VALUES})`).run(row).changes > 0;
+      if (inserted && input.priority) this.setPriority(row.id, input.priority, 'user');
+    })();
     if (undoable) this.rememberTaskAction({ kind: 'created', taskId: row.id });
-    return row;
+    return this.get('tasks', row.id) ?? row;
   }
+  // The one way a priority changes, so the eval log can't be bypassed. Claude ('agent') never touches a band the
+  // user set, and only logs when its band changes; a refreshed reason alone is no event, but it still marks the task
+  // as looked at. The user's set, confirm (the band Claude had) or clear (null: Claude decides again) is always
+  // logged with what it replaced. updatedAt stays as it is: sweeps read it as "the task last changed".
+  setPriority(taskId: string, priority: Priority | null, actor: PrioritySource, options: { reason?: string | null; runId?: string | null; p1Free?: number | null } = {}, undoable = false): boolean {
+    const row = this.get('tasks', taskId);
+    if (!row) throw new Error('Task not found');
+    if (priority !== null && ![1, 2, 3].includes(priority)) throw new Error('Priority must be 1, 2 or 3');
+    const before = priorityFields(row);
+    if (actor === 'agent' && (before.prioritySource === 'user' || priority === null)) return false;
+    const at = now();
+    const after: PriorityFields = actor === 'agent'
+      ? { ...before, priority, prioritySource: 'agent', agentPriority: priority, priorityReason: options.reason?.trim() || before.priorityReason, priorityCheckedAt: at }
+      : { ...before, priority, prioritySource: priority === null ? null : 'user' };
+    const moved = after.priority !== before.priority || after.prioritySource !== before.prioritySource;
+    if (moved) after.prioritySetAt = at;
+    if (!moved && actor === 'user') return false;
+    let eventId: string | null = null;
+    this.db.transaction(() => {
+      this.db.prepare(SET_PRIORITY).run({ ...after, id: taskId });
+      if (!moved) return;
+      eventId = this.logPriority(row, {
+        kind: 'band', actor, priority, previous: before.priority, previousActor: before.prioritySource,
+        agentPriority: actor === 'agent' ? priority : before.agentPriority,
+        reason: actor === 'agent' ? after.priorityReason : before.priorityReason,
+        runId: options.runId || null, p1Free: actor === 'agent' ? options.p1Free ?? null : null,
+      }, at);
+    })();
+    if (undoable && moved) this.rememberTaskAction({ kind: 'priority', taskId, before, after, eventId });
+    return moved || after.priorityReason !== before.priorityReason;
+  }
+  // A P1 the user set in an earlier week goes back to Claude with the same band, so P1 keeps meaning "this week".
+  // Logged as 'system', never as an override.
+  expireUserPriority(taskId: string, reason: string): boolean {
+    const row = this.get('tasks', taskId);
+    if (!row || row.prioritySource !== 'user' || !row.priority) return false;
+    const before = priorityFields(row);
+    const at = now();
+    this.db.transaction(() => {
+      this.db.prepare(SET_PRIORITY).run({ ...before, prioritySource: 'agent', agentPriority: before.priority, priorityReason: reason, prioritySetAt: at, id: taskId });
+      this.logPriority(row, { kind: 'band', actor: 'system', priority: before.priority, previous: before.priority, previousActor: 'user', agentPriority: before.agentPriority, reason, runId: null, p1Free: null }, at);
+    })();
+    return true;
+  }
+  private logPriority(task: Task, fields: Omit<PriorityEvent, 'id' | 'taskId' | 'at' | 'title' | 'label' | 'dueAt' | 'status' | 'source' | 'notes'>, at = now()): string {
+    const event: PriorityEvent = {
+      id: randomUUID(), taskId: task.id, at, ...fields,
+      title: task.title, label: task.label, dueAt: task.dueAt, status: task.status, source: sourceKind(task.sourceKey), notes: task.notes.slice(0, 400),
+    };
+    this.db.prepare(`INSERT INTO priority_events(${EVENT_COLUMNS}) VALUES (${EVENT_COLUMNS.split(',').map((column) => `@${column}`).join(',')})`).run(event);
+    return event.id;
+  }
+  // What became of a task that carried a band, for the eval: finished, dismissed or deleted, and by whom.
+  private logOutcome(task: Task, kind: Exclude<PriorityEventKind, 'band'>, actor: 'user' | 'sweep'): string | null {
+    if (!task.priority && !task.agentPriority) return null;
+    return this.logPriority(task, {
+      kind, actor, priority: task.priority, previous: null, previousActor: task.prioritySource,
+      agentPriority: task.agentPriority, reason: task.priorityReason, runId: null, p1Free: null,
+    });
+  }
+  // Newest first. since: an ISO time; limit caps the rows.
+  priorityEvents(since?: string, limit = 5000): PriorityEvent[] {
+    return this.db.prepare('SELECT * FROM priority_events WHERE at >= ? ORDER BY at DESC, rowid DESC LIMIT ?').all(since || '', limit) as PriorityEvent[];
+  }
+  // The user's last word on a task Claude had banded, when it differs from Claude's band: the examples the next
+  // prioritization learns from. One per task, so a mis-key fixed a second later is no correction. A clear (handing it
+  // back) is no verdict, so it is left out. since: only corrections newer than the rubric's last refresh, with the
+  // newest `floor` always included so a fresh rubric still sees examples.
+  priorityOverrides(limit = 30, since?: string | null, floor = 5): PriorityEvent[] {
+    const rows = this.db.prepare(`SELECT * FROM priority_events e WHERE kind='band' AND actor='user'
+      AND NOT EXISTS (SELECT 1 FROM priority_events later WHERE later.taskId=e.taskId AND later.kind='band' AND later.actor='user' AND (later.at > e.at OR (later.at = e.at AND later.rowid > e.rowid)))
+      AND priority IS NOT NULL AND agentPriority IS NOT NULL AND priority != agentPriority
+      ORDER BY at DESC, rowid DESC LIMIT ?`).all(limit) as PriorityEvent[];
+    return since ? rows.filter((row, index) => index < floor || row.at > since) : rows;
+  }
+  // outcome: who closed it, when this change finishes or dismisses a banded task (the eval log records it). Undo and
+  // agent runs pass nothing.
   updateTask(
     id: string,
     change: TaskChange & Partial<Pick<Task, 'agentId' | 'threadId' | 'outputDir'>>,
     undoable = false,
+    outcome?: 'user' | 'sweep',
   ) {
     const row = this.get('tasks', id);
     if (!row) throw new Error('Task not found');
@@ -619,7 +724,10 @@ export class Store {
     if (change.status && change.status !== 'done') next.completedAt = null;
     next.title = next.title.trim();
     if (!next.title) throw new Error('A task needs a title');
+    let eventId: string | null = null;
     this.db.transaction(() => {
+      const closing = (next.status === 'done' || next.status === 'dismissed') && row.status !== 'done' && row.status !== 'dismissed';
+      if (outcome && closing) eventId = this.logOutcome(row, next.status as 'done' | 'dismissed', outcome);
       this.db
         .prepare(
           'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt WHERE id=@id',
@@ -632,7 +740,7 @@ export class Store {
     })();
     if (undoable) {
       const fields = (Object.keys(change) as (keyof TaskChange)[]).filter(field => row[field] !== next[field]);
-      if (fields.length) this.rememberTaskAction({ kind: 'updated', before: row, after: next, fields });
+      if (fields.length) this.rememberTaskAction({ kind: 'updated', before: row, after: next, fields, eventId });
     }
   }
   deleteTask(id: string, undoable = false) {
@@ -645,7 +753,10 @@ export class Store {
       : [];
     const links = this.taskLinks(id);
     const files = this.taskFiles(id);
+    let eventId: string | null = null;
     this.db.transaction(() => {
+      // Only the user deletes undoably; undoing a creation deletes too, and that is no outcome.
+      if (undoable && task.status !== 'done' && task.status !== 'dismissed') eventId = this.logOutcome(task, 'deleted', 'user');
       if (thread?.kind === 'task') {
         this.db.prepare('DELETE FROM messages WHERE threadId=?').run(thread.id);
         this.db.prepare('DELETE FROM threads WHERE id=?').run(thread.id);
@@ -655,7 +766,7 @@ export class Store {
       this.db.prepare('DELETE FROM task_files WHERE taskId=?').run(id);
       this.db.prepare('DELETE FROM tasks WHERE id=?').run(id);
     })();
-    if (undoable) this.rememberTaskAction({ kind: 'deleted', task, thread: thread?.kind === 'task' ? thread : null, messages, links, files });
+    if (undoable) this.rememberTaskAction({ kind: 'deleted', task, thread: thread?.kind === 'task' ? thread : null, messages, links, files, eventId });
   }
 
   taskLinks(taskId?: string): TaskLink[] {
@@ -751,24 +862,25 @@ export class Store {
     let label: string;
     if (action.kind === 'created') {
       this.deleteTask(action.taskId);
+      this.db.prepare('DELETE FROM priority_events WHERE taskId=?').run(action.taskId);
       taskId = action.taskId;
       label = 'task creation';
     } else if (action.kind === 'updated') {
       const current = this.get('tasks', action.before.id);
-      if (!current) throw new Error('The task has changed since this action');
-      for (const field of action.fields)
-        if (current[field] !== action.after[field]) throw new Error('The task has changed since this action');
+      // A stale entry is dropped as it is refused, so the next ⌘Z reaches the one below it.
+      if (!current || action.fields.some(field => current[field] !== action.after[field])) { this.taskUndo.pop(); throw new Error('The task has changed since this action'); }
       const previous = Object.fromEntries(action.fields.map(field => [field, action.before[field]])) as TaskChange;
       this.db.transaction(() => {
         this.updateTask(action.before.id, previous);
         if (action.fields.includes('status'))
           this.db.prepare('UPDATE tasks SET completedAt=? WHERE id=?').run(action.before.completedAt, action.before.id);
+        if (action.eventId) this.db.prepare('DELETE FROM priority_events WHERE id=?').run(action.eventId);
       })();
       taskId = action.before.id;
       label = 'task edit';
     } else if (action.kind === 'deleted') {
       this.db.transaction(() => {
-        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)').run(action.task);
+        this.db.prepare(`INSERT INTO tasks(${TASK_COLUMNS}) VALUES (${TASK_VALUES})`).run({ ...action.task, ...priorityFields(action.task) });
         if (action.thread) {
           this.db.prepare('INSERT INTO threads(id,groupId,title,kind,taskId,status,createdAt,updatedAt) VALUES (@id,@groupId,@title,@kind,@taskId,@status,@createdAt,@updatedAt)').run(action.thread);
           for (const message of action.messages)
@@ -776,6 +888,7 @@ export class Store {
         }
         for (const link of action.links) this.insertTaskLink(link);
         for (const file of action.files) this.insertTaskFile(file);
+        if (action.eventId) this.db.prepare('DELETE FROM priority_events WHERE id=?').run(action.eventId);
       })();
       taskId = action.task.id;
       label = 'task deletion';
@@ -791,6 +904,19 @@ export class Store {
       })();
       taskId = action.link.taskId;
       label = 'link attachment';
+    } else if (action.kind === 'priority') {
+      const current = this.get('tasks', action.taskId);
+      if (!current || current.priority !== action.after.priority || current.prioritySource !== action.after.prioritySource) {
+        this.taskUndo.pop();
+        throw new Error('The task has changed since this action');
+      }
+      this.db.transaction(() => {
+        // Claude's latest look at the task stays; only the band goes back.
+        this.db.prepare(SET_PRIORITY).run({ ...action.before, priorityCheckedAt: current.priorityCheckedAt, id: action.taskId });
+        if (action.eventId) this.db.prepare('DELETE FROM priority_events WHERE id=?').run(action.eventId);
+      })();
+      taskId = action.taskId;
+      label = 'priority change';
     } else {
       this.insertTaskLink(action.link);
       taskId = action.link.taskId;

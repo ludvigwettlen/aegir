@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Task } from '../shared/types.js';
-import { tasksFor } from '../shared/tasks.js';
+import type { PriorityEvent, Task } from '../shared/types.js';
+import { compareTasks, isoDate, tasksFor } from '../shared/tasks.js';
 import type { Store } from './db.js';
 import { taskSourceKey } from './agent-tools.js';
 
@@ -137,7 +137,7 @@ export function importInbox(store: Pick<Store, 'hasTaskSource' | 'createTask' | 
   for (const { close, reason } of closes) {
     const task = store.taskBySource(`inbox:${close}`);
     if (!task || (task.status !== 'proposed' && task.status !== 'ready')) { counts.skipped++; continue; }
-    store.updateTask(task.id, { status: 'done', notes: `${task.notes ? `${task.notes}\n\n` : ''}Closed automatically: ${reason || 'acted on at the source'}` });
+    store.updateTask(task.id, { status: 'done', notes: `${task.notes ? `${task.notes}\n\n` : ''}Closed automatically: ${reason || 'acted on at the source'}` }, false, 'sweep');
     counts.closed++;
   }
   return counts;
@@ -151,6 +151,7 @@ const statusWord: Record<Task['status'], string> = {
 
 function line(task: Task) {
   const parts = [`**${task.title}**`, statusWord[task.status]];
+  if (task.priority) parts.unshift(`P${task.priority}${task.prioritySource === 'agent' ? ' (Claude)' : ''}`);
   if (task.label) parts.push(`#${task.label}`);
   if (task.dueAt) parts.push(`due ${task.dueAt}`);
   if (task.sourceUrl) parts.push(`[source](${task.sourceUrl})`);
@@ -162,14 +163,19 @@ export function renderTaskExport(tasks: Task[], today = new Date()): string {
   const weekAgo = new Date(today.getTime() - 7 * 86_400_000).toISOString();
   const sections: [string, Task[]][] = [
     ['Needs you', tasksFor('needs', tasks, today)],
-    ['Today', tasksFor('today', tasks, today).filter((task) => task.status === 'ready')],
+    // By date only: Today in the app also carries every P1, which the export lists in its own section.
+    ['Today', tasksFor('today', tasks, today).filter((task) => task.status === 'ready' && task.dueAt !== null && task.dueAt <= isoDate(today))],
     ['Inbox (no date)', tasksFor('inbox', tasks, today).filter((task) => task.status === 'ready')],
     ['Upcoming', tasksFor('upcoming', tasks, today).filter((task) => task.status === 'ready')],
     ['Agent working', tasks.filter((task) => task.status === 'running')],
     ['Done in the last 7 days', tasksFor('completed', tasks, today).filter((task) => (task.completedAt || task.updatedAt) >= weekAgo)],
   ];
-  const body = sections.map(([title, list]) => `## ${title} (${list.length})\n\n${list.map(line).join('\n') || '_None._'}\n`).join('\n');
-  return `---\ntitle: Legolas tasks\ntype: export\n---\n\n# Legolas tasks\n\nLegolas rewrites this file whenever a task changes. Change tasks in Legolas, not here.\n\n${body}`;
+  // Inside each section the most important task comes first (compareTasks), except the done list, newest first.
+  const body = sections.map(([title, list]) => {
+    const rows = title.startsWith('Done') ? list : [...list].sort(compareTasks);
+    return `## ${title} (${list.length})\n\n${rows.map(line).join('\n') || '_None._'}\n`;
+  }).join('\n');
+  return `---\ntitle: Legolas tasks\ntype: export\n---\n\n# Legolas tasks\n\nLegolas rewrites this file whenever a task changes. Change tasks in Legolas, not here. P1 to P3 is the priority, most important first; "(Claude)" means Claude set it and Malcolm has not changed it.\n\n${body}`;
 }
 
 // Attachments in the export, so daily-brief, momentum and the sweeps can see what is on a task. Absolute
@@ -194,4 +200,15 @@ export function exportTasks(tasks: Task[], dir: string, files: ExportFile[] = []
   if (!existsSync(mdPath) || readFileSync(mdPath, 'utf8') !== markdown) { writeFileSync(mdPath, markdown); changed = true; }
   if (!existsSync(jsonPath) || readFileSync(jsonPath, 'utf8') !== json) { writeFileSync(jsonPath, json); changed = true; }
   return changed;
+}
+
+// The eval log: every priority Claude set and every change Malcolm made, newest first. The weekly priority-eval
+// skill reads it to measure how often he overrides Claude and to refine the rubric. Written only when it changed.
+export function exportPriorityEvents(events: PriorityEvent[], dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  const path = join(dir, 'legolas-priority-events.json');
+  const json = `${JSON.stringify(events, null, 1)}\n`;
+  if (existsSync(path) && readFileSync(path, 'utf8') === json) return false;
+  writeFileSync(path, json);
+  return true;
 }

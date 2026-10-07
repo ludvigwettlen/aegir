@@ -24,9 +24,30 @@ export const SEND_TOOLS = [
   'mcp__claude_ai_Slack__slack_schedule_message',
   'mcp__claude_ai_Superhuman_Mail__send_draft',
 ];
-// What a run may not use: the send tools always, and file writes in unattended routines.
+// What a run may not use: the send tools always, and file writes in unattended runs (routines, prioritizing tasks).
 export function disallowedFor(kind: RunInput['kind']): string[] {
-  return [...SEND_TOOLS, ...(kind === 'routine' ? WRITE_TOOLS : [])];
+  return [...SEND_TOOLS, ...(kind === 'routine' || kind === 'triage' ? WRITE_TOOLS : [])];
+}
+
+// Prioritizing tasks runs unattended on text copied from email and Slack, so it gets none of the user's setup: no
+// settings, skills, hooks or connectors, only reading the brain (files and gbrain's read commands), nothing that
+// writes, fetches or asks. Its lens comes from the rubric in its instructions, not from CLAUDE.md.
+export function triageOptions(brainDirs: string[]) {
+  const home = homedir();
+  const short = (dir: string) => (dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir);
+  const gbrain = ['gbrain', join(home, '.bun', 'bin', 'gbrain')];
+  return {
+    settingSources: [] as [], strictMcpConfig: true, mcpServers: {},
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    allowedTools: [
+      ...brainDirs.map((dir) => `Read(${short(dir)}/**)`), 'Grep', 'Glob',
+      ...gbrain.flatMap((bin) => ['search', 'get', 'query'].map((command) => `Bash(${bin} ${command}:*)`)),
+    ],
+    disallowedTools: disallowedFor('triage'),
+    additionalDirectories: brainDirs,
+    permissionMode: 'dontAsk' as const,
+    model: 'opus', maxTurns: 40, persistSession: false,
+  };
 }
 
 // Claude tool names are capped at 64 characters including the mcp__aegir__ prefix.
@@ -264,9 +285,11 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
     this.runs.set(runId, run);
     // Tool calls look up their run by this id, so register it before the session starts.
     input.onThreadStarted?.(runId);
-    // A run without tools is a quick classification call (task routing): keep it small and isolated.
-    const quick = input.tools.length === 0;
-    const server = quick ? null : this.server(tools, runId);
+    // A run without tools is a quick classification call (task routing): keep it small and isolated. Prioritizing
+    // tasks has no Legolas tools either, but it reads the brain, so it runs as a full read-only session.
+    const quick = input.tools.length === 0 && input.kind !== 'triage';
+    const triage = input.kind === 'triage';
+    const server = quick || tools.size === 0 ? null : this.server(tools, runId);
     let streamed = '';
     let sawStream = false;
     let finalText = '';
@@ -285,8 +308,9 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           ...(quick
             // Thinking off: Haiku otherwise spends thousands of tokens and most of a minute on a one-line JSON answer.
             ? { settingSources: [], tools: [], mcpServers: {}, strictMcpConfig: true, model: 'haiku', thinking: { type: 'disabled' as const } }
+            : triage ? triageOptions(this.options.workDirs || [])
             : {
-                mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } },
+                ...(server ? { mcpServers: { [SERVER]: { type: 'sdk' as const, name: SERVER, instance: server as never } } } : {}),
                 allowedTools: this.allowRules([...tools.keys()]),
                 // Chats and tasks behave like the user's own Claude Code, except they never send as the user;
                 // unattended routines are also read-only.
@@ -308,6 +332,8 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           stderr: (data) => { this.emit('log', data); stderrTail = (stderrTail + data).slice(-1500); },
           canUseTool: async (toolName, toolInput, options): Promise<PermissionResult> => {
             if (options.mcpServer?.source === 'sdk') return { behavior: 'allow', updatedInput: toolInput };
+            // Nobody is watching a prioritizing run, so anything that would need an approval is simply refused.
+            if (triage) return { behavior: 'deny', message: 'Prioritizing is read-only and unattended: use Read, Grep, Glob or gbrain on the brain.' };
             const path = toolInput.file_path ?? toolInput.notebook_path;
             const writable = [...(input.sandbox === 'workspace-write' ? [input.cwd] : []), ...(input.kind === 'routine' ? [] : this.options.workDirs || [])];
             if (WRITE_TOOLS.includes(toolName) && typeof path === 'string' && writable.some((dir) => isInside(dir, path)))

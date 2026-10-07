@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalTitle, ClaudeProvider, describeToolRequest, disallowedFor, exposedToolName, isInside, mcpContent, permissionResult, SEND_TOOLS } from './claude.js';
+import { approvalTitle, ClaudeProvider, describeToolRequest, disallowedFor, exposedToolName, isInside, mcpContent, permissionResult, SEND_TOOLS, triageOptions } from './claude.js';
 import { brainKeywords, parseGbrainResults } from './gbrain-memory.js';
 import { chooseEngine } from './engine.js';
 import { ToolResult } from './tool-result.js';
@@ -20,6 +20,17 @@ describe('Claude Code engine helpers', () => {
     expect(SEND_TOOLS).toContain('mcp__claude_ai_Superhuman_Mail__send_draft');
     expect(disallowedFor('task')).not.toContain('Write');
     expect(disallowedFor('routine')).toContain('Write');
+  });
+
+  // Prioritizing reads email and Slack text unattended: it must not inherit the user's tools, connectors or settings.
+  it('runs prioritizing isolated and read-only: brain reads and gbrain lookups, nothing else', () => {
+    const options = triageOptions(['/Users/m/brain']);
+    expect(options).toMatchObject({ settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: 'dontAsk', persistSession: false });
+    expect(options.tools).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
+    expect(options.allowedTools).toContain('Read(/Users/m/brain/**)');
+    expect(options.allowedTools.filter((rule) => rule.startsWith('Bash(')).every((rule) => /gbrain (search|get|query):\*\)$/.test(rule))).toBe(true);
+    expect(options.allowedTools.some((rule) => /^(Edit|Write|WebFetch|WebSearch|mcp__)/.test(rule) || rule === 'Bash(gbrain:*)')).toBe(false);
+    expect(options.disallowedTools).toEqual(expect.arrayContaining(['Write', 'Edit', ...SEND_TOOLS]));
   });
 
   it('only auto-allows writes inside the task folder', () => {

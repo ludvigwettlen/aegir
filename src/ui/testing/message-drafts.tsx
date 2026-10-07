@@ -10,7 +10,7 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 const threadId = 'nordvik-thread';
 const task: Task = {
   id: 'nordvik', title: 'Follow up with Nordvik', notes: '', label: 'customers', dueAt: null, status: 'review', agentId: 'lead', threadId,
-  outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null,
+  outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null, priority: null, prioritySource: null, agentPriority: null, priorityReason: null, prioritySetAt: null, priorityCheckedAt: null,
 };
 const data = {
   agents: [{ id: 'lead', name: 'Claude', role: 'Lead', color: '#ede7fc', instructions: '', createdAt: now }],

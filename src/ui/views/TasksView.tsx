@@ -9,12 +9,12 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AlarmClock, Brain, CalendarDays, Check, ChevronRight, ExternalLink, FilePenLine, Maximize2, Minimize2, Plus, RotateCcw, Sparkles, Square, X } from 'lucide-react';
-import type { Snapshot, Task } from '../../../shared/types';
+import type { Priority, Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { brainFilingRequest, brainSlug, fileSize } from '../../../shared/task-files';
 import { KindIcon } from './Attachments';
 import { reviewRequest, reviewTargets, type ReviewTarget } from '../../../shared/review';
-import { isoDate, parseDue, parseQuickAdd, parseWhen, taskCursor, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
+import { bandedLists, isoDate, parseDue, parseQuickAdd, parseWhen, PRIORITY_GROUPS, taskCursor, taskGroups, tasksFor, withHeld, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -39,42 +39,23 @@ const titles: Record<TaskView, string> = {
   completed: 'Completed',
 };
 type Popover = { kind: 'handoff' | 'label' | 'due' | 'snooze'; taskId: string } | null;
-const rank: Record<Task['status'], number> = {
-  review: 0,
-  blocked: 1,
-  proposed: 2,
-  running: 3,
-  ready: 4,
-  done: 5,
-  dismissed: 6,
-};
-
 // The agent that takes hand-offs: the lead of the default group (Claude on the Claude Code engine).
 export function leadName(data: Snapshot) {
   return data.agents.find((agent) => agent.role.trim().toLowerCase() === 'lead')?.name || 'the agent';
 }
 
-function groupTasks(list: TaskView, tasks: Task[]) {
-  if (list === 'completed') return tasks.length ? [['Completed', tasks] as [string, Task[]]] : [];
-  const sorted = [...tasks].sort(
-    (a, b) =>
-      rank[a.status] - rank[b.status] ||
-      (a.dueAt || '9999').localeCompare(b.dueAt || '9999') ||
-      a.createdAt.localeCompare(b.createdAt),
-  );
-  const groups = new Map<string, Task[]>();
-  const today = isoDate(new Date());
-  for (const task of sorted) {
-    const key =
-      list === 'needs' ? taskStatusText[task.status]
-        : list === 'inbox' && task.status === 'proposed' ? 'Suggested'
-          : list === 'today' && task.dueAt && task.dueAt < today ? 'Overdue'
-          : task.label ? `#${task.label}` : 'No label';
-    groups.set(key, [...(groups.get(key) || []), task]);
-  }
-  return [...groups].sort(([a], [b]) =>
-    list === 'needs' ? 0 : a === 'Overdue' || a === 'Suggested' ? -1 : b === 'Overdue' || b === 'Suggested' ? 1 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
-  );
+// Today, Upcoming and the Inbox group by priority band; the sort and grouping live in shared/tasks.ts.
+const groupTasks = (list: TaskView, tasks: Task[]) => taskGroups(list, tasks, taskStatusText);
+const isOpen = (task: Task) => task.status !== 'done' && task.status !== 'dismissed';
+
+// What the task panel says about a task's band: Claude's reason, and what Claude said when you changed it.
+export function priorityNote(task: Task, triageRunning: boolean): string | null {
+  const reason = task.priorityReason ? `: ${task.priorityReason}` : '';
+  if (task.prioritySource === 'agent') return `Claude${reason || ` set P${task.priority}`}`;
+  if (task.prioritySource === 'user' && task.agentPriority && task.agentPriority !== task.priority) return `You set P${task.priority}. Claude said P${task.agentPriority}${reason}`;
+  if (task.prioritySource === 'user' && task.agentPriority) return `You set P${task.priority}. Claude said the same${reason}`;
+  if (task.priority || !isOpen(task)) return null;
+  return triageRunning ? 'Claude is prioritizing…' : 'Not prioritized yet. Claude bands new tasks within a few minutes.';
 }
 
 export function TasksView({
@@ -194,6 +175,14 @@ export function TasksView({
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
+  // 1, 2, 3 or the panel's buttons: your band replaces Claude's, and Claude learns from the change. 0 hands it back.
+  const setPriority = (task: Task, priority: Priority | null) => {
+    if (priority === task.priority && (priority === null || task.prioritySource === 'user')) return;
+    void run(async () => {
+      await api.setTaskPriority(task.id, priority);
+      notify(priority ? `P${priority} · ⌘Z to undo` : 'Claude will band it again · ⌘Z to undo');
+    });
+  };
   // Shared by the keys below and the command palette.
   const openOutput = (task: Task) => {
     if (task.outputDir) void run(() => api.openTaskOutput(task.id));
@@ -271,6 +260,11 @@ export function TasksView({
       agent: leadName(data),
       focused,
       update: (change) => void update(current, change),
+      setPriority: (priority) => setPriority(current, priority),
+      prioritize: () => void run(async () => {
+        await api.prioritizeTasks();
+        notify('Claude is prioritizing your tasks');
+      }),
       openBox: (kind) => setPopover({ kind, taskId: current.id }),
       edit: setEditTarget,
       toggleFocus: () => setFocus((value) => !value),
@@ -347,6 +341,8 @@ export function TasksView({
       else if (key === 's' && current.status === 'ready') setPopover({ kind: 'snooze', taskId: current.id });
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
+      else if ((key === '1' || key === '2' || key === '3') && isOpen(current)) setPriority(current, Number(key) as Priority);
+      else if (key === '0' && isOpen(current)) setPriority(current, null);
       else if (key === 'Backspace' || key === 'Delete') removeTask(current);
       else return;
       event.preventDefault();
@@ -355,7 +351,7 @@ export function TasksView({
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const create = async (input: { title: string; notes?: string; label: string | null; dueAt: string | null }) => {
+  const create = async (input: { title: string; notes?: string; label: string | null; dueAt: string | null; priority?: Priority | null }) => {
     // Adding from Today means today; elsewhere an undated task goes to the Inbox.
     const parsed = list === 'today' && !input.dueAt ? { ...input, dueAt: isoDate(new Date()) } : input;
     const task = await api.createTask(parsed);
@@ -384,9 +380,11 @@ export function TasksView({
     if (!text || adding.current) return;
     adding.current = true;
     setPolishing(true);
+    // A typed !1 stays yours: it is taken out of the note and set on the new task.
+    const { priority } = parseQuickAdd(text);
     void run(async () => {
       try {
-        await create(await api.polishTask(text));
+        await create({ ...(await api.polishTask(text.replace(/(^|\s)![123](?=\s|$)/g, ' ').trim())), priority });
       } finally {
         adding.current = false;
         setPolishing(false);
@@ -395,6 +393,10 @@ export function TasksView({
   };
   const count = order.length;
   const team = order.filter((task) => task.threadId).length;
+  const banded = bandedLists.includes(list);
+  // The P1 limit is across all your lists, so the count is too.
+  const p1s = data.tasks.filter((task) => isOpen(task) && task.priority === 1).length;
+  const triage = data.triage;
   return (
     <div className={`ws-tasks ${focused ? 'ws-tasks-focus' : ''}`}>
       <section className="ws-task-list" aria-label={titles[list]}>
@@ -404,6 +406,14 @@ export function TasksView({
             <p>
               {count} task{count === 1 ? '' : 's'}
               {team ? ` · ${team} delegated` : ''}
+              {banded && p1s > 3 && (
+                <span className="ws-p1-over" title="P1 is the few things you commit to this week. Press 2 on the ones that can wait">{` · ${p1s} P1s, aim for 3`}</span>
+              )}
+              {banded && triage?.detail && (
+                <span className={triage.state === 'failed' ? 'ws-triage-failed' : undefined} title={triage.state === 'failed' ? 'Run "Prioritize with Claude" from ⌘K to try again' : undefined}>
+                  {` · ${triage.detail}`}
+                </span>
+              )}
             </p>
           </div>
         </header>
@@ -462,7 +472,8 @@ export function TasksView({
                   key={task.id}
                   task={task}
                   data={data}
-                  showLabel={list === 'needs' || name === 'Overdue'}
+                  showLabel={list === 'needs' || banded}
+                  showPriority={!PRIORITY_GROUPS.includes(name as typeof PRIORITY_GROUPS[number]) && list !== 'completed'}
                   hasAttachedLink={linkedTaskIds.has(task.id)}
                   selected={task.id === current?.id}
                   opened={task.id === openId}
@@ -548,6 +559,7 @@ function TaskRow({
   task,
   data,
   showLabel,
+  showPriority,
   hasAttachedLink,
   selected,
   opened,
@@ -560,6 +572,7 @@ function TaskRow({
   task: Task;
   data: Snapshot;
   showLabel: boolean;
+  showPriority: boolean;
   hasAttachedLink: boolean;
   selected: boolean;
   opened: boolean;
@@ -573,6 +586,10 @@ function TaskRow({
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
+  // Sweeps mark urgency with a "P1: " or "SOON: " title prefix. Next to a priority band that reads as a second P1,
+  // so the row shows it as a small flag; the stored title is unchanged.
+  const flag = task.title.match(/^(P1|SOON):\s*/i);
+  const title = flag ? task.title.slice(flag[0].length) : task.title;
   const authors =
     data.threads.find((thread) => thread.id === task.threadId)?.agentIds.slice(0, 3) || [];
   const state =
@@ -603,7 +620,12 @@ function TaskRow({
           <TaskGlyph task={task} />
         </button>
       ) : <TaskGlyph task={task} />}
-      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</span>
+      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}
+        title={task.priorityReason && task.prioritySource === 'agent' ? `${title}\nClaude, P${task.priority}: ${task.priorityReason}` : title}>{title}</span>
+      {flag && <span className="ws-sweep-flag" title={`The sweep marked this ${flag[1].toUpperCase() === 'P1' ? 'urgent' : 'as a meeting soon'}`}>{flag[1].toUpperCase() === 'P1' ? 'urgent' : 'soon'}</span>}
+      {showPriority && task.priority && (
+        <span className={`ws-priority p${task.priority} ${task.prioritySource || ''}`} title={task.prioritySource === 'agent' ? `Claude set P${task.priority}` : `You set P${task.priority}`}>P{task.priority}</span>
+      )}
       {(task.sourceUrl || hasAttachedLink) && (
         <ExternalLink
           size={12}
@@ -865,6 +887,11 @@ function TaskDetail({
   const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
   const agent = leadName(data);
   const setStatus = (status: Task['status']) => void run(() => api.updateTask(task.id, { status }));
+  const setPriority = (priority: Priority | null) => {
+    if (priority === task.priority && task.prioritySource === 'user') return;
+    void run(() => api.setTaskPriority(task.id, priority));
+  };
+  const note = priorityNote(task, data.triage?.state === 'running');
   const dismiss = () => void run(async () => {
     await api.updateTask(task.id, { status: 'dismissed' });
     notify('Dismissed · ⌘Z to undo');
@@ -1004,6 +1031,20 @@ function TaskDetail({
         )}
       </div>
       <div className="ws-detail-controls">
+        {task.status !== 'done' && task.status !== 'dismissed' && (
+          <div className="ws-inline-field ws-priority-field" role="group" aria-label="Priority">
+            <span>Priority</span>
+            {([1, 2, 3] as Priority[]).map((band) => (
+              <button key={band} type="button" aria-pressed={task.priority === band}
+                className={`ws-priority-choice ${task.priority === band ? `on ${task.prioritySource || ''}` : ''}`}
+                title={task.priority === band && task.prioritySource === 'agent' ? `Claude set P${band}. Press ${band} to make it yours` : `Set P${band} (${band})`}
+                onClick={() => setPriority(band)}>P{band}</button>
+            ))}
+            {task.prioritySource === 'user' && (
+              <button type="button" aria-label="Hand the priority back to Claude" title="Hand it back to Claude (0)" onClick={() => setPriority(null)}><X size={11} /></button>
+            )}
+          </div>
+        )}
         <div className="ws-inline-field">
           <span>Due</span>
           <button type="button" className={`ws-due-button ${task.dueAt && task.dueAt < isoDate(new Date()) ? 'overdue' : ''}`}
@@ -1027,6 +1068,7 @@ function TaskDetail({
           <datalist id="ws-label-options">{labels.map((value) => <option key={value} value={value} />)}</datalist>
         </label>
       </div>
+      {note && <p className={`ws-priority-note ${task.prioritySource || 'none'}`}><Sparkles size={11} aria-hidden="true" /> {note}</p>}
       <details className="ws-context" open={contextOpen} onToggle={(event) => setContextOpen(event.currentTarget.open)}>
         <summary>
           <ChevronRight size={13} aria-hidden="true" />

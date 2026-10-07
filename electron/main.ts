@@ -17,7 +17,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Agent, AppEvent, Approval, RemindersState, Snapshot, StagedAttachment, Task, TaskChange, TaskFile } from '../shared/types.js';
+import type { Agent, AppEvent, Approval, Priority, PriorityEvent, RemindersState, Snapshot, StagedAttachment, Task, TaskChange, TaskFile } from '../shared/types.js';
 import { normalizeTaskLink, normalizeTaskAttachment } from '../shared/task-links.js';
 import { brainSlug, fileSize, MAX_FILES_PER_MESSAGE, MAX_FOLDER_BYTES } from '../shared/task-files.js';
 import {
@@ -33,7 +33,8 @@ import { approveExternalWrite } from './external-write.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
-import { exportTasks, importInbox, type ExportFile } from './brain-bridge.js';
+import { exportPriorityEvents, exportTasks, importInbox, type ExportFile } from './brain-bridge.js';
+import { TaskTriage } from './task-triage.js';
 import { brainPeople } from './task-polish.js';
 import { readClaudeRoutines } from './claude-schedule.js';
 import { findRemindersHelper, parseLedger, RemindersError, RemindersHelper, syncReminders } from './reminders.js';
@@ -54,6 +55,7 @@ let engine: EngineId = 'codex';
 let connectors: ConnectorManager;
 let memory: MemoryService | GbrainMemoryService;
 let runtime: Runtime;
+let triage: TaskTriage | null = null;
 let browser: BrowserManager;
 let shuttingDown = false;
 let brain: { dir: string; inbox: string; exportDir: string } | null = null;
@@ -62,7 +64,7 @@ let brain: { dir: string; inbox: string; exportDir: string } | null = null;
 let outputRoot = '';
 let inboxTimer: NodeJS.Timeout | null = null;
 let exportTimer: NodeJS.Timeout | null = null;
-let pendingExport: { tasks: Task[]; files: ExportFile[] } | null = null;
+let pendingExport: { tasks: Task[]; files: ExportFile[]; events: PriorityEvent[] } | null = null;
 let remindersTimer: NodeJS.Timeout | null = null;
 let remindersBusy = false;
 let remindersRerun = false;
@@ -125,6 +127,7 @@ async function syncPhoneCapture() {
     const result = await syncReminders(store, new RemindersHelper(binary), settings.list, ledger, { save, keepGoing: unchanged });
     if (!unchanged()) return;
     remindersImported += result.imported;
+    if (result.imported) triage?.schedule();
     const parts = [`${remindersImported} imported since start`];
     if (result.settling) parts.push(`${result.settling} waiting two minutes in case you're still editing`);
     if (result.keptForAlert) parts.push(`${result.keptForAlert} kept in Reminders for their alert`);
@@ -163,6 +166,8 @@ function syncInbox() {
     const counts = importInbox(store, brain.inbox);
     if (counts.rejected) console.warn(`Inbox: ${counts.rejected} file(s) rejected, see ${join(brain.inbox, 'rejected')}`);
     if (counts.created || counts.updated || counts.closed) refresh();
+    // New tasks get a band; a sweep update (new title, date or notes) gets Claude's band looked at again.
+    if (counts.created || counts.updated) triage?.schedule();
   } catch (error) {
     console.error('Inbox import failed:', error);
   }
@@ -174,10 +179,14 @@ function writeExport() {
   if (!brain || !pending) return;
   try { exportTasks(pending.tasks, brain.exportDir, pending.files); }
   catch (error) { console.error('Task export failed:', error); }
+  try { exportPriorityEvents(pending.events, brain.exportDir); }
+  catch (error) { console.error('Priority log export failed:', error); }
 }
+// The priority log the weekly priority-eval skill reads: half a year of decisions is plenty.
+const priorityLog = () => store.priorityEvents(new Date(Date.now() - 183 * 86_400_000).toISOString());
 function scheduleExport(tasks: Task[], files: ExportFile[]) {
   if (!brain) return;
-  pendingExport = { tasks, files };
+  pendingExport = { tasks, files, events: priorityLog() };
   if (exportTimer) return;
   exportTimer = setTimeout(() => {
     exportTimer = null;
@@ -249,6 +258,7 @@ function snapshot(): Snapshot {
     reminders: remindersState,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
     brainDir: brain?.dir || null,
+    triage: triage?.state ?? { state: 'idle', detail: '', lastRunAt: null },
     browser: browser.state,
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
@@ -462,9 +472,11 @@ function registerIpc() {
   });
   handle(
     'create-task',
-    (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null }) => {
-      const task = store.createTask(input, true);
+    (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null; priority?: Priority | null }) => {
+      const priority = [1, 2, 3].includes(Number(input.priority)) ? Number(input.priority) as Priority : null;
+      const task = store.createTask({ title: input.title, notes: input.notes, label: input.label, dueAt: input.dueAt, priority }, true);
       refresh();
+      if (!task.priority) triage?.schedule();
       return task;
     },
   );
@@ -476,8 +488,23 @@ function registerIpc() {
     const allowed: TaskChange = {};
     for (const key of ['title', 'notes', 'status', 'label', 'dueAt'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
-    store.updateTask(id, allowed, true);
+    store.updateTask(id, allowed, true, 'user');
     refresh();
+    // A new title, date, label or context can change what a task is worth; Claude's band (never the user's) is redone.
+    const task = store.get('tasks', id);
+    if (task && task.prioritySource !== 'user' && (['title', 'notes', 'label', 'dueAt'] as const).some((key) => key in allowed)) triage?.schedule(30_000);
+  });
+  // The user's band. Null hands the task back to Claude, which bands it again on its next run.
+  handle('set-task-priority', (id: string, priority: unknown) => {
+    const value = priority === null ? null : Number(priority);
+    if (value !== null && ![1, 2, 3].includes(value)) throw new Error('Priority must be 1, 2 or 3');
+    store.setPriority(id, value as Priority | null, 'user', {}, true);
+    refresh();
+    if (value === null) triage?.schedule(15_000);
+  });
+  handle('prioritize-tasks', () => {
+    if (!triage) throw new Error(engine === 'claude' ? 'Prioritizing is not available yet' : 'Prioritizing needs the Claude Code engine');
+    void triage.run('full');
   });
   handle('delete-task', (id: string) => {
     store.deleteTask(id, true);
@@ -823,6 +850,12 @@ if (app.requestSingleInstanceLock()) {
       outputRoot,
       routineCwd: app.getPath('userData'),
     }, browser);
+    // Claude bands the open tasks (task-triage.ts). The rubric lives in the brain so the weekly eval can refine it.
+    // Claude Code only: its run is isolated and never asks; a Codex run would send approvals nobody is waiting for.
+    if (engine === 'claude') triage = new TaskTriage({
+      store, engine: codex, cwd: app.getPath('userData'), onChange: refresh,
+      rubricPath: () => store.getSetting('priorityRubric') || (existsSync(brainDir) ? join(brainDir, 'queues', 'priority-rubric.md') : null),
+    });
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
       if (shuttingDown || !store.isOpen) return;
@@ -889,6 +922,8 @@ if (app.requestSingleInstanceLock()) {
       syncInbox();
       inboxTimer = setInterval(syncInbox, 30_000);
     }
+    // After start-up settles: band what arrived while Legolas was closed, and on a new day revisit Claude's bands.
+    triage?.schedule(60_000);
     void memory
       .migrateLegacy()
       .then(() => {
@@ -906,6 +941,7 @@ if (app.requestSingleInstanceLock()) {
     powerMonitor.on('resume', () => {
       if (shuttingDown || !store?.isOpen) return;
       runtime.tick();
+      triage?.schedule(60_000);
       if (remindersSettings().enabled) scheduleReminders(5000);
     });
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();
@@ -920,6 +956,7 @@ if (app.requestSingleInstanceLock()) {
     shuttingDown = true;
     if (inboxTimer) clearInterval(inboxTimer);
     if (remindersTimer) clearTimeout(remindersTimer);
+    triage?.stop();
     if (exportTimer) {
       clearTimeout(exportTimer);
       writeExport(); // the brain copy should match what the user last saw

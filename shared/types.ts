@@ -132,7 +132,49 @@ export type Task = {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  // How much it matters: 1 = a commitment this week, 2 = real work, 3 = would be good, null = not prioritized yet.
+  // Claude sets it with a one-line reason; the user's 1/2/3 keystroke overrides it, and the override is logged
+  // (priority_events) so the next run learns from it. agentPriority and priorityReason keep Claude's latest call
+  // after an override, so the task can show both.
+  priority: Priority | null;
+  prioritySource: PrioritySource | null;
+  agentPriority: Priority | null;
+  priorityReason: string | null;
+  // When the band last changed hands or value, and when Claude last looked at the task. A task that changed after
+  // Claude looked (a sweep update, a new date) gets looked at again on the next run.
+  prioritySetAt: string | null;
+  priorityCheckedAt: string | null;
 };
+export type Priority = 1 | 2 | 3;
+export type PrioritySource = 'agent' | 'user';
+// One row in the eval log. kind 'band' is a band being set: by Claude ('agent'), by the user, or handed back to
+// Claude when a user P1 from an earlier week expires ('system'). The other kinds are outcomes: a banded task finished,
+// dismissed or deleted, by the user or closed by a sweep that saw it handled at the source ('sweep').
+export type PriorityEventKind = 'band' | 'done' | 'dismissed' | 'deleted';
+export type PriorityEvent = {
+  id: string;
+  taskId: string;
+  at: string;
+  kind: PriorityEventKind;
+  actor: PrioritySource | 'system' | 'sweep';
+  priority: Priority | null;
+  previous: Priority | null;
+  previousActor: PrioritySource | null;
+  // Claude's band for the task at that moment and its reason, so a user event records what it overrode.
+  agentPriority: Priority | null;
+  reason: string | null;
+  runId: string | null;
+  // Claude's events: how many of the three P1 slots were free when it decided (the user's own P1s fill the rest).
+  p1Free: number | null;
+  title: string;
+  label: string | null;
+  dueAt: string | null;
+  status: Task['status'];
+  source: string | null;
+  notes: string;
+};
+// The background run that prioritizes tasks, as the list header shows it.
+export type TriageState = { state: 'idle' | 'running' | 'failed'; detail: string; lastRunAt: string | null };
 export type TaskLink = { id: string; taskId: string; url: string; createdAt: string };
 // A file the user dropped in a conversation, copied into the task's folder (root 'task') or the chat
 // files folder (root 'chat'). path is relative to that root. brainPath is set once it is filed in the brain.
@@ -251,6 +293,8 @@ export type Snapshot = {
   launchAtLogin: boolean;
   // The user's brain folder, when there is one: attachments can be filed into it.
   brainDir: string | null;
+  // Claude prioritizing the open tasks in the background.
+  triage: TriageState;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
@@ -299,10 +343,15 @@ export interface DesktopApi extends SkillsApi {
     notes?: string;
     label?: string | null;
     dueAt?: string | null;
+    priority?: Priority | null;
   }): Promise<Task>;
   // Add with Claude: turns a dictated note into a title, notes, label and date. Nothing is saved.
   polishTask(text: string): Promise<{ title: string; notes: string; label: string | null; dueAt: string | null }>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
+  // The user's band for a task (null hands it back to Claude). Logged as an eval when it overrides Claude.
+  setTaskPriority(taskId: string, priority: Priority | null): Promise<void>;
+  // Runs Claude's prioritization now over every task it may set, not just new ones.
+  prioritizeTasks(): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;
   attachFileToTask(fileId: string, taskId: string): Promise<TaskFile>;
