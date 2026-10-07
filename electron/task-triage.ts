@@ -89,7 +89,7 @@ export function triageInstructions(rubric: string) {
     `- At most ${P1_LIMIT} P1s across the whole list, his included. The prompt says how many slots are free. When more tasks look like P1 than there are slots, keep the ones that matter most for this week and make the rest P2. Your own P1s marked "decide: yes" can be moved down to free a slot.`,
     '- A task that already has your band keeps it unless something changed: a date came closer, new notes, the week moved on, or a P1 slot is needed. When you change your earlier band, the reason says what changed.',
     '- How Malcolm corrected you before is the strongest signal you have. Follow the pattern behind a correction, not only the one task.',
-    '- reason: one line of at most 15 words saying what the task moves or why it can wait, in plain English. No em dashes. When the title does not say what to do and the brain does not explain it, give P3 and start the reason with "Unclear:" followed by the question you would ask him.',
+    '- reason: one line of at most 15 words saying what the task moves or why it can wait, in plain English, written to Malcolm ("you", "your"), since he reads it on the task. No em dashes. When the title does not say what to do and the brain does not explain it, give P3 and start the reason with "Unclear:" followed by the question you would ask him.',
     '',
     'Reply with JSON only, no prose before or after:',
     '{"priorities": [{"id": "t1", "priority": 2, "reason": "..."}]}',
