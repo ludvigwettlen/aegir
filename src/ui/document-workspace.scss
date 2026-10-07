@@ -92,7 +92,8 @@
   .document-open .ws-document-divider { display: none; }
 }
 
-.ws-conversation-head { display: flex; align-items: flex-start; border-bottom: 1px solid var(--ds-color-line);
+.ws-conversation-head { display: flex; align-items: flex-start; border-bottom: 1px solid var(--ds-color-line); -webkit-app-region: drag;
+  > .ws-conversation-actions { -webkit-app-region: no-drag; }
   > header { flex: 1; min-width: 0; border-bottom: 0; }
   > .ws-conversation-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; margin: 30px 16px 10px 0; }
 }

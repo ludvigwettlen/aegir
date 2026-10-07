@@ -945,6 +945,7 @@ function TaskDetail({
           onClick={() => onOpenThread(group.id, thread.id)}>
           <span>Thread in {group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={12} />
         </Button> : task.sourceUrl && <span className="ws-crumb">From a source</span>}
+        <span className="ws-detail-spacer" aria-hidden="true" />
         {task.status === 'running' && (
           <button className="ws-btn" onClick={() => { void run(() => api.stopTask(task.id)); onReturnToList(); }}>
             <Square size={12} /> Stop
