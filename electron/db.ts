@@ -635,10 +635,13 @@ export class Store {
     return this.get('tasks', row.id) ?? row;
   }
   // The one way a priority changes, so the eval log can't be bypassed. Claude ('agent') never touches a band the
-  // user set, and only logs when its band changes; a refreshed reason alone is no event, but it still marks the task
-  // as looked at. The user's set, confirm (the band Claude had) or clear (null: Claude decides again) is always
-  // logged with what it replaced. updatedAt stays as it is: sweeps read it as "the task last changed".
-  setPriority(taskId: string, priority: Priority | null, actor: PrioritySource, options: { reason?: string | null; runId?: string | null; p1Free?: number | null } = {}, undoable = false): boolean {
+  // user set, and logs only when its call changes; a refreshed reason alone is no event, but it still marks the task
+  // as looked at (checkedAt: when Claude read the task, not when its answer came back, so a change made while it was
+  // thinking is still seen as new). The user's set, confirm (the band Claude had) or clear (null: Claude decides
+  // again) is always logged with what it replaced. A user P1 also records how many P1 slots his others left free,
+  // so the eval can tell a correction from a full house. updatedAt stays as it is: sweeps read it as "the task last
+  // changed", and a priority is not that.
+  setPriority(taskId: string, priority: Priority | null, actor: PrioritySource, options: { reason?: string | null; runId?: string | null; p1Free?: number | null; checkedAt?: string } = {}, undoable = false): boolean {
     const row = this.get('tasks', taskId);
     if (!row) throw new Error('Task not found');
     if (priority !== null && ![1, 2, 3].includes(priority)) throw new Error('Priority must be 1, 2 or 3');
@@ -646,11 +649,18 @@ export class Store {
     if (actor === 'agent' && (before.prioritySource === 'user' || priority === null)) return false;
     const at = now();
     const after: PriorityFields = actor === 'agent'
-      ? { ...before, priority, prioritySource: 'agent', agentPriority: priority, priorityReason: options.reason?.trim() || before.priorityReason, priorityCheckedAt: at }
+      ? {
+          ...before, priority, prioritySource: 'agent', agentPriority: priority, priorityCheckedAt: options.checkedAt || at,
+          // A new call gets its own reason or none; the same call keeps its reason unless Claude gave a new one.
+          priorityReason: options.reason?.trim() || (priority === before.agentPriority ? before.priorityReason : null),
+        }
       : { ...before, priority, prioritySource: priority === null ? null : 'user' };
-    const moved = after.priority !== before.priority || after.prioritySource !== before.prioritySource;
+    // For Claude, its call changing counts too: after a user P1 expires the band can stay while Claude makes it its own.
+    const moved = after.priority !== before.priority || after.prioritySource !== before.prioritySource || (actor === 'agent' && after.agentPriority !== before.agentPriority);
     if (moved) after.prioritySetAt = at;
     if (!moved && actor === 'user') return false;
+    const p1Free = actor === 'agent' ? options.p1Free ?? null
+      : priority === 1 ? Math.max(0, 3 - this.openUserP1s(taskId)) : null;
     let eventId: string | null = null;
     this.db.transaction(() => {
       this.db.prepare(SET_PRIORITY).run({ ...after, id: taskId });
@@ -659,22 +669,27 @@ export class Store {
         kind: 'band', actor, priority, previous: before.priority, previousActor: before.prioritySource,
         agentPriority: actor === 'agent' ? priority : before.agentPriority,
         reason: actor === 'agent' ? after.priorityReason : before.priorityReason,
-        runId: options.runId || null, p1Free: actor === 'agent' ? options.p1Free ?? null : null,
+        runId: options.runId || null, p1Free,
       }, at);
     })();
     if (undoable && moved) this.rememberTaskAction({ kind: 'priority', taskId, before, after, eventId });
-    return moved || after.priorityReason !== before.priorityReason;
+    return moved || after.priorityReason !== before.priorityReason || after.priorityCheckedAt !== before.priorityCheckedAt;
   }
-  // A P1 the user set in an earlier week goes back to Claude with the same band, so P1 keeps meaning "this week".
-  // Logged as 'system', never as an override.
+  // Open P1s the user set himself, other than this task.
+  openUserP1s(exceptTaskId?: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE priority=1 AND prioritySource='user' AND status IN ('proposed','ready','running','review','blocked') AND id IS NOT ?").get(exceptTaskId ?? null) as { n: number }).n;
+  }
+  // A P1 the user set in an earlier week goes back to Claude, so P1 keeps meaning "this week". The band stays until
+  // Claude looks again, but Claude has made no call yet (agentPriority null), so nothing he does to it before then is
+  // scored against Claude. Logged as 'system', never as an override.
   expireUserPriority(taskId: string, reason: string): boolean {
     const row = this.get('tasks', taskId);
     if (!row || row.prioritySource !== 'user' || !row.priority) return false;
     const before = priorityFields(row);
     const at = now();
     this.db.transaction(() => {
-      this.db.prepare(SET_PRIORITY).run({ ...before, prioritySource: 'agent', agentPriority: before.priority, priorityReason: reason, prioritySetAt: at, id: taskId });
-      this.logPriority(row, { kind: 'band', actor: 'system', priority: before.priority, previous: before.priority, previousActor: 'user', agentPriority: before.agentPriority, reason, runId: null, p1Free: null }, at);
+      this.db.prepare(SET_PRIORITY).run({ ...before, prioritySource: 'agent', agentPriority: null, priorityReason: null, prioritySetAt: at, id: taskId });
+      this.logPriority(row, { kind: 'band', actor: 'system', priority: before.priority, previous: before.priority, previousActor: 'user', agentPriority: null, reason, runId: null, p1Free: null }, at);
     })();
     return true;
   }
@@ -700,12 +715,14 @@ export class Store {
   }
   // The user's last word on a task Claude had banded, when it differs from Claude's band: the examples the next
   // prioritization learns from. One per task, so a mis-key fixed a second later is no correction. A clear (handing it
-  // back) is no verdict, so it is left out. since: only corrections newer than the rubric's last refresh, with the
+  // back) is no verdict, and a P1 he set while his own P1s filled every slot says nothing about Claude's call, so both
+  // are left out (the weekly eval uses the same definition). since: only corrections newer than the rubric's last refresh, with the
   // newest `floor` always included so a fresh rubric still sees examples.
   priorityOverrides(limit = 30, since?: string | null, floor = 5): PriorityEvent[] {
     const rows = this.db.prepare(`SELECT * FROM priority_events e WHERE kind='band' AND actor='user'
       AND NOT EXISTS (SELECT 1 FROM priority_events later WHERE later.taskId=e.taskId AND later.kind='band' AND later.actor='user' AND (later.at > e.at OR (later.at = e.at AND later.rowid > e.rowid)))
       AND priority IS NOT NULL AND agentPriority IS NOT NULL AND priority != agentPriority
+      AND NOT (priority = 1 AND p1Free = 0)
       ORDER BY at DESC, rowid DESC LIMIT ?`).all(limit) as PriorityEvent[];
     return since ? rows.filter((row, index) => index < floor || row.at > since) : rows;
   }
@@ -726,8 +743,11 @@ export class Store {
     if (!next.title) throw new Error('A task needs a title');
     let eventId: string | null = null;
     this.db.transaction(() => {
-      const closing = (next.status === 'done' || next.status === 'dismissed') && row.status !== 'done' && row.status !== 'dismissed';
-      if (outcome && closing) eventId = this.logOutcome(row, next.status as 'done' | 'dismissed', outcome);
+      const closed = (status: Task['status']) => status === 'done' || status === 'dismissed';
+      if (outcome && closed(next.status) && !closed(row.status)) eventId = this.logOutcome(row, next.status as 'done' | 'dismissed', outcome);
+      // Reopened or restored: the earlier outcome no longer stands.
+      if (outcome && closed(row.status) && !closed(next.status))
+        this.db.prepare("DELETE FROM priority_events WHERE id=(SELECT id FROM priority_events WHERE taskId=? AND kind IN ('done','dismissed') ORDER BY at DESC, rowid DESC LIMIT 1)").run(id);
       this.db
         .prepare(
           'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt WHERE id=@id',

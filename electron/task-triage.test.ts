@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunInput } from './codex.js';
 import { Store } from './db.js';
-import { DEFAULT_RUBRIC, learnedThrough, readRubric, readTriage, TaskTriage, triageCandidates, triageInstructions, triagePrompt, weekStart } from './task-triage.js';
+import { DEFAULT_RUBRIC, learnedThrough, p1Expired, readRubric, readTriage, TaskTriage, triageCandidates, triageInstructions, triagePrompt, weekStart } from './task-triage.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'legolas-triage-')), 'test.sqlite');
@@ -187,6 +187,14 @@ describe('prioritizing', () => {
     } finally { store.close(); }
   });
 
+  it('counts a P1 set on the weekend for the week ahead, in local time', () => {
+    const monday = new Date(2026, 9, 12, 7, 0);
+    expect(p1Expired(new Date(2026, 9, 11, 20, 0).toISOString(), monday)).toBe(false); // Sunday evening planning
+    expect(p1Expired(new Date(2026, 9, 10, 9, 0).toISOString(), monday)).toBe(false); // Saturday
+    expect(p1Expired(new Date(2026, 9, 9, 17, 0).toISOString(), monday)).toBe(true); // last Friday
+    expect(p1Expired(new Date(2026, 9, 12, 1, 30).toISOString(), monday)).toBe(false); // Monday 01:30, Sunday in UTC
+  });
+
   it('hands his P1s from earlier weeks back to Claude at the first run of a new week', async () => {
     const store = new Store(path());
     try {
@@ -195,7 +203,7 @@ describe('prioritizing', () => {
       const fresh = store.createTask({ title: 'This week commitment', priority: 1 });
       const p2 = store.createTask({ title: 'His P2', priority: 2 });
       store.db.prepare('UPDATE tasks SET prioritySetAt=? WHERE id=?').run('2026-09-30T08:00:00.000Z', p2.id);
-      store.db.prepare('UPDATE tasks SET prioritySetAt=? WHERE id=?').run('2026-10-06T08:00:00.000Z', fresh.id);
+      store.db.prepare('UPDATE tasks SET prioritySetAt=? WHERE id=?').run('2026-10-04T18:00:00.000Z', fresh.id);
       const fake = engine(everything(2));
       const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange: () => {}, now: () => wednesday });
       await triage.run('new');
@@ -205,5 +213,77 @@ describe('prioritizing', () => {
       expect(store.priorityEvents().some((event) => event.actor === 'system' && event.taskId === old.id)).toBe(true);
       expect(store.getSetting('priorityWeek')).toBe('2026-10-05');
     } finally { store.close(); }
+  });
+
+  it('still sees a change that lands while Claude is thinking', async () => {
+    const store = new Store(path());
+    try {
+      store.setSetting('priorityFullRunDay', '2026-10-07');
+      store.setSetting('priorityWeek', weekStart(wednesday));
+      const task = store.createTask({ title: 'Prep Greenfield' });
+      let release!: () => void;
+      const fake = engine(async (input) => { await new Promise<void>((done) => { release = done; }); return everything(3)(input); });
+      const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange: () => {}, now: () => new Date() });
+      const running = triage.run('new');
+      await vi.waitFor(() => expect(fake.runs).toHaveLength(1));
+      await new Promise((done) => setTimeout(done, 5));
+      store.updateTask(task.id, { dueAt: '2026-10-08', title: 'P1: Prep Greenfield' });
+      release();
+      await running;
+      expect(store.get('tasks', task.id)?.priority).toBe(3);
+      expect(triageCandidates(store.list('tasks'), 'new').map((item) => item.id)).toEqual([task.id]);
+    } finally { store.close(); }
+  });
+
+  it('keeps the P1 limit when the answer lands, counting P1s he set while it was thinking', async () => {
+    const store = new Store(path());
+    try {
+      store.setSetting('priorityFullRunDay', '2026-10-07');
+      store.setSetting('priorityWeek', weekStart(wednesday));
+      const tasks = ['a', 'b', 'c'].map((title) => store.createTask({ title }));
+      const his = ['x', 'y'].map((title) => store.createTask({ title }));
+      let release!: () => void;
+      const fake = engine(async (input) => { await new Promise<void>((done) => { release = done; }); return everything(1)(input); });
+      const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange: () => {}, now: () => wednesday });
+      const running = triage.run('new');
+      await vi.waitFor(() => expect(fake.runs).toHaveLength(1));
+      for (const task of his) store.setPriority(task.id, 1, 'user');
+      release();
+      await running;
+      const bands = tasks.map((task) => store.get('tasks', task.id)!);
+      expect(bands.filter((task) => task.priority === 1)).toHaveLength(1);
+      expect(bands.filter((task) => task.priority === 2 && task.priorityReason?.startsWith('P1 slots full'))).toHaveLength(2);
+      expect(store.priorityEvents().filter((event) => event.actor === 'agent').every((event) => event.p1Free === 1)).toBe(true);
+    } finally { store.close(); }
+  });
+
+  it('after a failed full run, waits before trying again and does the rest of the day as new-task runs', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const store = new Store(path());
+    try {
+      store.createTask({ title: 'First' });
+      let fail = true;
+      let release!: () => void;
+      const fake = engine(async (input) => {
+        if (fake.runs.length === 1) await new Promise<void>((done) => { release = done; });
+        if (fail) throw new Error('error_max_turns');
+        return everything(2)(input);
+      });
+      const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange: () => {}, now: () => wednesday });
+      const first = triage.run('new');
+      await vi.waitFor(() => expect(fake.runs).toHaveLength(1));
+      store.createTask({ title: 'Arrived meanwhile' });
+      await triage.run('new');
+      release();
+      await first;
+      expect(triage.state.state).toBe('failed');
+      expect(store.getSetting('priorityFullRunDay')).toBe('2026-10-07');
+      expect(fake.runs).toHaveLength(1);
+      fail = false;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      await vi.waitFor(() => expect(fake.runs).toHaveLength(2));
+      await vi.waitFor(() => expect(triage.state.state).toBe('idle'));
+      expect(fake.runs[1].prompt.match(/decide: yes/g)).toHaveLength(2);
+    } finally { store.close(); vi.useRealTimers(); }
   });
 });

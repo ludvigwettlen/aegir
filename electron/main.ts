@@ -852,8 +852,11 @@ if (app.requestSingleInstanceLock()) {
     }, browser);
     // Claude bands the open tasks (task-triage.ts). The rubric lives in the brain so the weekly eval can refine it.
     // Claude Code only: its run is isolated and never asks; a Codex run would send approvals nobody is waiting for.
+    // Its working folder is empty on purpose: Claude Code may read whatever is in a run's working folder.
+    const triageCwd = join(app.getPath('userData'), 'prioritizing');
+    mkdirSync(triageCwd, { recursive: true });
     if (engine === 'claude') triage = new TaskTriage({
-      store, engine: codex, cwd: app.getPath('userData'), onChange: refresh,
+      store, engine: codex, cwd: triageCwd, onChange: refresh,
       rubricPath: () => store.getSetting('priorityRubric') || (existsSync(brainDir) ? join(brainDir, 'queues', 'priority-rubric.md') : null),
     });
     codex.on('status', refresh);

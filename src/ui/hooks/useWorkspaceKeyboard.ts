@@ -101,10 +101,9 @@ export function useWorkspaceKeyboard(
         pending = false;
         window.clearTimeout(timer);
         const list = listShortcuts[event.key as keyof typeof listShortcuts];
-        if (list) {
-          event.preventDefault();
-          goToList(setRoute, list);
-        }
+        // The key after G belongs to G either way, so a mistyped G then 3 never sets a priority.
+        event.preventDefault();
+        if (list) goToList(setRoute, list);
         return;
       }
       if (event.key === 'g') {

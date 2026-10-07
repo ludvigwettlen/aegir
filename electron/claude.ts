@@ -30,8 +30,10 @@ export function disallowedFor(kind: RunInput['kind']): string[] {
 }
 
 // Prioritizing tasks runs unattended on text copied from email and Slack, so it gets none of the user's setup: no
-// settings, skills, hooks or connectors, only reading the brain (files and gbrain's read commands), nothing that
-// writes, fetches or asks. Its lens comes from the rubric in its instructions, not from CLAUDE.md.
+// settings, skills, hooks or connectors, only reading the brain (files and gbrain's local search and get), nothing
+// that writes, fetches or asks. Its lens comes from the rubric in its instructions, not from CLAUDE.md. No bare tool
+// names in allowedTools: a bare 'Grep' would approve it on every path. Grep and Glob reach the brain through
+// additionalDirectories; anything else is refused by dontAsk. The caller gives it an empty working folder.
 export function triageOptions(brainDirs: string[]) {
   const home = homedir();
   const short = (dir: string) => (dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir);
@@ -40,8 +42,9 @@ export function triageOptions(brainDirs: string[]) {
     settingSources: [] as [], strictMcpConfig: true, mcpServers: {},
     tools: ['Read', 'Grep', 'Glob', 'Bash'],
     allowedTools: [
-      ...brainDirs.map((dir) => `Read(${short(dir)}/**)`), 'Grep', 'Glob',
-      ...gbrain.flatMap((bin) => ['search', 'get', 'query'].map((command) => `Bash(${bin} ${command}:*)`)),
+      ...brainDirs.map((dir) => `Read(${short(dir)}/**)`),
+      // Not query: it can call out to an embedding service and read image files from anywhere.
+      ...gbrain.flatMap((bin) => ['search', 'get'].map((command) => `Bash(${bin} ${command}:*)`)),
     ],
     disallowedTools: disallowedFor('triage'),
     additionalDirectories: brainDirs,

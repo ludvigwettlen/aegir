@@ -60,16 +60,38 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.keyboard.press('Meta+z');
     await page.waitForFunction(() => [...document.querySelectorAll('.ws-row-group')].some((group) => group.textContent!.startsWith('P2') && group.textContent!.includes('Prep Greenfield')));
 
-    // 0 hands Claude's P3 back for a fresh call; the panel's P2 button sets the user's own.
+    // A row that moves group keeps keyboard focus, so J carries on from it.
     await page.locator('.ws-task-row', { hasText: 'Read the Cognition' }).click();
+    await page.keyboard.press('2');
+    await page.waitForFunction(() => [...document.querySelectorAll('.ws-row-group')].some((group) => group.textContent!.startsWith('P2') && group.textContent!.includes('Read the Cognition')));
+    expect(await page.evaluate(() => document.activeElement?.textContent?.includes('Read the Cognition'))).toBe(true);
+    // 0 hands his own band back to Claude; on Claude's band it does nothing.
     await page.keyboard.press('0');
-    await page.getByText('Claude will band it again · ⌘Z to undo').waitFor();
+    await page.getByText('Back to Claude · ⌘Z to undo').waitFor();
     expect((await groups()).at(-1)).toBe('Not prioritized yet: Read the Cognition playbook piece | Map direct reports to level and stage');
+    await page.locator('.ws-task-row', { hasText: 'Answer Tove' }).click();
+    await page.keyboard.press('0');
+
+    // Digits do nothing while the § hints are held (§ sits next to 1) or straight after G.
+    // Playwright has no § key, so the hold is dispatched the way a Swedish keyboard sends it.
+    const section = (type: string) => page.evaluate((kind) => window.dispatchEvent(new KeyboardEvent(kind, { key: '§', code: 'IntlBackslash', bubbles: true })), type);
+    await section('keydown');
+    await page.locator('.ws-hints-panel').waitFor();
+    await page.keyboard.press('1');
+    await section('keyup');
+    await page.keyboard.press('g');
+    await page.keyboard.press('3');
+
+    // Demoting a P1 that is not due today takes it off Today; the notice says where it went.
+    await page.locator('.ws-task-row', { hasText: 'Customer advisory board' }).click();
+    await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
+    await page.getByText('P2 · moved to Upcoming · ⌘Z to undo').waitFor();
     await page.locator('.ws-task-row', { hasText: 'Map direct reports' }).click();
     await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.ws-row-group')].some((group) => group.textContent!.startsWith('P2') && group.textContent!.includes('Map direct reports')));
     expect(await calls()).toEqual([
-      ['setTaskPriority', 'greenfield', 1], ['setTaskPriority', 'cognition', null], ['setTaskPriority', 'people', 2],
+      ['setTaskPriority', 'greenfield', 1], ['setTaskPriority', 'cognition', 2], ['setTaskPriority', 'cognition', null],
+      ['setTaskPriority', 'harborlight', 2], ['setTaskPriority', 'people', 2],
     ]);
 
     // ⌘K runs Claude's prioritization over everything; quick add takes !1.

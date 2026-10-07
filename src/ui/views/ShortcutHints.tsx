@@ -32,7 +32,7 @@ function contextFor(route: Route): Context {
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Leave full screen or return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['N', 'Edit context'], ['1 / 2 / 3', 'Set priority P1 / P2 / P3 (overrides Claude)'], ['0', 'Hand the priority back to Claude'],
+    ['N', 'Edit context'], ['1 / 2 / 3', 'Set priority P1 / P2 / P3 (overrides Claude)'], ['0', 'Hand your priority back to Claude'],
     ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'], ['S', 'Snooze: move the task to a later date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Ask the agent to do the task, or focus its chat'], ['⇧A', 'Open task conversation in its channel'], ['F', 'Full screen task'],
@@ -49,6 +49,9 @@ export function ShortcutHints({ route }: { route: Route }) {
     let held: string | null = null;
     const hide = () => { held = null; setContext(null); };
     const down = (event: KeyboardEvent) => {
+      // While the hints are up, keys only read them. § sits next to 1 on a Swedish keyboard: rolling onto it must
+      // not set a priority.
+      if (held !== null && event.key !== '§') { event.preventDefault(); return; }
       if (event.key !== '§' || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
       event.preventDefault();
       event.stopImmediatePropagation();

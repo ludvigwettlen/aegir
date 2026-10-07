@@ -89,12 +89,13 @@ export const priorityGroup = (task: Pick<Task, 'priority'>) => PRIORITY_GROUPS[(
 export const bandedLists: TaskView[] = ['today', 'upcoming', 'inbox'];
 
 const statusRank: Record<Task['status'], number> = { review: 0, blocked: 1, proposed: 2, running: 3, ready: 4, done: 5, dismissed: 6 };
-// Priority first, then what needs you, then the earliest date (overdue comes first on its own), then the oldest.
+// What needs you first, then the earliest date (overdue comes first on its own), then the oldest.
+const byStatus = (a: Task, b: Task) => statusRank[a.status] - statusRank[b.status]
+  || (a.dueAt || '9999').localeCompare(b.dueAt || '9999')
+  || a.createdAt.localeCompare(b.createdAt);
+// The lists you work from: priority first, then as above.
 export function compareTasks(a: Task, b: Task): number {
-  return (a.priority ?? 4) - (b.priority ?? 4)
-    || statusRank[a.status] - statusRank[b.status]
-    || (a.dueAt || '9999').localeCompare(b.dueAt || '9999')
-    || a.createdAt.localeCompare(b.createdAt);
+  return (a.priority ?? 4) - (b.priority ?? 4) || byStatus(a, b);
 }
 
 // The groups a list shows, in order. Today, Upcoming and the Inbox group by priority band, with suggestions
@@ -107,7 +108,8 @@ export function taskGroups(list: TaskView, tasks: Task[], statusText: Record<Tas
       : list === 'inbox' && task.status === 'proposed' ? 'Suggested'
         : bandedLists.includes(list) ? priorityGroup(task)
           : task.label ? `#${task.label}` : 'No label';
-  for (const task of [...tasks].sort(compareTasks)) groups.set(keyOf(task), [...(groups.get(keyOf(task)) || []), task]);
+  // Delegated is read for what the agent is waiting on, so status leads there; elsewhere priority does.
+  for (const task of [...tasks].sort(list === 'team' ? byStatus : compareTasks)) groups.set(keyOf(task), [...(groups.get(keyOf(task)) || []), task]);
   const order = (name: string) => name === 'Suggested' ? -1 : PRIORITY_GROUPS.includes(name as typeof PRIORITY_GROUPS[number]) ? PRIORITY_GROUPS.indexOf(name as typeof PRIORITY_GROUPS[number]) : 10;
   if (list === 'needs') {
     const statuses = (Object.keys(statusRank) as Task['status'][]).map((status) => statusText[status]);
@@ -139,7 +141,8 @@ export function taskCursor(order: string[], previousOrder: string[], selected?: 
 export function withHeld(view: TaskView, tasks: Task[], held: Task | null | undefined, today = new Date()): Task[] {
   const live = held && tasks.find(task => task.id === held.id);
   if (!held || !live || live.status === 'done' || live.status === 'dismissed') return tasksFor(view, tasks, today);
-  const asSent: Task = { ...live, status: held.status, completedAt: held.completedAt };
+  // The band is kept as sent too: Claude re-banding the task while you talk to the agent must not move it away.
+  const asSent: Task = { ...live, status: held.status, completedAt: held.completedAt, priority: held.priority, prioritySource: held.prioritySource };
   return tasksFor(view, tasks.map(task => (task.id === live.id ? asSent : task)), today);
 }
 

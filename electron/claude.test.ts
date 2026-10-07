@@ -28,7 +28,9 @@ describe('Claude Code engine helpers', () => {
     expect(options).toMatchObject({ settingSources: [], strictMcpConfig: true, mcpServers: {}, permissionMode: 'dontAsk', persistSession: false });
     expect(options.tools).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
     expect(options.allowedTools).toContain('Read(/Users/m/brain/**)');
-    expect(options.allowedTools.filter((rule) => rule.startsWith('Bash(')).every((rule) => /gbrain (search|get|query):\*\)$/.test(rule))).toBe(true);
+    expect(options.allowedTools.filter((rule) => rule.startsWith('Bash(')).every((rule) => /gbrain (search|get):\*\)$/.test(rule))).toBe(true);
+    // Every rule names a path or a command: a bare tool name would approve that tool everywhere.
+    expect(options.allowedTools.every((rule) => /^\w+\(.+\)$/.test(rule))).toBe(true);
     expect(options.allowedTools.some((rule) => /^(Edit|Write|WebFetch|WebSearch|mcp__)/.test(rule) || rule === 'Bash(gbrain:*)')).toBe(false);
     expect(options.disallowedTools).toEqual(expect.arrayContaining(['Write', 'Edit', ...SEND_TOOLS]));
   });

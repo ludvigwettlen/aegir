@@ -26,7 +26,7 @@ import {
   type Run,
 } from './common';
 import { ThreadView } from './ThreadView';
-import { dateCommands, taskCommands, type TaskActions } from './taskCommands';
+import { dateCommands, prioritizeCommand, taskCommands, type TaskActions } from './taskCommands';
 import { Button } from '../design-system/primitives';
 import { openCommandPalette, useCommands } from '../commands';
 
@@ -51,6 +51,7 @@ const isOpen = (task: Task) => task.status !== 'done' && task.status !== 'dismis
 // What the task panel says about a task's band: Claude's reason, and what Claude said when you changed it.
 export function priorityNote(task: Task, triageRunning: boolean): string | null {
   const reason = task.priorityReason ? `: ${task.priorityReason}` : '';
+  if (task.prioritySource === 'agent' && task.agentPriority === null) return `Your P${task.priority} from an earlier week. Claude looks at it again on its next run.`;
   if (task.prioritySource === 'agent') return `Claude${reason || ` set P${task.priority}`}`;
   if (task.prioritySource === 'user' && task.agentPriority && task.agentPriority !== task.priority) return `You set P${task.priority}. Claude said P${task.agentPriority}${reason}`;
   if (task.prioritySource === 'user' && task.agentPriority) return `You set P${task.priority}. Claude said the same${reason}`;
@@ -87,6 +88,9 @@ export function TasksView({
   };
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
+  // Whether keyboard focus was on the list. A row that changes priority group is remounted and its focus drops to the
+  // page; this puts it back on the row so J and K carry on from there.
+  const listFocused = useRef(false);
   const adding = useRef(false);
   const [polishing, setPolishing] = useState(false);
   const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
@@ -116,6 +120,8 @@ export function TasksView({
       if (document.activeElement === document.body) {
         (rows.current?.querySelector<HTMLElement>('[data-keyboard-current]') || rows.current)?.focus();
       }
+    } else if (listFocused.current && document.activeElement === document.body) {
+      rows.current?.querySelector<HTMLElement>('[data-keyboard-current]')?.focus();
     }
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
@@ -175,12 +181,18 @@ export function TasksView({
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
-  // 1, 2, 3 or the panel's buttons: your band replaces Claude's, and Claude learns from the change. 0 hands it back.
+  // 1, 2, 3 or the panel's buttons: your band replaces Claude's, and Claude learns from the change. 0 hands your band
+  // back to Claude. A held task lets go first, so the change shows. When the new band takes the task off this list
+  // (a P1 on Today that is not due), the notice says where it went, as quick add does.
   const setPriority = (task: Task, priority: Priority | null) => {
     if (priority === task.priority && (priority === null || task.prioritySource === 'user')) return;
+    if (held?.task.id === task.id) setHeld(null);
+    const after: Task = { ...task, priority, prioritySource: priority === null ? null : 'user' };
+    const stays = tasksFor(list, [after]).length > 0;
+    const where = stays ? '' : tasksFor('today', [after]).length ? ' · moved to Today' : tasksFor('upcoming', [after]).length ? ' · moved to Upcoming' : tasksFor('inbox', [after]).length ? ' · moved to Inbox' : '';
     void run(async () => {
       await api.setTaskPriority(task.id, priority);
-      notify(priority ? `P${priority} · ⌘Z to undo` : 'Claude will band it again · ⌘Z to undo');
+      notify(`${priority ? `P${priority}` : 'Back to Claude'}${where} · ⌘Z to undo`);
     });
   };
   // Shared by the keys below and the command palette.
@@ -253,18 +265,20 @@ export function TasksView({
       notify('Task deleted · ⌘Z to undo');
     });
   };
+  const prioritizeAll = () => void run(async () => {
+    await api.prioritizeTasks();
+    notify('Claude is prioritizing your tasks');
+  });
   useCommands('tasks', () => {
-    if (!current) return { commands: [] };
+    // Prioritizing is about the whole list, so it is offered even with no task selected.
+    if (!current) return { commands: [{ ...prioritizeCommand, section: 'task', run: prioritizeAll }] };
     const actions: TaskActions = {
       data,
       agent: leadName(data),
       focused,
       update: (change) => void update(current, change),
       setPriority: (priority) => setPriority(current, priority),
-      prioritize: () => void run(async () => {
-        await api.prioritizeTasks();
-        notify('Claude is prioritizing your tasks');
-      }),
+      prioritize: prioritizeAll,
       openBox: (kind) => setPopover({ kind, taskId: current.id }),
       edit: setEditTarget,
       toggleFocus: () => setFocus((value) => !value),
@@ -342,7 +356,7 @@ export function TasksView({
       else if (key === 'y' && current.status === 'proposed')
         void update(current, { status: 'ready' });
       else if ((key === '1' || key === '2' || key === '3') && isOpen(current)) setPriority(current, Number(key) as Priority);
-      else if (key === '0' && isOpen(current)) setPriority(current, null);
+      else if (key === '0' && isOpen(current) && current.prioritySource === 'user') setPriority(current, null);
       else if (key === 'Backspace' || key === 'Delete') removeTask(current);
       else return;
       event.preventDefault();
@@ -460,7 +474,9 @@ export function TasksView({
             )}
           </form>
         )}
-        <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
+        <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}
+          onFocus={() => { listFocused.current = true; }}
+          onBlur={(event) => { if (event.relatedTarget) listFocused.current = rows.current?.contains(event.relatedTarget as Node) ?? false; }}>
           {groups.map(([name, tasks]) => (
             <div key={name} className="ws-row-group">
               <div className="ws-group-label">
@@ -530,6 +546,7 @@ export function TasksView({
           onReview={canReview(open) && reviewFiles(open).length ? () => requestReview(open) : undefined}
           onSnooze={() => setPopover({ kind: 'snooze', taskId: open.id })}
           onSetDue={() => setPopover({ kind: 'due', taskId: open.id })}
+          onSetPriority={(priority) => setPriority(open, priority)}
         />
       )}
       {modalTask && popover && popover.kind !== 'label' && (
@@ -849,6 +866,7 @@ function TaskDetail({
   notify,
   onSnooze,
   onSetDue,
+  onSetPriority,
   onReturnToList,
   onHandOff,
   onSend,
@@ -864,6 +882,8 @@ function TaskDetail({
   notify: (message: string) => void;
   onSnooze: () => void;
   onSetDue: () => void;
+  // The same path as the 1/2/3/0 keys, so the panel's buttons say where a task went too.
+  onSetPriority: (priority: Priority | null) => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onSend: () => void;
@@ -887,10 +907,7 @@ function TaskDetail({
   const labels = useMemo(() => [...new Set(data.tasks.map((item) => item.label).filter((value): value is string => !!value))].sort(), [data.tasks]);
   const agent = leadName(data);
   const setStatus = (status: Task['status']) => void run(() => api.updateTask(task.id, { status }));
-  const setPriority = (priority: Priority | null) => {
-    if (priority === task.priority && task.prioritySource === 'user') return;
-    void run(() => api.setTaskPriority(task.id, priority));
-  };
+  const setPriority = onSetPriority;
   const note = priorityNote(task, data.triage?.state === 'running');
   const dismiss = () => void run(async () => {
     await api.updateTask(task.id, { status: 'dismissed' });
@@ -1037,7 +1054,7 @@ function TaskDetail({
             {([1, 2, 3] as Priority[]).map((band) => (
               <button key={band} type="button" aria-pressed={task.priority === band}
                 className={`ws-priority-choice ${task.priority === band ? `on ${task.prioritySource || ''}` : ''}`}
-                title={task.priority === band && task.prioritySource === 'agent' ? `Claude set P${band}. Press ${band} to make it yours` : `Set P${band} (${band})`}
+                title={task.priority === band && task.prioritySource === 'agent' ? `Claude set P${band}. Click to make it yours` : `Set P${band}`}
                 onClick={() => setPriority(band)}>P{band}</button>
             ))}
             {task.prioritySource === 'user' && (

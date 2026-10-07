@@ -54,6 +54,12 @@ export function dateCommands(query: string, a: TaskActions, today = new Date()):
   return [{ id: 'task.due.typed', section: 'task', title: `Set due date to ${label}`, subtitle: when, icon: CalendarDays, run: () => a.update({ dueAt: due }) }];
 }
 
+// Runs Claude's prioritization over the whole list now; shown with or without a selected task.
+export const prioritizeCommand = {
+  id: 'tasks.prioritize', title: 'Prioritize with Claude', subtitle: 'Claude bands every task you have not set yourself', icon: ListOrdered,
+  keywords: ['triage', 'rank', 'sort', 'priorities', 'reprioritize', 'order'],
+} as const;
+
 // What the palette offers for the selected task. Keys and conditions mirror the task list's key handler and the task panel's buttons.
 export function taskCommands(task: Task, a: TaskActions): Command[] {
   const commands: Command[] = [];
@@ -98,8 +104,7 @@ export function taskCommands(task: Task, a: TaskActions): Command[] {
     if (task.prioritySource === 'user')
       add({ id: 'task.priority.clear', title: 'Hand priority back to Claude', icon: Undo2, keys: '0', keywords: ['clear priority', 'remove priority', 'claude decides', 'reset'], run: () => a.setPriority(null) });
   }
-  add({ id: 'tasks.prioritize', title: 'Prioritize with Claude', subtitle: 'Claude bands every task you have not set yourself', icon: ListOrdered,
-    keywords: ['triage', 'rank', 'sort', 'priorities', 'reprioritize', 'order'], run: a.prioritize });
+  add({ ...prioritizeCommand, run: a.prioritize });
   add({ id: 'task.title', title: 'Edit title', icon: PenLine, keys: 'Enter', keywords: ['rename'], run: () => a.edit('title') });
   add({ id: 'task.notes', title: 'Edit context', icon: FileText, keys: 'N', keywords: ['notes', 'details', 'description'], run: () => a.edit('notes') });
   if (thread && a.data.groups.some((group) => group.id === thread.groupId))

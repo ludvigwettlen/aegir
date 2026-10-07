@@ -493,15 +493,56 @@ describe('priority', () => {
     } finally { store.close(); }
   });
 
-  it('hands a P1 the user set back to Claude with the same band, logged as the system', () => {
+  it('hands a P1 the user set back to Claude with no Claude call on it, so nothing he does next is scored', () => {
     const store = new Store(path());
     try {
-      const task = store.createTask({ title: 'Old commitment', priority: 1 });
-      expect(store.expireUserPriority(task.id, 'Your P1 from last week')).toBe(true);
-      expect(store.get('tasks', task.id)).toMatchObject({ priority: 1, prioritySource: 'agent', agentPriority: 1, priorityReason: 'Your P1 from last week' });
-      expect(store.priorityEvents()[0]).toMatchObject({ kind: 'band', actor: 'system', priority: 1, previousActor: 'user' });
-      expect(store.priorityOverrides()).toEqual([]);
+      const task = store.createTask({ title: 'Old commitment' });
+      store.setPriority(task.id, 3, 'agent', { reason: 'Reading' });
+      store.setPriority(task.id, 1, 'user');
+      expect(store.expireUserPriority(task.id, 'From last week')).toBe(true);
+      expect(store.get('tasks', task.id)).toMatchObject({ priority: 1, prioritySource: 'agent', agentPriority: null, priorityReason: null });
+      expect(store.priorityEvents()[0]).toMatchObject({ kind: 'band', actor: 'system', priority: 1, previousActor: 'user', agentPriority: null, reason: 'From last week' });
       expect(store.expireUserPriority(task.id, 'again')).toBe(false);
+      // He re-commits before Claude looks again: his band, but no verdict on a call Claude never made.
+      store.setPriority(task.id, 1, 'user');
+      expect(store.priorityEvents()[0]).toMatchObject({ actor: 'user', priority: 1, agentPriority: null });
+      // Last week's real correction (Claude P3, he P1) is still the one the next run learns from.
+      expect(store.priorityOverrides()).toEqual([]);
+      // Claude deciding an expired P1 is logged even when it keeps the band: the call is new.
+      const again = store.createTask({ title: 'Kept by Claude', priority: 1 });
+      store.expireUserPriority(again.id, 'From last week');
+      expect(store.setPriority(again.id, 1, 'agent', { reason: 'Still the board pack' })).toBe(true);
+      expect(store.priorityEvents()[0]).toMatchObject({ actor: 'agent', priority: 1, agentPriority: 1, previousActor: 'agent' });
+    } finally { store.close(); }
+  });
+
+  it('records how many P1 slots his others left, and keeps a full-house P1 out of the corrections', () => {
+    const store = new Store(path());
+    try {
+      for (const title of ['one', 'two', 'three']) store.createTask({ title, priority: 1 });
+      const fourth = store.createTask({ title: 'Fourth' });
+      store.setPriority(fourth.id, 2, 'agent', { reason: 'No slot' });
+      store.setPriority(fourth.id, 1, 'user');
+      expect(store.priorityEvents()[0]).toMatchObject({ actor: 'user', priority: 1, p1Free: 0 });
+      expect(store.priorityOverrides()).toEqual([]);
+      expect(store.openUserP1s()).toBe(4);
+    } finally { store.close(); }
+  });
+
+  it('gives a changed call its own reason, and forgets an outcome when the task is reopened', () => {
+    const store = new Store(path());
+    try {
+      const task = store.createTask({ title: 'Reopened' });
+      store.setPriority(task.id, 3, 'agent', { reason: 'Reading' });
+      store.setPriority(task.id, 2, 'agent', {});
+      expect(store.get('tasks', task.id)?.priorityReason).toBeNull();
+      store.setPriority(task.id, 2, 'agent', { reason: 'Prep for Thursday' });
+      store.setPriority(task.id, 2, 'agent', {});
+      expect(store.get('tasks', task.id)?.priorityReason).toBe('Prep for Thursday');
+      store.updateTask(task.id, { status: 'done' }, true, 'user');
+      expect(store.priorityEvents().filter((event) => event.kind === 'done')).toHaveLength(1);
+      store.updateTask(task.id, { status: 'ready' }, true, 'user');
+      expect(store.priorityEvents().filter((event) => event.kind === 'done')).toHaveLength(0);
     } finally { store.close(); }
   });
 
