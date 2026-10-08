@@ -693,6 +693,8 @@ function Modal({ onClose, children }: { onClose: () => void; children: ReactNode
 }
 
 const quickDates: Array<[string, string]> = [['Tomorrow', 'tomorrow'], ['This weekend', 'weekend'], ['Next week', 'next week'], ['Next month', 'next month']];
+// A due date can be today; a snooze until today would change nothing.
+const dueQuickDates: Array<[string, string]> = [['Today', 'today'], ...quickDates];
 
 // Snooze and the due date share one box: type a phrase (3 days, 2 weeks, fri, 20 oct) or pick a quick date.
 function WhenPicker({ kind, task, onClose, run }: { kind: 'due' | 'snooze'; task: Task; onClose: () => void; run: Run }) {
@@ -724,7 +726,7 @@ function WhenPicker({ kind, task, onClose, run }: { kind: 'due' | 'snooze'; task
         {error || (parsed ? whenText(parsed, today) : typed ? 'Keep typing…' : task.dueAt ? `Due now: ${whenText(task.dueAt, today)}` : 'No date yet.')}
       </p>
       <div className="ws-when-quick">
-        {quickDates.map(([label, phrase]) => {
+        {(kind === 'due' ? dueQuickDates : quickDates).map(([label, phrase]) => {
           const date = parseWhen(phrase, today) as string;
           return <button key={phrase} type="button" className="ws-btn" onClick={() => save(date)}>{label}<span>{shortDate(date)}</span></button>;
         })}

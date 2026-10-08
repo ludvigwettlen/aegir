@@ -62,6 +62,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await page.keyboard.press('Enter');
     await page.getByRole('dialog', { name: 'Set due date' }).waitFor();
     expect(await calls()).toEqual([]);
+    // The due date offers Today first; snooze doesn't, since snoozing until today changes nothing.
+    const quick = (name: string) => page.getByRole('dialog', { name }).locator('.ws-when-quick button').evaluateAll(buttons => buttons.map(button => button.firstChild?.textContent));
+    expect(await quick('Set due date')).toEqual(['Today', 'Tomorrow', 'This weekend', 'Next week', 'Next month']);
     await page.keyboard.press('Escape');
 
     // A command's own box keeps what you type next.
@@ -69,6 +72,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await page.keyboard.type('snooze');
     await page.keyboard.press('Enter');
     await page.getByRole('dialog', { name: 'Snooze' }).waitFor();
+    expect(await quick('Snooze')).toEqual(['Tomorrow', 'This weekend', 'Next week', 'Next month']);
     await page.keyboard.type('fri');
     expect(await page.getByRole('textbox', { name: 'When' }).inputValue()).toBe('fri');
     await page.keyboard.press('Escape');
