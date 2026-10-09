@@ -1,3 +1,5 @@
+import { unwrapComments } from './document-comments';
+
 export type WorkspaceDocument = { path: string; content: string; revision: string };
 export type DocumentReference = { path: string; text: string };
 
@@ -7,7 +9,7 @@ export const tableHeaderOffMarker = '<!-- aegir:table-header=off -->';
 export const headerlessTableStart = /^<!-- aegir:table-header=off -->\r?\n(?=[^\n]*\|[^\n]*\r?\n[ \t|:]*-[ \t|:-]*\|[ \t|:-]*(?:\r?\n|$))/;
 
 export function hasUnsupportedMarkdown(content: string): boolean {
-  const prose = content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '')
+  const prose = unwrapComments(content).replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '')
     .replace(new RegExp(headerlessTableStart.source, 'gm'), '');
   // Frontmatter starts at the beginning of the source. Horizontal rules later
   // in ordinary prose must not turn an otherwise editable document read only.

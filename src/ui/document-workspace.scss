@@ -238,3 +238,16 @@
   > div { display: flex; justify-content: flex-end; gap: 8px; }
   p { margin: 0; }
 }
+
+.ws-commented-text { background: var(--ds-color-lemon-soft); border-bottom: 1px dotted var(--ds-color-muted); }
+.ws-document-comment { position: fixed; width: max-content; max-width: min(320px, calc(100vw - 24px)); padding: 8px; max-height: min(300px, calc(100vh - 80px)); overflow: auto;
+  form { display: flex; flex-direction: column; gap: 12px; width: 300px; max-width: 100%; }
+  label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+  textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-canvas); color: var(--ds-color-ink); font: inherit;
+    &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
+  }
+  p { margin: 8px 0; }
+  .ws-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 180px; }
+  .ws-comment-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+  .ws-comment-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+}

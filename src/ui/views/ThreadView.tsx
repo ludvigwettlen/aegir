@@ -14,6 +14,7 @@ import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
 import { DraftCard } from './DraftCard';
 import { CopyChatButton } from './CopyChatButton';
+import { CopyMessageButton } from './CopyMessageButton';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
 import { commandSkills, withSkillCommands } from '../../../shared/skill-commands';
 import { mentionedAgents } from '../../../shared/agent-mentions';
@@ -295,6 +296,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
         {message.meta?.type === 'attachments' && message.meta.files.length > 0 && (
           <MessageAttachments files={message.meta.files} run={run} />
         )}
+        <CopyMessageButton content={message.content} />
       </div>
     </article>
   );

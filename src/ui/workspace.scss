@@ -231,7 +231,10 @@
 .ws-thread.compact .ws-messages > :last-child { padding: 12px 16px 6px; }
 .ws-message { display: flex; gap: 12px; padding: 6px 0; }
 .ws-message-body { flex: 1; min-width: 0; }
-.ws-message-head { display: flex; align-items: baseline; gap: 8px; strong { font-size: 14px; } time { font-size: 11.5px; color: var(--ds-color-muted); } }
+.ws-message-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; strong { font-size: 14px; overflow-wrap: anywhere; } time { font-size: 11.5px; color: var(--ds-color-muted); } }
+.ws-copy-message { display: flex; margin-top: 4px;
+  .ds-button { width: 24px; height: 24px; min-width: 24px; padding: 0; color: var(--ds-color-muted); }
+}
 .ws-role { font-size: 11px; font-weight: 600; color: var(--ds-color-lime-ink); background: var(--ds-color-lime-soft); padding: 1px 6px; border-radius: 5px; }
 .ws-failed { font-size: 11px; font-weight: 600; color: var(--ds-color-danger); }
 .ws-message-text { color: var(--ds-color-ink); margin-top: 2px; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
