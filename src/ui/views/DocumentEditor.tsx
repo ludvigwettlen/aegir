@@ -12,6 +12,8 @@ import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
 import { DocumentTable } from '../document-tables';
 import { DocumentHeadingMarkers } from '../document-headings';
+import { DocumentComment, DocumentCommentParagraph } from '../document-comments';
+import { DocumentComments } from './DocumentComments';
 import { DocumentCommands } from './DocumentCommands';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
@@ -76,7 +78,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const saveRef = useRef(save); saveRef.current = save;
   useImperativeHandle(ref, () => ({ save: () => saveRef.current() }));
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, TaskList, TaskItem.configure({ nested: true }), Image,
+    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, DocumentComment, DocumentCommentParagraph, TaskList, TaskItem.configure({ nested: true }), Image,
       DocumentLinkSource.configure({ openLink: href => {
         const path = markdownPath(href);
         if (path) onOpenDocument(path.startsWith('/') ? path : [...initial.path.split('/').slice(0, -1), path].join('/'));
@@ -153,5 +155,6 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
     <div className="ws-document-scroll"><EditorContent editor={editor} /></div>
     <DocumentCommands editor={editor} />
+    <DocumentComments editor={editor} />
   </section>;
 });

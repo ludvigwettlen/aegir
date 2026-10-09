@@ -11,6 +11,7 @@ import { api, Avatar, time, YouAvatar, type Run } from './common';
 import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
 import { CopyChatButton } from './CopyChatButton';
+import { CopyMessageButton } from './CopyMessageButton';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
 import { commandSkills, withSkillCommands } from '../../../shared/skill-commands';
 import { mentionedAgents } from '../../../shared/agent-mentions';
@@ -222,6 +223,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
             </span>
           )}
         </div>
+        <CopyMessageButton content={message.content} />
       </div>
     </article>
   );

@@ -2,6 +2,7 @@ import { Node, getMarkRange } from '@tiptap/react';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { commentStart, commentEnd, encodeComment, type PassageComment } from '../../shared/document-comments';
 
 const key = new PluginKey('documentLinks');
 const sourceName = 'documentLinkSource';
@@ -14,7 +15,12 @@ export const DocumentLinkSource = Node.create<{ openLink: (href: string) => void
   addOptions() { return { openLink: () => {} }; },
   parseHTML() { return [{ tag: 'span[data-document-link]' }]; },
   renderHTML() { return ['span', { 'data-document-link': '' }, 0]; },
-  renderMarkdown(node) { return (node.content ?? []).map(child => child.text ?? '').join(''); },
+  renderMarkdown(node) {
+    const source = (node.content ?? []).map(child => child.text ?? '').join('');
+    const comment = node.marks?.find(mark => mark.type === 'passageComment');
+    // Markdown serializers skip outer marks on code-like inline nodes.
+    return comment ? `${commentStart}${encodeComment(comment.attrs as PassageComment)} -->${source}${commentEnd}` : source;
+  },
   addNodeView() {
     return ({ node, editor, decorations }) => {
       const dom = document.createElement('span');
@@ -104,9 +110,16 @@ export const DocumentLinkSource = Node.create<{ openLink: (href: string) => void
         if (!selection.empty || selection.$from.parent.type.name === sourceName) return null;
         const range = getMarkRange(selection.$from, state.schema.marks.link);
         if (!range) return null;
-        const source = editor.markdown.serialize({ type: 'doc', content: [{ type: 'paragraph', content: state.doc.slice(range.from, range.to).content.toJSON() }] });
+        const comment = state.doc.nodeAt(range.from)?.marks.find(mark => mark.type.name === 'passageComment');
+        let uniformComment = true;
+        state.doc.nodesBetween(range.from, range.to, node => {
+          if (node.isText && node.marks.find(mark => mark.type.name === 'passageComment')?.attrs.id !== comment?.attrs.id) uniformComment = false;
+        });
+        if (!uniformComment) return null;
+        const slice = state.doc.slice(range.from, range.to).content.toJSON().map((node: { marks?: Array<{ type: string }> }) => ({ ...node, marks: node.marks?.filter(mark => mark.type !== 'passageComment') }));
+        const source = editor.markdown.serialize({ type: 'doc', content: [{ type: 'paragraph', content: slice }] });
         const offset = Math.min(selection.from - range.from + 1, source.length);
-        const tr = state.tr.replaceWith(range.from, range.to, state.schema.nodes[sourceName].create(null, state.schema.text(source)));
+        const tr = state.tr.replaceWith(range.from, range.to, state.schema.nodes[sourceName].create(null, state.schema.text(source), comment ? [comment] : undefined));
         return tr.setSelection(TextSelection.create(tr.doc, range.from + 1 + offset)).setMeta(key, true).setMeta('addToHistory', false);
       },
     })];
