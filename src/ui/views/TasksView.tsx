@@ -29,6 +29,7 @@ import { ThreadView } from './ThreadView';
 import { dateCommands, prioritizeCommand, taskCommands, type TaskActions } from './taskCommands';
 import { Button } from '../design-system/primitives';
 import { openCommandPalette, useCommands } from '../commands';
+import { takeTaskFocus } from '../task-focus';
 
 const titles: Record<TaskView, string> = {
   inbox: 'Inbox',
@@ -123,6 +124,9 @@ export function TasksView({
     } else if (listFocused.current && document.activeElement === document.body) {
       rows.current?.querySelector<HTMLElement>('[data-keyboard-current]')?.focus();
     }
+    // A task picked in Find a task: select it here once this list shows it. Navigation focuses the row after.
+    const found = takeTaskFocus(list, order.map(task => task.id));
+    if (found && found !== currentId) setCursors(previous => ({ ...previous, [list]: found }));
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
   // Sending to the agent is work on this task, so it stays in front of you. A second reply keeps the first hold,

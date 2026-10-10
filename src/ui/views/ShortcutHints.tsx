@@ -76,7 +76,7 @@ export function ShortcutHints({ route }: { route: Route }) {
   }, [route]);
   if (!context) return null;
   // Inside the document editor ⌘K inserts a link, so the palette hint stays out of that context.
-  const palette: Hint[] = context.title === 'Document workspace' ? [] : [['⌘K', 'Command palette: find and run any action']];
+  const palette: Hint[] = context.title === 'Document workspace' ? [] : [['⌘K', 'Command palette: find and run any action'], ['⌘F', 'Find any task, on any list']];
   const global: Hint[] = context.dialog ? [] : [...palette, ['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
     ['G then I / T / U / W / N / C', 'Inbox / Today / Upcoming / Delegated / Needs you / Completed'] as Hint,

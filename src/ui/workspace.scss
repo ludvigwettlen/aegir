@@ -34,6 +34,13 @@
   -webkit-app-region: drag;
   > * { -webkit-app-region: no-drag; }
 }
+// Looks like a search field; opens Find a task (⌘F) in the palette, where the typing happens.
+.ws-sidebar-search { display: flex; align-items: center; gap: 8px; height: 30px; margin: 0 2px 8px; padding: 0 6px 0 9px; box-sizing: border-box;
+  border: 1px solid var(--ds-color-line); border-radius: 8px; background: rgba(255, 255, 255, 0.85); color: #6b7866; font-size: 12.5px; cursor: text;
+  > span { flex: 1; text-align: left; }
+  &:hover { border-color: #c6e39a; background: #fff; }
+  &:focus-visible { outline: 1px solid var(--ds-color-focus); outline-offset: 1px; }
+}
 .ws-nav-label { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #6b7866;
   button { border: 0; background: transparent; color: #6b7866; border-radius: 6px; width: 22px; height: 22px; display: grid; place-items: center; cursor: pointer; }
   button:hover { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }

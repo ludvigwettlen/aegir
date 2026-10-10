@@ -5,7 +5,8 @@ export type CommandIcon = ComponentType<LucideProps>;
 export type CommandSection = 'task' | 'go' | 'create' | 'routines' | 'app';
 export type CommandOption = { id: string; title: string; subtitle?: string; icon?: CommandIcon; current?: boolean; run: () => void };
 // A second step in the same box, like Godspeed's "Move task to list": the field then searches these options.
-export type CommandStep = { title: string; placeholder: string; empty: string; options: (query: string) => CommandOption[] };
+// standalone: the step is not about the selected task (Find a task), so the palette leaves out the "Task: …" line.
+export type CommandStep = { title: string; placeholder: string; empty: string; options: (query: string) => CommandOption[]; standalone?: boolean };
 export type Command = {
   id: string;
   title: string;

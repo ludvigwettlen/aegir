@@ -8,6 +8,8 @@ import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
 import { claudeRoutineName } from '../../../shared/cron';
 import type { TaskView } from '../../../shared/tasks';
 import { rankCommands } from '../../../shared/command-search';
+import { searchTasks } from '../../../shared/task-search';
+import { focusTask } from '../task-focus';
 import { registeredCommands, setCommandPaletteOpener, type Command, type CommandOption, type CommandSection, type CommandStep } from '../commands';
 import { goTo, goToList, newTask, newThread, undoTaskAction } from '../hooks/useWorkspaceKeyboard';
 import { api, Kbd, routineStatus, type Route, type Run } from './common';
@@ -30,12 +32,37 @@ const lists: Array<[TaskView, string, LucideIcon, string]> = [
   ['upcoming', 'Upcoming', CalendarDays, 'U'], ['team', 'Delegated', Bot, 'W'], ['completed', 'Completed', CheckCheck, 'C'],
 ];
 
+const listInfo = new Map(lists.map(([list, title, icon]) => [list, { title, icon }]));
+const shortDate = (iso: string) => {
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+// Find a task (⌘F, the sidebar's search bar, ⌘K): every list at once. A row says which list the task is on, its band,
+// label and date, and a bit of its context when that is where the words matched. Choosing it opens that list with the
+// task selected.
+export const findTaskCommand = (data: Snapshot, go: Props['go']): Command => ({
+  id: 'go.find', section: 'go', title: 'Find a task…', icon: Search, keys: '⌘ F', keywords: ['search', 'find', 'look up', 'all tasks', 'where'],
+  step: {
+    title: 'Find', placeholder: 'Search every task by title, label or context…', empty: 'No task matches.', standalone: true,
+    options: (query) => searchTasks(data.tasks, query).map(({ task, list, snippet }) => {
+      const info = listInfo.get(list)!;
+      const facts = [info.title, task.priority ? `P${task.priority}` : '', task.label ? `#${task.label}` : '', task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean);
+      return {
+        id: `find.${task.id}`, title: task.title, icon: info.icon,
+        subtitle: snippet ? `${facts.join(' · ')} · ${snippet}` : facts.join(' · '),
+        run: () => { focusTask(list, task.id); goToList(go, list); },
+      };
+    }),
+  },
+});
+
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.
 function appCommands({ data, claude, route, go, run, notify, onNewGroup }: Props): Command[] {
-  const commands: Command[] = lists.map(([list, title, icon, key]) => ({
+  const commands: Command[] = [findTaskCommand(data, go), ...lists.map(([list, title, icon, key]): Command => ({
     id: `go.${list}`, section: 'go', title: `Go to ${title}`, icon, keys: `G then ${key}`,
     keywords: ['list', 'jump', 'open', 'show'], run: () => goToList(go, list),
-  }));
+  }))];
   for (const group of data.groups) {
     const agent = data.agents.find((item) => item.id === group.leadAgentId);
     commands.push(group.kind === 'group'
@@ -131,13 +158,15 @@ export function CommandPalette(props: Props) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isOpen.current) { handleKey.current(event); return; }
-      if (!(event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k')) return;
+      const key = event.key.toLowerCase();
+      if (!(event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (key === 'k' || key === 'f'))) return;
       if (event.isComposing || event.defaultPrevented || event.repeat) return;
       // In a rich-text editor ⌘K belongs to the editor (the document editor inserts links with it).
       if (event.target instanceof Element && event.target.closest('[contenteditable="true"]')) return;
       event.preventDefault();
       event.stopPropagation();
-      open();
+      // ⌘F opens the palette straight at Find a task, the way ⌘L opens it at Set label.
+      open(key === 'f' ? 'go.find' : undefined);
     };
     const onMouse = (event: MouseEvent) => { mouse.current = `${event.clientX},${event.clientY}`; };
     const onFocus = (event: FocusEvent) => {
@@ -195,6 +224,7 @@ export function CommandPalette(props: Props) {
     const handled = () => { event.preventDefault(); event.stopPropagation(); };
     const move = (by: number) => { handled(); if (rows.length) setActive((index + by + rows.length) % rows.length); };
     if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') { handled(); if (!event.repeat) close(); }
+    else if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') handled();
     else if (event.key === 'ArrowDown' || (event.ctrlKey && event.key === 'n')) move(1);
     else if (event.key === 'ArrowUp' || (event.ctrlKey && event.key === 'p')) move(-1);
     else if (event.key === 'Enter') { handled(); if (!event.repeat) execute(rows[index]); }
@@ -216,7 +246,7 @@ export function CommandPalette(props: Props) {
             aria-label={step ? step.step.title : 'Search commands'} placeholder={step ? step.step.placeholder : 'Search commands…'}
             value={query} onChange={(event) => { setQuery(event.target.value); setActive(0); }} />
         </div>
-        {frozen.context && <p className="ws-palette-context">{frozen.context}</p>}
+        {frozen.context && !step?.step.standalone && <p className="ws-palette-context">{frozen.context}</p>}
         <div className="ws-palette-list" id="ws-palette-list" role="listbox" aria-label={step ? step.step.title : 'Commands'} ref={list}>
           {rows.map((row, at) => {
             const section = 'section' in row ? row.section : undefined;

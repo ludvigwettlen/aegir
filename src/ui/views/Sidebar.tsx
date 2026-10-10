@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { Bot, CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Archive as Tray } from 'lucide-react';
+import { Bot, CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Search, Sun, Archive as Tray } from 'lucide-react';
 import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
 import { claudeRoutineName } from '../../../shared/cron';
 import { tasksFor } from '../../../shared/tasks';
-import { Avatar, routineStatus, type Route } from './common';
+import { Avatar, Kbd, routineStatus, type Route } from './common';
+import { openCommandPalette } from '../commands';
 
 function Item({
   active,
@@ -62,6 +63,12 @@ export function Sidebar({
   const privates = data.groups.filter((group) => group.kind === 'private');
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
+      {/* Finds any task on any list, the same box as ⌘F. */}
+      <button type="button" className="ws-sidebar-search" title="Find any task (⌘F)" onClick={() => openCommandPalette('go.find')}>
+        <Search size={14} aria-hidden="true" />
+        <span>Search tasks</span>
+        <Kbd>⌘F</Kbd>
+      </button>
       <div className="ws-nav-label">TASKS</div>
       <Item
         active={isList('needs')}
