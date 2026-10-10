@@ -6,7 +6,12 @@ export type CommandSection = 'task' | 'go' | 'create' | 'routines' | 'app';
 export type CommandOption = { id: string; title: string; subtitle?: string; icon?: CommandIcon; current?: boolean; run: () => void };
 // A second step in the same box, like Godspeed's "Move task to list": the field then searches these options.
 // standalone: the step is not about the selected task (Find a task), so the palette leaves out the "Task: …" line.
-export type CommandStep = { title: string; placeholder: string; empty: string; options: (query: string) => CommandOption[]; standalone?: boolean };
+// more: rows that take a moment (a search in the app's database), added below options once they arrive. pending says
+// what the box shows while the first of them is on its way and options found nothing.
+export type CommandStep = {
+  title: string; placeholder: string; empty: string; options: (query: string) => CommandOption[]; standalone?: boolean;
+  more?: (query: string) => Promise<CommandOption[]>; pending?: string;
+};
 export type Command = {
   id: string;
   title: string;

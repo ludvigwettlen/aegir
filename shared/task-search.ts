@@ -9,6 +9,15 @@ import { tasksFor, type TaskView } from './tasks.js';
 
 export type TaskMatch = { task: Task; list: TaskView; snippet: string | null };
 
+// The full-text query for task conversations (SQLite FTS5): every word a prefix, all required, case and accents left
+// to the index. Words are split the way the index splits text, and quoted so nothing typed is read as an operator.
+// Null when there is too little to search for.
+export function conversationQuery(text: string): string | null {
+  const words = (text.normalize('NFC').match(/[\p{L}\p{N}]+/gu) || []).slice(0, 8);
+  if (words.join('').length < 2) return null;
+  return words.map((word) => `"${word}"*`).join(' ');
+}
+
 // Lower case without accents, so å, ä and ö match a, a and o.
 export const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 

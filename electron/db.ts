@@ -13,6 +13,7 @@ import type {
   RoutineRun,
   RoutineSchedule,
   RunEvent,
+  ConversationMatch,
   Priority,
   PriorityEvent,
   PriorityEventKind,
@@ -29,9 +30,12 @@ import { defaultAgents, legacyAgents , singleLeadInstructions } from './default-
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import { MAX_FILES_PER_MESSAGE } from '../shared/task-files.js';
 import { sourceKind } from '../shared/tasks.js';
+import { conversationQuery } from '../shared/task-search.js';
 import type { SkillProposal } from '../shared/skills.js';
 
 const now = () => new Date().toISOString();
+// Bump to rebuild the conversation search index on next start (a change to what is indexed, or after a VACUUM).
+const MESSAGE_SEARCH_VERSION = '1';
 type Tables = { agents: Agent; tasks: Task; threads: Thread };
 
 type GroupRow = Omit<Group, 'agentIds'> & { agentIds: string };
@@ -96,6 +100,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     `);
     this.migrate();
+    this.indexMessages();
     this.db.exec(`CREATE TABLE IF NOT EXISTS task_links(id TEXT PRIMARY KEY,taskId TEXT NOT NULL,url TEXT NOT NULL,createdAt TEXT NOT NULL,UNIQUE(taskId,url));
       CREATE INDEX IF NOT EXISTS task_links_task ON task_links(taskId);`);
     this.db.transaction(() => {
@@ -191,6 +196,48 @@ export class Store {
     return (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
       (column) => column.name,
     );
+  }
+  // Find a task searches task conversations through a full-text index of every message: its text plus, for a draft
+  // card, the draft itself. Case and accents are ignored (å finds a). Triggers keep it in step with every insert,
+  // edit, reorder and delete; the index row shares the message's rowid, and moving a message to the end changes its
+  // rowid, which the update trigger follows. VACUUM would renumber rowids without telling it: Legolas never runs it,
+  // and if it ever does, bump MESSAGE_SEARCH_VERSION to rebuild. Built in one go the first time.
+  private indexMessages() {
+    const body = (row: string) => `${row}.content || CASE WHEN json_valid(${row}.meta) AND json_extract(${row}.meta, '$.type') = 'message-draft' THEN ' ' || COALESCE(json_extract(${row}.meta, '$.text'), '') ELSE '' END`;
+    this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
+      CREATE TRIGGER IF NOT EXISTS message_search_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO message_search(rowid, body) VALUES (new.rowid, ${body('new')}); END;
+      CREATE TRIGGER IF NOT EXISTS message_search_delete AFTER DELETE ON messages BEGIN
+        DELETE FROM message_search WHERE rowid = old.rowid; END;
+      CREATE TRIGGER IF NOT EXISTS message_search_update AFTER UPDATE ON messages BEGIN
+        DELETE FROM message_search WHERE rowid = old.rowid;
+        INSERT INTO message_search(rowid, body) VALUES (new.rowid, ${body('new')}); END;`);
+    if (this.getSetting('messageSearchVersion') === MESSAGE_SEARCH_VERSION) return;
+    this.db.transaction(() => {
+      this.db.exec(`DELETE FROM message_search; INSERT INTO message_search(rowid, body) SELECT rowid, ${body('messages')} FROM messages;`);
+      this.setSetting('messageSearchVersion', MESSAGE_SEARCH_VERSION);
+    })();
+  }
+  // Task conversations that mention every word, the best message of each first. Chats outside tasks are left out.
+  searchTaskMessages(text: string, limit = 30): ConversationMatch[] {
+    const query = conversationQuery(text);
+    if (!query) return [];
+    const rows = this.db.prepare(`SELECT t.id AS taskId, m.id AS messageId, m.role AS role, m.agentId AS agentId, m.createdAt AS createdAt,
+        CASE WHEN json_valid(m.meta) AND json_extract(m.meta, '$.type') = 'message-draft' THEN 1 ELSE 0 END AS draft,
+        snippet(message_search, 0, '', '', '…', 12) AS snippet
+      FROM message_search
+      JOIN messages m ON m.rowid = message_search.rowid
+      JOIN threads th ON th.id = m.threadId AND th.kind = 'task'
+      JOIN tasks t ON t.id = th.taskId
+      WHERE message_search MATCH ? ORDER BY bm25(message_search), m.createdAt DESC LIMIT 400`).all(query) as (Omit<ConversationMatch, 'draft' | 'hits'> & { draft: number })[];
+    const best = new Map<string, ConversationMatch>();
+    for (const row of rows) {
+      const seen = best.get(row.taskId);
+      if (seen) seen.hits++;
+      // Agents write Markdown: the bold and code marks would show as raw characters in a one-line snippet.
+      else best.set(row.taskId, { ...row, draft: row.draft === 1, snippet: row.snippet.replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim(), hits: 1 });
+    }
+    return [...best.values()].slice(0, limit);
   }
   // Earlier versions had rooms without threads. Each room becomes a group and its history one closed thread.
   private migrate() {

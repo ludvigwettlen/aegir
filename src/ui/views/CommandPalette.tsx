@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, Bot, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
+  Archive, Bot, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, MessageSquare, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
   Undo2, Users, Wand2, type LucideIcon,
 } from 'lucide-react';
-import type { ClaudeRoutines, Snapshot } from '../../../shared/types';
+import type { ClaudeRoutines, Snapshot, Task } from '../../../shared/types';
 import { claudeRoutineName } from '../../../shared/cron';
 import type { TaskView } from '../../../shared/tasks';
 import { rankCommands } from '../../../shared/command-search';
-import { searchTasks } from '../../../shared/task-search';
+import { homeList, searchTasks } from '../../../shared/task-search';
 import { focusTask } from '../task-focus';
 import { registeredCommands, setCommandPaletteOpener, type Command, type CommandOption, type CommandSection, type CommandStep } from '../commands';
 import { goTo, goToList, newTask, newThread, undoTaskAction } from '../hooks/useWorkspaceKeyboard';
@@ -38,24 +38,40 @@ const shortDate = (iso: string) => {
   return new Date(year, month - 1, day).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
-// Find a task (⌘F, the sidebar's search bar, ⌘K): every list at once. A row says which list the task is on, its band,
-// label and date, and a bit of its context when that is where the words matched. Choosing it opens that list with the
-// task selected.
-export const findTaskCommand = (data: Snapshot, go: Props['go']): Command => ({
-  id: 'go.find', section: 'go', title: 'Find a task…', icon: Search, keys: '⌘ F', keywords: ['search', 'find', 'look up', 'all tasks', 'where'],
-  step: {
-    title: 'Find', placeholder: 'Search every task by title, label or context…', empty: 'No task matches.', standalone: true,
-    options: (query) => searchTasks(data.tasks, query).map(({ task, list, snippet }) => {
-      const info = listInfo.get(list)!;
-      const facts = [info.title, task.priority ? `P${task.priority}` : '', task.label ? `#${task.label}` : '', task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean);
-      return {
-        id: `find.${task.id}`, title: task.title, icon: info.icon,
-        subtitle: snippet ? `${facts.join(' · ')} · ${snippet}` : facts.join(' · '),
-        run: () => { focusTask(list, task.id); goToList(go, list); },
-      };
-    }),
-  },
-});
+const factsOf = (task: Task, list: TaskView) =>
+  [listInfo.get(list)!.title, task.priority ? `P${task.priority}` : '', task.label ? `#${task.label}` : '', task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean).join(' · ');
+
+// Find a task (⌘F, the sidebar's search bar, ⌘K): every list at once, and every task conversation. A row says which
+// list the task is on, its band, label and date, and the words around the match when it was in the context or the
+// conversation (who said them, for a conversation). Choosing it opens that list with the task selected.
+export const findTaskCommand = (data: Snapshot, go: Props['go']): Command => {
+  const open = (task: Task, list: TaskView) => () => { focusTask(list, task.id); goToList(go, list); };
+  return {
+    id: 'go.find', section: 'go', title: 'Find a task…', icon: Search, keys: '⌘ F', keywords: ['search', 'find', 'look up', 'all tasks', 'where', 'conversation'],
+    step: {
+      title: 'Find', placeholder: 'Search every task, its context and its conversation…', empty: 'No task matches.', standalone: true,
+      pending: 'Searching conversations…',
+      options: (query) => searchTasks(data.tasks, query).map(({ task, list, snippet }) => ({
+        id: `find.${task.id}`, title: task.title, icon: listInfo.get(list)!.icon,
+        subtitle: snippet ? `${factsOf(task, list)} · ${snippet}` : factsOf(task, list),
+        run: open(task, list),
+      })),
+      // Conversations live in the app's database, so they are searched there and arrive a moment later.
+      more: async (query) => (await api.searchConversations(query)).flatMap((match) => {
+        const task = data.tasks.find((item) => item.id === match.taskId);
+        const list = task && homeList(task);
+        if (!task || !list) return [];
+        const who = match.draft ? 'Draft' : match.role === 'user' ? 'You' : match.role === 'agent'
+          ? data.agents.find((agent) => agent.id === match.agentId)?.name || 'Claude' : 'Note';
+        return [{
+          id: `find.${task.id}`, title: task.title, icon: MessageSquare,
+          subtitle: `${factsOf(task, list)} · ${who}: “${match.snippet}”${match.hits > 1 ? ` · ${match.hits} messages` : ''}`,
+          run: open(task, list),
+        }];
+      }),
+    },
+  };
+};
 
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.
 function appCommands({ data, claude, route, go, run, notify, onNewGroup }: Props): Command[] {
@@ -114,6 +130,8 @@ export function CommandPalette(props: Props) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [step, setStep] = useState<Step | null>(null);
+  // Rows a step fetches (step.more), for the query they answer. Answers to an older query are dropped.
+  const [extra, setExtra] = useState<{ query: string; rows: CommandOption[]; done: boolean } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
@@ -138,6 +156,7 @@ export function CommandPalette(props: Props) {
     isOpen.current = true;
     setFrozen({ context: sets.find((set) => set.context)?.context, commands, forQuery: (text) => sets.flatMap((set) => set.forQuery?.(text) || []) });
     setStep(direct ? { step: direct, rootQuery: null } : null);
+    setExtra(null);
     setQuery('');
     setActive(0);
   };
@@ -184,9 +203,30 @@ export function CommandPalette(props: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    const more = step?.step.more;
+    const text = query.trim();
+    if (!more || text.length < 2) { setExtra(null); return; }
+    let live = true;
+    setExtra((previous) => (previous?.query === text ? previous : { query: text, rows: [], done: false }));
+    // A short pause while typing, so each keystroke doesn't search the database.
+    const timer = window.setTimeout(() => {
+      more(text).then((rows) => { if (live) setExtra({ query: text, rows, done: true }); })
+        .catch(() => { if (live) setExtra({ query: text, rows: [], done: true }); });
+    }, 150);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [step, query]);
+
   const typed = frozen && !step && query.trim() ? frozen.forQuery(query.trim()) : [];
+  const stepRows = (current: Step) => {
+    const base = current.step.options(query);
+    if (!extra || extra.query !== query.trim()) return base;
+    const ids = new Set(base.map((row) => row.id));
+    return [...base, ...extra.rows.filter((row) => !ids.has(row.id))];
+  };
+  const searching = !!step?.step.more && query.trim().length >= 2 && !(extra?.query === query.trim() && extra.done);
   const rows: Row[] = !frozen ? []
-    : step ? step.step.options(query)
+    : step ? stepRows(step)
       : query.trim() ? [...typed, ...rankCommands(frozen.commands, query)]
         : frozen.commands.filter((command) => !command.searchOnly);
   const index = rows.length ? Math.min(active, rows.length - 1) : -1;
@@ -272,7 +312,7 @@ export function CommandPalette(props: Props) {
             </Fragment>;
           })}
           {!rows.length && <p className="ws-palette-empty" role="status">
-            {step ? step.step.empty : `No command matches “${query.trim()}”.`}
+            {step ? (searching && step.step.pending) || step.step.empty : `No command matches “${query.trim()}”.`}
           </p>}
         </div>
         <footer className="ws-palette-foot">↑↓ move · ↵ {step ? 'choose' : 'run'} · esc {step && step.rootQuery !== null ? 'back' : 'close'}</footer>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fold, homeList, searchTasks } from './task-search.js';
+import { conversationQuery, fold, homeList, searchTasks } from './task-search.js';
 import type { Task } from './types.js';
 
 const wednesday = new Date(2026, 9, 7);
@@ -72,5 +72,13 @@ describe('finding a task', () => {
     expect(homeList(task('t', { status: 'review', threadId: 'x', dueAt: '2026-10-12' }), wednesday)).toBe('upcoming');
     expect(homeList(task('t', { status: 'done' }), wednesday)).toBe('completed');
     expect(homeList(task('t', { status: 'dismissed' }), wednesday)).toBeNull();
+  });
+
+  it('builds a conversation query where every word is a quoted prefix, and nothing typed is an operator', () => {
+    expect(conversationQuery('Fjelltek renewal')).toBe('"Fjelltek"* "renewal"*');
+    expect(conversationQuery('"OR) NOT q3-renewal*')).toBe('"OR"* "NOT"* "q3"* "renewal"*');
+    expect(conversationQuery('Åsne')).toBe('"Åsne"*');
+    expect(conversationQuery('k')).toBeNull();
+    expect(conversationQuery('  ?! ')).toBeNull();
   });
 });

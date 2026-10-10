@@ -582,3 +582,73 @@ describe('priority', () => {
     } finally { store.close(); }
   });
 });
+
+describe('conversation search', () => {
+  const taskWithThread = (store: Store, title: string) => {
+    const task = store.createTask({ title });
+    const thread = store.createThread(store.groups()[0].id, title, 'task', task.id);
+    store.updateTask(task.id, { threadId: thread.id });
+    return { task, thread };
+  };
+
+  it('finds task conversations by every word, ignoring case and accents, best message per task', () => {
+    const store = new Store(path());
+    try {
+      const memo = taskWithThread(store, 'Draft investor memo');
+      const board = taskWithThread(store, 'Board pack');
+      store.addMessage(memo.thread.id, null, 'user', 'Ask Åsne about the Fjelltek renewal terms');
+      store.addMessage(memo.thread.id, store.list('agents')[0].id, 'agent', 'Fjelltek signed the renewal on Friday.');
+      store.addMessage(board.thread.id, null, 'user', 'Fjelltek is not in this one, only the board numbers');
+      // A chat outside any task is not searched.
+      const chat = store.createThread(store.groups()[0].id, 'Chat');
+      store.addMessage(chat.id, null, 'user', 'Fjelltek renewal in a chat');
+      const found = store.searchTaskMessages('fjelltek RENEWAL');
+      expect(found.map((match) => match.taskId)).toEqual([memo.task.id]);
+      expect(found[0]).toMatchObject({ hits: 2, draft: false });
+      expect(found[0].snippet).toMatch(/Fjelltek/);
+      expect(store.searchTaskMessages('asne kongs')[0]).toMatchObject({ taskId: memo.task.id, role: 'user' });
+      expect(store.searchTaskMessages('fjelltek').map((match) => match.taskId).sort()).toEqual([memo.task.id, board.task.id].sort());
+      expect(store.searchTaskMessages('k')).toEqual([]);
+      // Typed punctuation and words like NOT are searched as text, never read as search operators.
+      expect(() => store.searchTaskMessages('"OR) NOT fjelltek*')).not.toThrow();
+      expect(store.searchTaskMessages('not fjelltek').map((match) => match.taskId)).toEqual([board.task.id]);
+    } finally { store.close(); }
+  });
+
+  it('follows every change: streamed text, a draft card, a reply moved to the end, a deleted task and its undo', () => {
+    const store = new Store(path());
+    try {
+      const { task, thread } = taskWithThread(store, 'Reply to Tove');
+      const reply = store.addMessage(thread.id, null, 'agent', '', 'streaming');
+      store.updateMessage(reply.id, 'Hej Tove, siffrorna kommer i morgon', 'complete');
+      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+      const card = store.addMessage(thread.id, null, 'system', 'Slack draft: Group DM', 'complete',
+        { type: 'message-draft', channel: 'slack', label: 'Group DM', original: 'Läst ett varv nu', text: 'Läst ett varv nu', state: 'pending' });
+      expect(store.searchTaskMessages('last varv')[0]).toMatchObject({ messageId: card.id, draft: true });
+      store.setMessageMeta(card.id, { type: 'message-draft', channel: 'slack', label: 'Group DM', original: 'Läst ett varv nu', text: 'Bra material, good work', state: 'pending' });
+      expect(store.searchTaskMessages('varv')).toEqual([]);
+      expect(store.searchTaskMessages('material')[0]?.messageId).toBe(card.id);
+      store.moveMessageToEnd(reply.id);
+      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+      store.deleteTask(task.id, true);
+      expect(store.searchTaskMessages('siffrorna')).toEqual([]);
+      store.undoTaskAction();
+      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+    } finally { store.close(); }
+  });
+
+  it('indexes the conversations that were there before the index existed', () => {
+    const file = path();
+    const first = new Store(file);
+    const { task, thread } = taskWithThread(first, 'Older task');
+    first.addMessage(thread.id, null, 'user', 'Fjordline asked for the DPA');
+    first.close();
+    const raw = new Database(file);
+    raw.exec("DROP TRIGGER message_search_insert; DROP TRIGGER message_search_update; DROP TRIGGER message_search_delete; DROP TABLE message_search; DELETE FROM settings WHERE key='messageSearchVersion';");
+    raw.close();
+    const store = new Store(file);
+    try {
+      expect(store.searchTaskMessages('fjordline dpa')[0]?.taskId).toBe(task.id);
+    } finally { store.close(); }
+  });
+});

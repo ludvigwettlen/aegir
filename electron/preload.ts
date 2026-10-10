@@ -41,6 +41,7 @@ const api: DesktopApi = {
   updateTask: (taskId, change) => ipcRenderer.invoke('update-task', taskId, change),
   setTaskPriority: (taskId, priority) => ipcRenderer.invoke('set-task-priority', taskId, priority),
   prioritizeTasks: () => ipcRenderer.invoke('prioritize-tasks'),
+  searchConversations: query => ipcRenderer.invoke('search-conversations', query),
   deleteTask: taskId => ipcRenderer.invoke('delete-task', taskId),
   addTaskLink: (taskId, url) => ipcRenderer.invoke('add-task-link', taskId, url),
   attachFileToTask: (fileId, taskId) => ipcRenderer.invoke('attach-file-to-task', fileId, taskId),

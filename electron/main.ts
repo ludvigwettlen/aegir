@@ -502,6 +502,8 @@ function registerIpc() {
     refresh();
     if (value === null) triage?.schedule(15_000);
   });
+  // Find a task: the task conversations that mention what was typed. Read-only.
+  handle('search-conversations', (query: unknown) => (typeof query === 'string' && query.length <= 200 ? store.searchTaskMessages(query) : []));
   handle('prioritize-tasks', () => {
     if (!triage) throw new Error(engine === 'claude' ? 'Prioritizing is not available yet' : 'Prioritizing needs the Claude Code engine');
     void triage.run('full');

@@ -69,6 +69,27 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds any task from the sidebar s
     await page.getByRole('heading', { name: 'Upcoming', level: 1 }).waitFor();
     await page.waitForFunction(() => document.querySelector('.ws-task-row.selected .ws-task-title')?.textContent === 'Draft investor memo for September');
 
+    // Words that are only in a task's conversation find it too, a moment later, with who said what. While the app is
+    // still searching, the box says so instead of "No task matches".
+    await page.evaluate(() => { (window as any).fixture.hold = true; });
+    await page.keyboard.press('Meta+f');
+    await field.fill('fjelltek');
+    await page.getByText('Searching conversations…').waitFor();
+    await page.waitForFunction(() => (window as any).fixture.waiting);
+    await page.evaluate(() => (window as any).fixture.release());
+    await page.getByRole('option', { name: /Draft investor memo for September.*Upcoming.*Claude: “Fjelltek signed the renewal/ }).waitFor();
+    await page.screenshot({ path: '/tmp/legolas-find-conversation.png' });
+    await page.evaluate(() => { (window as any).fixture.hold = false; });
+    // A task found by its title is listed once, even when its conversation matches as well.
+    await field.fill('deck');
+    await page.waitForTimeout(400);
+    expect(await page.getByRole('option', { name: /Prep board deck/ }).count()).toBe(1);
+    await field.fill('churn slide');
+    await page.getByRole('option', { name: /Prep board deck.*You: “Put the churn slide last/ }).waitFor();
+    await page.keyboard.press('Enter');
+    await page.getByRole('heading', { name: 'Today', level: 1 }).waitFor();
+    await page.waitForFunction(() => document.querySelector('.ws-task-row.selected .ws-task-title')?.textContent === 'Prep board deck');
+
     // ⌘K lists Find a task with its shortcut; Esc from there goes back, Esc again closes.
     await page.keyboard.press('Meta+k');
     await page.keyboard.type('find');
@@ -81,7 +102,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds any task from the sidebar s
     await page.getByRole('combobox', { name: 'Search commands' }).waitFor();
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !document.querySelector('.ws-palette'));
-    expect(await selected()).toBe('Draft investor memo for September');
+    expect(await selected()).toBe('Prep board deck');
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 90000);

@@ -3,6 +3,7 @@ import { ThemeProvider } from '@usefragments/ui';
 import '../styles';
 import type { AppEvent, DesktopApi, Snapshot, Task } from '../../../shared/types';
 import { isoDate } from '../../../shared/tasks';
+import { fold } from '../../../shared/task-search';
 
 // Isolated fixture for Find a task: tasks on every list, a finished one and a dismissed one.
 const now = new Date().toISOString();
@@ -33,6 +34,15 @@ const data = {
   mcpSettings: { slackClientId: '', slackConfigured: false },
 } as unknown as Snapshot;
 
+// What was said in the memo task's conversation; nothing of it is in the task's title or context.
+const conversation = [
+  { id: 'm1', taskId: 'memo', role: 'agent', text: 'Fjelltek signed the renewal on Friday, so the memo can lead with it.' },
+  { id: 'm2', taskId: 'deck', role: 'user', text: 'Put the churn slide last.' },
+];
+let release: (() => void) | null = null;
+const fixture = { hold: false, waiting: false, release: () => release?.() };
+Object.assign(window, { fixture });
+
 const listeners = new Set<(event: AppEvent) => void>();
 window.aegir = {
   snapshot: async () => structuredClone(data),
@@ -42,6 +52,14 @@ window.aegir = {
   listDocuments: async () => [],
   runEvents: async () => [],
   claudeRoutines: async () => ({ source: null, tasks: [] }),
+  // Stands in for the app's conversation index: every word must be in one message, accents ignored.
+  searchConversations: async (query: string) => {
+    if (fixture.hold) { fixture.waiting = true; await new Promise<void>((done) => { release = done; }); fixture.waiting = false; }
+    const words = fold(query).split(/\s+/).filter(Boolean);
+    return conversation.filter((message) => words.every((word) => fold(message.text).includes(word)))
+      .map((message) => ({ taskId: message.taskId, messageId: message.id, role: message.role, agentId: message.role === 'agent' ? 'lead' : null, draft: false,
+        createdAt: now, snippet: message.text, hits: 1 }));
+  },
 } as unknown as DesktopApi;
 
 const { App } = await import('../App');
