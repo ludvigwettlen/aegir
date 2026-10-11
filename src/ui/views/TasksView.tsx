@@ -82,7 +82,8 @@ export function TasksView({
   const [detailWidth, setDetailWidth] = useState(() => {
     try { return Number(localStorage.getItem('legolas.detailWidth')) || 440; } catch { return 440; }
   });
-  const clampWidth = (width: number) => Math.round(Math.max(360, Math.min(width, window.innerWidth - 560)));
+  // 584: the sidebar, the list's minimum and the 24 px of window frame around and between the panes.
+  const clampWidth = (width: number) => Math.round(Math.max(360, Math.min(width, window.innerWidth - 584)));
   const saveWidth = (width: number) => {
     setDetailWidth(width);
     try { localStorage.setItem('legolas.detailWidth', String(width)); } catch { /* the width just isn't remembered */ }

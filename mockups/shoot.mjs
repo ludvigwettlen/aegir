@@ -1,6 +1,6 @@
 // Renders the glass-mockup sample screen in Chrome and screenshots four views per theme.
 // Usage (from the worktree): ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/Electron.app/Contents/MacOS/Electron mockups/shoot.mjs <out-dir> [theme ...]
-// A theme is a CSS file in mockups/themes/ (without .css); "current" means no extra CSS.
+// A theme is a CSS file in mockups/themes/ (without .css); "current" is the app as it is, with no extra CSS.
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

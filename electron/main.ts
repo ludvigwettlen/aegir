@@ -709,7 +709,7 @@ function createWindow() {
     minHeight: 620,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 20 },
-    backgroundColor: '#111116',
+    backgroundColor: '#e8e8ed', // --ds-color-window, so the window opens in the frame colour instead of flashing dark
     webPreferences: {
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,

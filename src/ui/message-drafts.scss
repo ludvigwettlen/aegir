@@ -1,6 +1,6 @@
 /* Draft cards: an email or Slack message the agent wrote for you to send from Slack or Superhuman.
    They keep the routine card's indent so they line up with message text, in group chats and the task panel. No motion. */
-.ws-draft { margin: 6px 0 6px 44px; max-width: 560px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--ds-color-line); border-radius: 11px; background: var(--ds-color-surface); color: var(--ds-color-ink); overflow-wrap: anywhere;
+.ws-draft { margin: 6px 0 6px 44px; max-width: 560px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 0; border-radius: var(--ds-radius-bubble); background: var(--ds-color-surface); box-shadow: var(--ds-hairline), 0 4px 18px #0000000f; color: var(--ds-color-ink); overflow-wrap: anywhere;
   p { margin: 0; }
 }
 .ws-draft-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ds-color-lime-ink);
@@ -8,7 +8,7 @@
 }
 .ws-draft-kind { flex: 1; min-width: 0; }
 .ws-draft-edited { flex: none; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ds-color-muted); }
-.ws-draft-state { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; background: #f1f4ed; color: #45523f;
+.ws-draft-state { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; background: var(--ds-color-disabled-surface); color: var(--ds-color-ink-2);
   &.sent { background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); }
 }
 .ws-draft-to { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--ds-color-muted); }
@@ -20,11 +20,12 @@
   dd { flex: 1; min-width: 0; margin: 0; color: var(--ds-color-ink); }
 }
 .ws-draft-none { color: var(--ds-color-muted); }
-// The editor: a plain field that grows with the text, set like the chat (Inter 13 px at 1.6).
-.ws-draft-text { display: block; width: 100%; box-sizing: border-box; min-height: calc(3.2em + 18px); padding: 8px 10px; resize: none; field-sizing: content; font: 13px/1.6 Inter, 'DM Sans', system-ui, sans-serif; letter-spacing: 0; overflow-wrap: anywhere;
+// The editor: a plain field that grows with the text, set like the chat (system font, 13.5 px at 1.55).
+// textarea. so it outranks the workspace's field style: a borderless fill until focused.
+textarea.ws-draft-text { display: block; border-color: transparent; border-radius: 11px; background: var(--ds-color-canvas); width: 100%; box-sizing: border-box; min-height: calc(3.2em + 18px); padding: 8px 10px; resize: none; field-sizing: content; font: 13.5px/1.55 var(--ds-font); letter-spacing: 0; overflow-wrap: anywhere;
   &[readonly] { background: var(--ds-color-canvas); }
 }
-.ws-draft-readonly { padding: 8px 10px; border: 1px solid var(--ds-color-line); border-radius: 9px; background: var(--ds-color-canvas); font: 13px/1.6 Inter, 'DM Sans', system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ws-draft-readonly { padding: 8px 10px; border: 0; border-radius: 11px; background: var(--ds-color-canvas); font: 13.5px/1.55 var(--ds-font); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .ws-draft-actions { position: relative; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 // A tertiary link after the actions, so Copy, I sent it and Discard stay on one line in the narrowest panel.
 .ws-draft-actions .ws-draft-open { padding: 0 6px; color: var(--ds-color-link); }
@@ -32,14 +33,14 @@
 // What Slack confirmed, in ink: the agent's description above it is only its claim.
 .ws-draft-confirmed { color: var(--ds-color-ink); font-weight: 500; }
 // Where a Slack reply lands: in the thread it answers, or (said plainly) straight in the channel.
-.ws-draft-thread { color: var(--ds-color-ink); font-weight: 500; &.none { color: #8a5a00; } }
+.ws-draft-thread { color: var(--ds-color-ink); font-weight: 500; &.none { color: var(--ds-color-warning); } }
 // Couldn't confirm the destination, or lost track of a send: lemon, with the words doing the work.
-.ws-draft-warning { padding: 6px 9px; border-radius: 8px; background: #fff7c7; color: #4a3f00; font-size: 12px; line-height: 1.5; }
+.ws-draft-warning { padding: 6px 9px; border-radius: 8px; background: var(--ds-color-attention); color: var(--ds-color-attention-ink); font-size: 12px; line-height: 1.5; }
 .ws-draft-recheck { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--ds-color-link); text-decoration: underline; cursor: pointer;
   &:disabled { color: var(--ds-color-muted); cursor: default; }
 }
-.ws-draft-error { padding: 6px 9px; border-radius: 8px; background: #fdecea; color: #7a1f17; font-size: 12px; line-height: 1.5; }
-.ws-draft-state.failed, .ws-draft-state.unknown { background: #fff7c7; color: #4a3f00; }
+.ws-draft-error { padding: 6px 9px; border-radius: 8px; background: color-mix(in srgb, var(--ds-color-danger) 10%, var(--ds-color-surface)); color: var(--ds-color-danger); font-size: 12px; line-height: 1.5; }
+.ws-draft-state.failed, .ws-draft-state.unknown { background: var(--ds-color-attention); color: var(--ds-color-attention-ink); }
 .ws-draft-announce { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 // Discarded and replaced drafts fold to one muted line; the text stays readable inside.
 .ws-draft.folded { padding: 0; border: 0; background: transparent; gap: 0; }
@@ -48,7 +49,7 @@
     &::-webkit-details-marker { display: none; }
     &::marker { content: ''; }
     svg { flex: none; }
-    &:hover { background: var(--ds-color-surface); color: #2f3a2b; }
+    &:hover { background: var(--ds-color-surface); color: var(--ds-color-ink); }
   }
   &[open] > summary > svg:first-child { transform: rotate(90deg); }
 }

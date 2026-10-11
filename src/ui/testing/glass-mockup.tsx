@@ -68,7 +68,9 @@ window.aegir = new Proxy({
   onEvent: (listener: (event: AppEvent) => void) => { listeners.add(listener); return () => listeners.delete(listener); },
   threadMessages: async (id: string) => ({ messages: structuredClone(messages.filter((item) => item.threadId === id)), before: null }),
   skillLibrary: async () => ({ skills: [], proposals: [], routineBindings: {} }),
-  listDocuments: async () => [],
+  listDocuments: async () => ['nordvik-rollout-plan.md'],
+  readDocument: async (_thread: string, path: string) => ({ path, revision: '0', content: '# Nordvik rollout plan\n\nPilot with the Stockholm team from 14 October. Review together on 28 October, then roll out to everyone in November if the pilot holds.\n\n## Owners\n\n- Petra Berg, Nordvik\n- Johan Lund, Northwind\n\n## Open questions\n\n1. Which teams join the pilot after Stockholm?\n2. Who signs off the November rollout?\n' }),
+  saveDocument: async (_thread: string, path: string, _expected: string, content: string) => ({ path, content, revision: '1' }),
   runEvents: async () => [],
   claudeRoutines: async () => ({ source: null, tasks: [] }),
 } as Record<string, unknown>, { get: (target, name: string) => target[name] ?? noop }) as unknown as DesktopApi;
