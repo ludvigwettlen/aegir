@@ -27,6 +27,23 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     const source = () => page.evaluate(() => (window as any).editor.getMarkdown());
     const original = await source();
     const undo = () => page.evaluate(() => (window as any).editor.commands.undo());
+    const move = async (axis: 'row' | 'column', from: number, to: number, cancel = false) => {
+      const control = table.getByRole('button', { name: `Move ${axis} ${from + 1}`, exact: true });
+      await control.scrollIntoViewIfNeeded();
+      const box = (await control.boundingBox())!;
+      const destination = (await (axis === 'row' ? table.locator('tr').nth(to) : table.locator('tr').first().locator('td, th').nth(to)).boundingBox())!;
+      const x = box.x + box.width / 2, y = box.y + box.height / 2;
+      await page.mouse.move(x, y); await page.mouse.down();
+      await page.mouse.move(axis === 'column' ? destination.x + (to > from ? destination.width - 2 : 2) : x,
+        axis === 'row' ? destination.y + (to > from ? destination.height - 2 : 2) : y, { steps: 6 });
+      if (from !== to) {
+        expect(await table.locator('.ws-table-drop-line').isVisible()).toBe(true);
+        expect(await table.locator('.ws-table-drag-hint').textContent()).toBe(`Move ${axis} ${from + 1} to position ${to + 1}`);
+      }
+      if (cancel) await page.keyboard.press('Escape');
+      await page.mouse.up();
+      expect(await table.locator('.ws-table-drop-line').isVisible()).toBe(false);
+    };
     const drag = async (axis: 'row' | 'column', distance: number, cancel = false) => {
       const control = table.getByRole('button', { name: `Add ${axis}`, exact: true });
       await control.scrollIntoViewIfNeeded();
@@ -39,6 +56,42 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
       await page.mouse.up();
     };
     expect(await rows()).toBe(3);
+    // Moving uses the handle's table even when the caret is in another table.
+    await page.locator('table').nth(1).locator('td').first().click();
+    await move('row', 1, 2);
+    expect(await table.locator('tr').nth(1).locator('td').first().innerText()).toBe('Writing');
+    expect(await table.locator('tr').nth(2).locator('strong').innerText()).toBe('Research');
+    expect(await table.locator('th').count()).toBe(3);
+    await move('column', 0, 2);
+    expect(await table.locator('tr').first().locator('td, th').allTextContents()).toEqual(['Owner', 'Status', 'Workstream']);
+    expect(await table.locator('tr').nth(2).locator('td, th').allTextContents()).toEqual(['Mimer', 'In progress', 'Research']);
+    expect(await table.locator('tr').first().locator('th').nth(1).getAttribute('style')).toContain('text-align: right');
+    expect(await page.locator('table').nth(1).innerText()).toContain('Untouched');
+    await undo(); expect(await table.locator('tr').first().locator('th').first().innerText()).toBe('Workstream');
+    await undo(); expect((await source()).trimEnd()).toBe(original.trimEnd());
+    await page.evaluate(() => (window as any).editor.commands.redo());
+    expect(await table.locator('tr').nth(1).locator('td').first().innerText()).toBe('Writing');
+    await undo();
+    await move('row', 2, 0);
+    expect(await table.locator('tr').first().locator('th').first().innerText()).toBe('Writing');
+    expect(await table.locator('th').count()).toBe(3); // Header semantics stay on the first row.
+    await undo();
+    await move('column', 2, 0);
+    expect(await table.locator('tr').first().locator('td, th').allTextContents()).toEqual(['Status', 'Workstream', 'Owner']);
+    await undo();
+    await move('row', 1, 2, true);
+    await move('column', 0, 2, true);
+    await move('row', 1, 1);
+    expect((await source()).trimEnd()).toBe(original.trimEnd());
+    await table.getByRole('button', { name: 'Move row 2', exact: true }).focus();
+    await page.keyboard.press('Alt+ArrowDown');
+    expect(await table.locator('tr').nth(2).locator('strong').innerText()).toBe('Research');
+    expect(await table.getByRole('button', { name: 'Move row 3', exact: true }).evaluate(element => element === document.activeElement)).toBe(true);
+    await undo();
+    await table.getByRole('button', { name: 'Move column 1', exact: true }).focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    expect(await table.locator('tr').first().locator('td, th').allTextContents()).toEqual(['Owner', 'Workstream', 'Status']);
+    await undo();
     await table.hover();
     await table.getByRole('button', { name: 'Add row', exact: true }).click();
     expect(await rows()).toBe(4);
@@ -71,10 +124,17 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     expect(await toggle.getAttribute('aria-pressed')).toBe('false');
     expect(await source()).toContain('<!-- aegir:table-header=off -->');
     expect(await source()).toContain('**Research**');
+    await move('row', 1, 2);
+    await move('column', 0, 2);
+    const reordered = await source();
+    await page.waitForFunction(expected => (window as any).saved().content === expected, reordered);
     await page.waitForFunction(() => (window as any).saved().content.includes('<!-- aegir:table-header=off -->'));
     await page.evaluate(() => (window as any).editor.commands.setContent((window as any).saved().content, { contentType: 'markdown', emitUpdate: false }));
     expect(await table.locator('th').count()).toBe(0); expect(await rows()).toBe(3);
-    expect(await table.locator('tr').first().innerText()).toContain('Workstream');
+    expect(await source()).toBe(reordered);
+    expect(await table.locator('tr').nth(2).locator('td, th').allTextContents()).toEqual(['Mimer', 'In progress', 'Research']);
+    await move('column', 2, 0);
+    await move('row', 2, 1);
     await table.getByRole('button', { name: 'Select first row' }).click();
     await toggle.click();
     expect(await table.locator('th').count()).toBe(3);
@@ -85,6 +145,19 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     await table.getByRole('button', { name: 'Add column', exact: true }).click();
     expect(await columns()).toBe(4);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // A captured column drag scrolls to destinations outside a narrow pane.
+    const lastColumn = table.getByRole('button', { name: 'Move column 4', exact: true });
+    await lastColumn.scrollIntoViewIfNeeded();
+    const grip = (await lastColumn.boundingBox())!;
+    const viewport = (await table.boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(viewport.x + 4, grip.y + grip.height / 2, { steps: 6 });
+    await page.waitForFunction(() => document.querySelector('.ws-editable-table')!.scrollLeft === 0);
+    await page.mouse.up();
+    expect(await table.locator('tr').first().locator('th').allTextContents()).toEqual(['', 'Workstream', 'Owner', 'Status']);
+    await undo();
+    await table.evaluate(element => { element.scrollLeft = 0; });
     await page.screenshot({ path: '/tmp/aegir-table-compact.png' });
     await page.setViewportSize({ width: 1000, height: 800 });
     await table.getByRole('button', { name: 'Select first row' }).click();
@@ -94,6 +167,7 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     await page.evaluate(() => { (window as any).changeDisk((window as any).initial + '\n\n<div>Unsupported HTML</div>'); window.dispatchEvent(new Event('focus')); });
     await page.waitForFunction(() => !(window as any).editor.isEditable);
     expect(await table.locator('.ws-table-add-row').isVisible()).toBe(false);
+    expect(await table.locator('.ws-table-handles').isVisible()).toBe(false);
     await page.evaluate(() => { (window as any).changeDisk((window as any).initial); window.dispatchEvent(new Event('focus')); });
     await page.waitForFunction(() => (window as any).editor.isEditable);
     expect(await rows()).toBe(3);

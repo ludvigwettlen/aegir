@@ -52,6 +52,13 @@ export function useWorkspaceKeyboard(
       const documentWorkspace = document.querySelector<HTMLElement>('.document-open');
       const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
       const keyTarget = event.target instanceof Element ? event.target : null;
+      if (keyTarget?.closest('.ws-document-companion') && event.key !== 'F6') {
+        if (event.key === 'Escape' && !event.isComposing) {
+          event.preventDefault();
+          keyTarget.closest('.ws-document-companion')?.querySelector<HTMLButtonElement>('[data-close-companion]')?.click();
+        }
+        return;
+      }
       if (documentPane && !event.isComposing) {
         const focusMode = documentPane.classList.contains('ws-document-focus');
         if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
@@ -61,11 +68,11 @@ export function useWorkspaceKeyboard(
         }
         if (event.key === 'F6') {
           event.preventDefault();
-          if (focusMode) { documentPane.querySelector<HTMLElement>('.tiptap')?.focus(); return; }
+          if (focusMode) { documentPane.querySelector<HTMLElement>('.ws-document-prose')?.focus(); return; }
           const inDocument = !!keyTarget?.closest('[data-keyboard-pane="document"]');
           const tab = documentWorkspace?.querySelector<HTMLButtonElement>(`.ws-document-tabs button:${inDocument ? 'first' : 'last'}-child`);
           tab?.click();
-          documentWorkspace?.querySelector<HTMLElement>(inDocument ? 'textarea[aria-label="Message"]' : '.tiptap')?.focus();
+          documentWorkspace?.querySelector<HTMLElement>(inDocument ? 'textarea[aria-label="Message"]' : '.ws-document-prose')?.focus();
           return;
         }
         if (focusMode) return;

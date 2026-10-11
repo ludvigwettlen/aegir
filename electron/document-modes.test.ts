@@ -19,8 +19,8 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place 
     page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
     for (const task of [false, true]) {
       await page.goto(`${server.resolvedUrls!.local[0]}modes-test${task ? '?task=1' : ''}`);
-      await page.waitForFunction(() => Boolean((document.querySelector('.tiptap') as any)?.editor));
-      await page.evaluate(() => { (window as any).editor = (document.querySelector('.tiptap') as any).editor; });
+      await page.waitForFunction(() => Boolean((document.querySelector('.ws-document-prose') as any)?.editor));
+      await page.evaluate(() => { (window as any).editor = (document.querySelector('.ws-document-prose') as any).editor; });
       const focus = page.getByRole('button', { name: 'Focus mode', exact: true });
       const typewriter = page.getByRole('button', { name: 'Typewriter mode', exact: true });
       const centered = async () => {
@@ -51,7 +51,7 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place 
       expect(await page.locator('.ws-document').boundingBox()).toEqual({ x: 0, y: 0, width: 1400, height: 900 });
       expect(await page.locator('.ws-thread').isVisible()).toBe(false);
       expect(await page.locator('.ws-sidebar').isVisible()).toBe(false);
-      expect(await page.evaluate(() => (document.querySelector('.tiptap') as any).editor === (window as any).editor)).toBe(true);
+      expect(await page.evaluate(() => (document.querySelector('.ws-document-prose') as any).editor === (window as any).editor)).toBe(true);
       await centered();
       await page.keyboard.press('F6');
       expect(await page.getByRole('textbox', { name: 'Document', exact: true }).evaluate(el => el === document.activeElement)).toBe(true);
