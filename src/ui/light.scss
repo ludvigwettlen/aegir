@@ -5,7 +5,7 @@
 
 :root {
   color-scheme: light;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--ds-font-body);
   color: #252b35;
   background: #f7f8fa;
   --color-canvas: #f7f8fa;

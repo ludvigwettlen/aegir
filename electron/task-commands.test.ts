@@ -3,7 +3,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and invokes scoped skills with recoverable drafts', async () => {
-  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
   server.middlewares.use('/task-commands', (_req, response) => {
     response.setHeader('Content-Type', 'text/html');
     response.end('<div id="root"></div><script type="module" src="/src/ui/testing/task-commands.tsx"></script>');
@@ -15,6 +15,21 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and i
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${server.resolvedUrls!.local[0]}task-commands`);
     await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    const userMessage = page.locator('[data-message-role="user"]');
+    const agentMessage = page.locator('[data-message-role="agent"]');
+    await agentMessage.waitFor();
+    await page.mouse.move(0, 0);
+    const userCopy = userMessage.getByRole('button', { name: 'Copy message', exact: true });
+    expect(await userCopy.evaluate(element => getComputedStyle(element).opacity)).toBe('0');
+    await userMessage.hover();
+    expect(await userCopy.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+    expect(await userMessage.locator('.ws-copy-message').evaluate(element => getComputedStyle(element).justifyContent)).toBe('flex-end');
+    expect(await agentMessage.locator('.ws-copy-message').evaluate(element => getComputedStyle(element).justifyContent)).not.toBe('flex-end');
+    await page.mouse.move(0, 0); await userCopy.focus();
+    expect(await userCopy.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+    const notes = page.getByRole('textbox', { name: 'Task notes' });
+    expect(await notes.evaluate(element => Math.abs(element.getBoundingClientRect().width - (element.closest('.ws-task-detail')!.getBoundingClientRect().width - 37)) < 2)).toBe(true);
+    await page.screenshot({ path: '/tmp/aegir-chat-controls.png' });
     const composer = page.getByRole('textbox', { name: 'Message', exact: true });
     await composer.fill('/');
     await page.getByRole('option', { name: '/research' }).waitFor();

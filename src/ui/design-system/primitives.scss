@@ -1,7 +1,7 @@
 /* Aegir treatments for the Fragments primitives already used in the app. */
 .ds-button {
   border-radius: var(--ds-radius-control);
-  font-family: Inter, 'DM Sans', sans-serif;
+  font-family: var(--ds-font-body);
   font-weight: 650;
   transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
 }
@@ -36,7 +36,7 @@
 .ds-badge {
   --fui-badge-dot-color: currentColor;
   border-radius: 999px;
-  font-family: Inter, 'DM Sans', sans-serif;
+  font-family: var(--ds-font-body);
   font-weight: 650;
 }
 .ds-badge[data-ds-tone='neutral'] { background: var(--ds-color-disabled-surface); color: var(--ds-color-muted); }

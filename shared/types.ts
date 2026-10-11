@@ -1,3 +1,4 @@
+import type { Typography } from './typography.js';
 import type { SkillsApi } from './skills.js';
 import type { BrowserState } from './browser.js';
 export type Agent = {
@@ -154,6 +155,7 @@ export type Snapshot = {
   memoryInstructions: string;
   codexStatus: string;
   launchAtLogin: boolean;
+  typography: Typography;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
@@ -171,6 +173,7 @@ export interface DesktopApi extends SkillsApi {
   showDocumentInFinder(threadId: string, path: string): Promise<void>;
   saveDocument(threadId: string, path: string, expected: string, content: string): Promise<import('./documents').WorkspaceDocument>;
   snapshot(): Promise<Snapshot>;
+  setTypography(value: Typography): Promise<void>;
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
   copyChatTranscript(threadId: string): Promise<void>;
   onEvent(callback: (event: AppEvent) => void): () => void;

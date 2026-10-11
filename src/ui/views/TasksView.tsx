@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, Plus, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { customListId, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
@@ -22,6 +22,7 @@ import {
 } from './common';
 import { ThreadView } from './ThreadView';
 import { Button } from '../design-system/primitives';
+import { MoveTaskDialog } from './MoveTaskDialog';
 import type { TaskListAction } from './TaskListDialog';
 
 const titles: Record<BuiltInTaskView, string> = {
@@ -83,6 +84,8 @@ export function TasksView({
   const [cursors, setCursors] = useState<Partial<Record<TaskView, string>>>({});
   const [editTarget, setEditTarget] = useState<'title' | 'notes' | 'chat' | null>(null);
   const [popover, setPopover] = useState<Popover>(null);
+  const [moveTaskId, setMoveTaskId] = useState<string | null>(null);
+  const moveTask = data.tasks.find(task => task.id === moveTaskId);
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
@@ -116,6 +119,7 @@ export function TasksView({
   };
   useEffect(() => {
     setPopover(null);
+    setMoveTaskId(null);
   }, [list]);
   useEffect(() => {
     if (!editTarget || !openId) return;
@@ -211,7 +215,7 @@ export function TasksView({
         if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
         else notify('This task has no conversation yet');
       }
-      else if (key === 'm') document.querySelector<HTMLSelectElement>('[aria-label="Move to list"]')?.focus();
+      else if (key === 'm') setMoveTaskId(current.id);
       else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
       else if (key === 'B') void update(current, { label: null });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
@@ -254,6 +258,8 @@ export function TasksView({
   const team = order.filter((task) => task.threadId).length;
   return (
     <div className="ws-tasks">
+      {moveTask && <MoveTaskDialog key={`move-${moveTask.id}`} task={moveTask} lists={data.taskLists}
+        onClose={() => setMoveTaskId(null)} onMoved={name => notify(`Moved to ${name} · ⌘Z to undo`)} />}
       <section className="ws-task-list" aria-label={title}>
         <header className="ws-page-head">
           <div>
@@ -332,7 +338,7 @@ export function TasksView({
           task={open}
           data={data}
           run={run}
-          notify={notify}
+          onMove={() => setMoveTaskId(open.id)}
           onOpenThread={onOpenThread}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
@@ -551,7 +557,7 @@ function TaskDetail({
   task,
   data,
   run,
-  notify,
+  onMove,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -559,15 +565,13 @@ function TaskDetail({
   task: Task;
   data: Snapshot;
   run: Run;
-  notify: (message: string) => void;
+  onMove: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
   const group = thread && data.groups.find((item) => item.id === thread.groupId);
-  const [moving, setMoving] = useState(false);
-  const movePending = useRef(false);
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const cancelledTitle = useRef(false);
@@ -634,26 +638,14 @@ function TaskDetail({
           </span>
         ))}
       </div>
-      <label className="ws-field ws-task-list-field">
+      <div className="ws-field ws-task-list-field">
         <span>List</span>
-        <select aria-label="Move to list" value={task.listId || ''} disabled={moving}
-          onChange={event => {
-            const listId = event.target.value || null;
-            if (movePending.current) return;
-            movePending.current = true; setMoving(true);
-            void run(async () => {
-              try {
-                await api.updateTask(task.id, { listId });
-                notify(`Moved to ${data.taskLists.find(list => list.id === listId)?.name || 'Inbox'} · ⌘Z to undo`);
-              } finally { movePending.current = false; setMoving(false); }
-            });
-          }}>
-          <option value="">Inbox</option>
-          {data.taskLists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}
-        </select>
+        <button type="button" className="ws-task-list-trigger" aria-label="Move to list" aria-haspopup="dialog" onClick={onMove}>
+          <span>{data.taskLists.find(list => list.id === task.listId)?.name || 'Inbox'}</span><ChevronDown size={15} aria-hidden="true" />
+        </button>
         {task.listId && task.dueAt && <small>Due dates also appear in Today or Upcoming.</small>}
-      </label>
-      <label className="ws-field">
+      </div>
+      <label className="ws-field ws-task-notes">
         <span>Notes</span>
         <textarea
           aria-label="Task notes"

@@ -17,7 +17,12 @@
   span { color: var(--ds-color-muted); font-size: 11px; }
 }
 .ws-document-scroll { flex: 1; overflow: auto; min-height: 0; padding: 36px clamp(24px, 4vw, 72px) 80px; }
-.ws-document-prose { max-width: 780px; margin: 0 auto; min-height: 100%; outline: none; font-size: 14px; line-height: 1.85; overflow-wrap: anywhere;
+.ws-document-prose {
+  --ds-font-heading: var(--ds-font-editor);
+  --ds-font-body: var(--ds-font-editor);
+  font-family: var(--ds-font-editor);
+  button { font-family: var(--ds-font-system); }
+  max-width: 780px; margin: 0 auto; min-height: 100%; outline: none; font-size: 14px; line-height: 1.85; overflow-wrap: anywhere;
   > :first-child { margin-top: 0; }
   h1 { font-size: 32px; line-height: 1.3; margin: 28px 0 16px; }
   h2 { font-size: 21px; margin: 28px 0 12px; }
@@ -43,7 +48,7 @@
   .ws-table-frame { position: relative; width: 100%; min-width: calc(var(--table-columns, 3) * 120px + 24px); box-sizing: border-box; padding: 34px 24px 26px 0; }
   table { width: 100%; table-layout: fixed; }
   td, th { min-width: 100px; p:last-child { margin-bottom: 0; } }
-  button { appearance: none; border: 1px solid transparent; background: var(--ds-color-surface); color: var(--ds-color-muted); font: inherit; font-size: 11px; line-height: 1; cursor: pointer; border-radius: 5px;
+  button { appearance: none; border: 1px solid transparent; background: var(--ds-color-surface); color: var(--ds-color-muted); font: inherit; font-family: var(--ds-font-system); font-size: 11px; line-height: 1; cursor: pointer; border-radius: 5px;
     &:hover { background: var(--ds-color-lime-soft); color: var(--ds-color-ink); }
     &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
     &[aria-pressed="true"] { color: var(--ds-color-lime-ink); background: var(--ds-color-lime-soft); border-color: var(--ds-color-line); }
@@ -95,6 +100,12 @@
 .ws-conversation-head { display: flex; align-items: flex-start; border-bottom: 1px solid var(--ds-color-line);
   > header { flex: 1; min-width: 0; border-bottom: 0; }
   > .ws-conversation-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; margin: 30px 16px 10px 0; }
+}
+.ws-conversation-head:has(> .ws-detail-head) {
+  flex-direction: column;
+  > .ws-conversation-actions { order: -1; align-self: flex-end; flex-direction: row; margin: 24px 18px 0; }
+  > .ws-detail-head { flex: none; width: 100%; box-sizing: border-box; }
+  .ws-detail-top { padding-top: 0; }
 }
 .ws-conversation-head:has(> .ws-thread-head) {
   align-items: center; flex-wrap: wrap; gap: 12px; padding: 30px 16px 10px 22px;

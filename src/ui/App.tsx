@@ -1,5 +1,6 @@
+import { defaultTypography, fontFamily } from '../../shared/typography';
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import type { Snapshot } from '../../shared/types';
 import { ApprovalDock } from './views/ApprovalDock';
 import { api, type Route, type Run } from './views/common';
@@ -36,6 +37,12 @@ export function App() {
       }
     });
   }, []);
+  const systemFont = data?.typography?.system ?? defaultTypography.system;
+  const editorFont = data?.typography?.editor ?? defaultTypography.editor;
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--ds-font-system', fontFamily(systemFont));
+    document.documentElement.style.setProperty('--ds-font-editor', fontFamily(editorFont));
+  }, [systemFont, editorFont]);
   const run: Run = useCallback(async (action) => {
     setError('');
     try {

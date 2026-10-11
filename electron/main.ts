@@ -1,3 +1,4 @@
+import { readTypography, validateTypography } from '../shared/typography.js';
 import {
   app,
   BrowserWindow,
@@ -70,6 +71,7 @@ function snapshot(): Snapshot {
     memoryInstructions: store.getSetting('memoryInstructions') || '',
     codexStatus: codex.status,
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    typography: readTypography(store.getSetting('typography')),
     browser: browser.state,
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
@@ -137,6 +139,10 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('set-typography', (value: unknown) => {
+    store.setSetting('typography', JSON.stringify(validateTypography(value)));
+    refresh();
+  });
   handle('browser-enabled', async (enabled: boolean) => {
     if (typeof enabled !== 'boolean') throw new Error('Invalid browser setting');
     store.setSetting('browserEnabled', String(enabled));

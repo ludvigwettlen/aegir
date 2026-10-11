@@ -1,5 +1,10 @@
 /* Lime Glass semantic tokens. Sections adopt these incrementally. */
 :root {
+  --ds-font-system: 'Inter Variable', Inter, system-ui, sans-serif;
+  --ds-font-editor: 'Inter Variable', Inter, system-ui, sans-serif;
+  --ds-font-body: var(--ds-font-system);
+  --ds-font-heading: var(--ds-font-system);
+  --fui-font-sans: var(--ds-font-body);
   --ds-color-canvas: #fcfdf9;
   --ds-color-surface: #ffffff;
   --ds-color-glass: #ffffffd9;

@@ -202,6 +202,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
   return (
     <article
       className="ws-message"
+      data-message-role={message.role}
       aria-label={`${message.role === 'user' ? 'You' : agent?.name || 'Agent'}, ${time(message.createdAt)}`}
     >
       {message.role === 'user' ? <YouAvatar size={32} /> : <Avatar agent={agent} size={32} />}

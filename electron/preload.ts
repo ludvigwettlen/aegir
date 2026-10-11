@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  setTypography: value => ipcRenderer.invoke('set-typography', value),
   setBrowserEnabled: enabled => ipcRenderer.invoke('browser-enabled', enabled),
   openBrowser: () => ipcRenderer.invoke('browser-open'),
   stopBrowser: () => ipcRenderer.invoke('browser-stop'),
