@@ -6,13 +6,15 @@ import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
-import { Copy, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
 import { DocumentTable } from '../document-tables';
 import { DocumentHeadingMarkers } from '../document-headings';
 import { DocumentCommands } from './DocumentCommands';
+import { Button } from '../design-system/primitives';
+import { useTypewriter } from '../hooks/useTypewriter';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
 type Draft = { content: string; revision: string };
@@ -49,6 +51,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   };
   const [diskChanged, setDiskChanged] = useState(false);
   const [showReload, setShowReload] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [typewriterMode, setTypewriterMode] = useState(false);
+  const scroll = useRef<HTMLDivElement>(null);
   // Preserve content we cannot faithfully represent instead of silently deleting it on save.
   const [unsupported, setUnsupported] = useState(() => hasUnsupportedMarkdown(content.current));
   const save = async (): Promise<boolean> => {
@@ -100,6 +105,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
       onSelection(text ? { path: initial.path, text } : null);
     },
   });
+  useTypewriter(editor, scroll, typewriterMode && !unsupported);
   useEffect(() => { editor?.setEditable(!unsupported, false); }, [editor, unsupported]);
   useEffect(() => {
     let active = true;
@@ -146,12 +152,17 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
       onSelection(null); setError(''); setDiskChanged(false); setShowReload(false); setStatus('Saved');
     } catch (cause) { setError(errorText(cause)); }
   };
-  return <section className="ws-document" data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
-    <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}<button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
+  return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
+    <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
+      <div className="ws-document-modes" role="group" aria-label="Writing modes">
+        <Button variant="ghost" size="sm" data-document-focus aria-label="Focus mode" aria-pressed={focusMode} title={focusMode ? 'Exit focus mode (Escape)' : 'Focus mode: fill the window'} onClick={() => { setFocusMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}>{focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</Button>
+        <Button variant="ghost" size="sm" aria-label="Typewriter mode" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} title="Typewriter mode: keep the current line centred" onClick={() => { setTypewriterMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
+      </div>
+      <button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
-    <div className="ws-document-scroll"><EditorContent editor={editor} /></div>
+    <div className="ws-document-viewport"><div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div></div>
     <DocumentCommands editor={editor} />
   </section>;
 });

@@ -45,6 +45,7 @@ export function useWorkspaceKeyboard(
     let pending = false;
     let timer = 0;
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (document.querySelector('[role="dialog"]')) return;
       // The Files popover consumes Escape before document/pane navigation.
       if (event.key === 'Escape' && document.querySelector('.ws-document-files')) return;
@@ -52,19 +53,22 @@ export function useWorkspaceKeyboard(
       const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
       const keyTarget = event.target instanceof Element ? event.target : null;
       if (documentPane && !event.isComposing) {
+        const focusMode = documentPane.classList.contains('ws-document-focus');
         if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
           event.preventDefault();
-          documentWorkspace?.querySelector<HTMLButtonElement>('[data-close-document]')?.click();
+          documentWorkspace?.querySelector<HTMLButtonElement>(focusMode ? '[data-document-focus]' : '[data-close-document]')?.click();
           return;
         }
         if (event.key === 'F6') {
           event.preventDefault();
+          if (focusMode) { documentPane.querySelector<HTMLElement>('.tiptap')?.focus(); return; }
           const inDocument = !!keyTarget?.closest('[data-keyboard-pane="document"]');
           const tab = documentWorkspace?.querySelector<HTMLButtonElement>(`.ws-document-tabs button:${inDocument ? 'first' : 'last'}-child`);
           tab?.click();
           documentWorkspace?.querySelector<HTMLElement>(inDocument ? 'textarea[aria-label="Message"]' : '.tiptap')?.focus();
           return;
         }
+        if (focusMode) return;
         if (keyTarget?.getAttribute('role') === 'separator') return;
         if (!isTyping(event) && !event.metaKey && !event.ctrlKey && !event.altKey) {
           if (keyTarget?.closest('.ws-sidebar') && ['l', 'ArrowRight'].includes(event.key)) {
