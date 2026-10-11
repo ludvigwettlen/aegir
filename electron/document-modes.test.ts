@@ -17,6 +17,9 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place 
     page.setDefaultTimeout(5000);
     const errors: string[] = [];
     page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
+    // A cold first load makes Vite optimise dependencies and reload the page, so start from a settled second load.
+    await page.goto(`${server.resolvedUrls!.local[0]}modes-test`);
+    await page.waitForFunction(() => Boolean((document.querySelector('.tiptap') as any)?.editor), undefined, { timeout: 30_000 }).catch(() => {});
     for (const task of [false, true]) {
       await page.goto(`${server.resolvedUrls!.local[0]}modes-test${task ? '?task=1' : ''}`);
       await page.waitForFunction(() => Boolean((document.querySelector('.ws-document-prose') as any)?.editor));
@@ -36,6 +39,8 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place 
         await centered();
       };
       await typewriter.click();
+      // Turning the mode on adds room above and below the text over a frame or two; wait for it, as a person would.
+      await page.waitForTimeout(50);
       await select(1); // The first line can reach the center.
       await select(190); // A visual line inside a wrapped paragraph.
       await page.keyboard.type('New words');

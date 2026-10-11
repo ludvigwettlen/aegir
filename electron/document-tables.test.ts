@@ -18,6 +18,9 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     page.setDefaultTimeout(5000);
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
+    // A cold first load makes Vite optimise dependencies and reload the page, so start from a settled second load.
+    await page.goto(`${server.resolvedUrls!.local[0]}table-test`);
+    await page.waitForFunction(() => Boolean((document.querySelector('.ws-document-prose') as any)?.editor), undefined, { timeout: 30_000 }).catch(() => {});
     await page.goto(`${server.resolvedUrls!.local[0]}table-test`);
     await page.waitForFunction(() => Boolean((document.querySelector('.ws-document-prose') as any)?.editor));
     await page.evaluate(() => { (window as any).editor = (document.querySelector('.ws-document-prose') as any).editor; });
