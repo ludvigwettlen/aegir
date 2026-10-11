@@ -10,6 +10,71 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
 
 describe('store', () => {
+  it('persists custom lists and membership, validates names and supports moving with undo', () => {
+    const file = path();
+    const store = new Store(file);
+    const list = store.createTaskList('  Work  ');
+    expect(list.name).toBe('Work');
+    expect(() => store.createTaskList('work')).toThrow('already exists');
+    expect(() => store.createTaskList(' ')).toThrow('needs a name');
+    expect(() => store.createTaskList('x'.repeat(81))).toThrow('80');
+    const task = store.createTask({ title: 'Existing task' });
+    expect(task.listId).toBeNull();
+    store.updateTask(task.id, { listId: list.id }, true);
+    expect(store.get('tasks', task.id)?.listId).toBe(list.id);
+    store.undoTaskAction();
+    expect(store.get('tasks', task.id)?.listId).toBeNull();
+    expect(() => store.updateTask(task.id, { listId: 'missing' })).toThrow('not found');
+    expect(() => store.createTask({ title: 'Invalid', listId: 'missing' })).toThrow('not found');
+    const filed = store.createTask({ title: 'Filed', listId: list.id });
+    store.renameTaskList(list.id, 'Projects');
+    store.close();
+    const reopened = new Store(file);
+    try {
+      expect(reopened.taskLists()).toEqual([{ ...list, name: 'Projects' }]);
+      expect(reopened.get('tasks', filed.id)?.listId).toBe(list.id);
+      expect(reopened.get('tasks', task.id)?.listId).toBeNull();
+    } finally { reopened.close(); }
+  });
+
+  it('returns tasks to Inbox on list deletion and never restores dangling membership on undo', () => {
+    const store = new Store(path());
+    try {
+      const list = store.createTaskList('Work');
+      const task = store.createTask({ title: 'Keep my context', notes: 'Notes', listId: list.id });
+      const thread = store.createThread(store.groups()[0].id, task.title, 'task', task.id);
+      store.updateTask(task.id, { threadId: thread.id, status: 'done' });
+      const link = store.addTaskLink(task.id, 'https://example.com/context');
+      const deleted = store.createTask({ title: 'Previously deleted', listId: list.id });
+      store.deleteTask(deleted.id, true);
+      store.deleteTaskList(list.id);
+      expect(store.get('tasks', task.id)).toMatchObject({ notes: 'Notes', status: 'done', threadId: thread.id, listId: null });
+      expect(store.get('threads', thread.id)).toBeDefined();
+      expect(store.taskLinks(task.id)).toEqual([link]);
+      store.undoTaskAction();
+      expect(store.get('tasks', deleted.id)?.listId).toBeNull();
+      const second = store.createTaskList('Second');
+      store.updateTask(deleted.id, { listId: second.id }, true);
+      store.deleteTaskList(second.id);
+      store.undoTaskAction();
+      expect(store.get('tasks', deleted.id)?.listId).toBeNull();
+      expect(store.taskLists()).toEqual([]);
+    } finally { store.close(); }
+  });
+
+  it('migrates existing tasks into Inbox without losing their data', () => {
+    const file = path();
+    const old = new Database(file);
+    old.exec("CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,status TEXT NOT NULL,agentId TEXT,sourceUrl TEXT,sourceKey TEXT UNIQUE,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL)");
+    old.prepare('INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?,?)').run('old', 'Existing', 'Keep', 'ready', null, null, null, '2026-01-01', '2026-01-01');
+    old.close();
+    const store = new Store(file);
+    try {
+      expect(store.get('tasks', 'old')).toMatchObject({ title: 'Existing', notes: 'Keep', listId: null });
+      expect(store.taskLists()).toEqual([]);
+    } finally { store.close(); }
+  });
+
   it('persists suggested chat titles without overwriting newer titles, closed chats, or tasks', () => {
     const file = path();
     const store = new Store(file);

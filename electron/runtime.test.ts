@@ -8,6 +8,8 @@ import type { CodexProvider, RunInput } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { BrowserManager } from './browser.js';
+import { taskSourceKey } from './agent-tools.js';
+import type { Task } from '../shared/types.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 
@@ -192,6 +194,124 @@ describe('runtime', () => {
     store.updateTask(task.id, { notes: 'Updated background' });
     await runtime.sendMessage(store.get('tasks', task.id)!.threadId!, 'Continue');
     expect(runs.at(-1)?.prompt).toContain('Updated background');
+  });
+
+  it.each(['chat', 'task'] as const)('edits and dismisses proposals with undo and preserved provenance in a %s run', async kind => {
+    let proposal!: Task;
+    let saved: unknown;
+    let dismissed: unknown;
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      if (!input.tools.length) return 'Done';
+      saved = await rt.handleInternalTool('tasks', 'update_proposal', {
+        id: proposal.id, change: { title: '  Corrected follow-up  ', notes: 'Verified ownership', label: '#Work', dueAt: '2026-10-09' },
+      }, id);
+      dismissed = await rt.handleInternalTool('tasks', 'dismiss_proposal', { id: proposal.id }, id);
+      return 'Done';
+    });
+    proposal = store.createTask({ title: 'Original follow-up', status: 'proposed', sourceUrl: 'https://slack.test/1', sourceKey: taskSourceKey('routine', 'https://slack.test/1', 'Original follow-up') });
+    if (kind === 'chat') await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Clean up proposals').id, 'Correct and dismiss this proposal');
+    else await runtime.handOff(store.createTask({ title: 'Clean up proposals' }).id, 'Correct and dismiss this proposal');
+    expect(runs.at(-1)?.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'tasks__update_proposal', readOnly: false }),
+      expect.objectContaining({ name: 'tasks__dismiss_proposal', readOnly: false }),
+    ]));
+    expect(saved).toMatchObject({ updated: true, task: { id: proposal.id, title: 'Corrected follow-up', notes: 'Verified ownership', label: 'work', dueAt: '2026-10-09', status: 'proposed' } });
+    expect(dismissed).toMatchObject({ updated: true, task: { id: proposal.id, status: 'dismissed', sourceUrl: proposal.sourceUrl, sourceKey: proposal.sourceKey } });
+    expect(store.hasTaskSource(proposal.sourceKey!)).toBe(true);
+    expect(store.get('tasks', proposal.id)?.status).toBe('dismissed');
+    store.undoTaskAction();
+    expect(store.get('tasks', proposal.id)?.status).toBe('proposed');
+    store.undoTaskAction();
+    expect(store.get('tasks', proposal.id)).toMatchObject({ ...proposal, updatedAt: expect.any(String) });
+    await expect(runtime.handleInternalTool('tasks', 'dismiss_proposal', { id: proposal.id }, 'codex-1')).rejects.toThrow('active chat');
+  });
+
+  it('cleans up all matching proposals across pages while leaving accepted and unrelated tasks untouched', async () => {
+    const receipts: unknown[] = [];
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      const ids: string[] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const page = await rt.handleInternalTool('tasks', 'list', { query: 'Ericsson', status: 'proposed', offset }, id) as { tasks: Task[]; nextOffset: number | null };
+        ids.push(...page.tasks.map(task => task.id));
+        offset = page.nextOffset;
+      }
+      for (const taskId of ids) receipts.push(await rt.handleInternalTool('tasks', 'dismiss_proposal', { id: taskId }, id));
+      return 'Cleaned up';
+    });
+    for (let i = 0; i < 55; i++) store.createTask({ title: `Ericsson ${i}`, status: 'proposed' });
+    const accepted = store.createTask({ title: 'Ericsson accepted', status: 'ready' });
+    const unrelated = store.createTask({ title: 'Other project', status: 'proposed' });
+    await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Cleanup').id, 'Dismiss the Ericsson proposals');
+    expect(receipts).toHaveLength(55);
+    expect(store.list('tasks').filter(task => task.status === 'dismissed')).toHaveLength(55);
+    expect(store.get('tasks', accepted.id)).toEqual(accepted);
+    expect(store.get('tasks', unrelated.id)).toEqual(unrelated);
+  });
+
+  it.each(['ready', 'running', 'review', 'blocked', 'done', 'dismissed'] as const)('protects %s tasks from proposal tools', async status => {
+    const failures: string[] = [];
+    let task!: Task;
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      // Simulates the user changing the proposal after the agent read it.
+      await rt.handleInternalTool('tasks', 'read', { id: task.id }, id);
+      store.updateTask(task.id, { status });
+      for (const tool of ['update_proposal', 'dismiss_proposal']) {
+        try { await rt.handleInternalTool('tasks', tool, { id: task.id, change: { title: 'Wrong' } }, id); }
+        catch (error) { failures.push(String(error)); }
+      }
+      return 'Done';
+    });
+    task = store.createTask({ title: 'Protected', notes: 'Keep me', status: 'proposed' });
+    await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Cleanup').id, 'Clean up proposals');
+    expect(failures).toHaveLength(2);
+    expect(failures.every(error => error.includes('Only pending task proposals'))).toBe(true);
+    expect(store.get('tasks', task.id)).toMatchObject({ title: task.title, notes: task.notes, status });
+    expect(store.undoTaskAction()).toBeNull();
+  });
+
+  it.each(['routine', 'stopped'] as const)('rejects proposal mutations from a %s run', async kind => {
+    const failures: string[] = [];
+    let task!: Task;
+    const { store, runtime, runs } = setup(async (_input, id, rt) => {
+      if (kind === 'stopped') await rt.stopThread(rt.appThreadFor(id)!);
+      for (const tool of ['update_proposal', 'dismiss_proposal']) {
+        try { await rt.handleInternalTool('tasks', tool, { id: task.id, change: { notes: 'Wrong' } }, id); }
+        catch (error) { failures.push(String(error)); }
+      }
+      return 'Done';
+    });
+    task = store.createTask({ title: 'Protected', status: 'proposed' });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Cleanup').id, 'Clean up proposals');
+    expect(failures).toHaveLength(2);
+    expect(failures.every(error => error.includes('active chat'))).toBe(true);
+    expect(store.get('tasks', task.id)).toEqual(task);
+    if (kind === 'routine') expect(runs[0].tools.some(tool => /tasks__(update|dismiss)_proposal/.test(tool.name))).toBe(false);
+  });
+
+  it('rejects invalid proposal changes without partial writes and allows clearing optional fields', async () => {
+    const failures: string[] = [];
+    let task!: Task;
+    let cleared: unknown;
+    const invalid = [null, [], {}, { status: 'ready' }, { sourceUrl: 'https://wrong.test' }, { title: ' ' }, { title: 'x'.repeat(241) }, { notes: null }, { label: 12 }, { dueAt: '2026-02-30' }, { dueAt: 'tomorrow' }];
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      for (const change of invalid) {
+        try { await rt.handleInternalTool('tasks', 'update_proposal', { id: task.id, change }, id); }
+        catch (error) { failures.push(String(error)); }
+      }
+      try { await rt.handleInternalTool('tasks', 'dismiss_proposal', { id: 'missing' }, id); }
+      catch (error) { failures.push(String(error)); }
+      cleared = await rt.handleInternalTool('tasks', 'update_proposal', { id: task.id, change: { notes: '', label: null, dueAt: null } }, id);
+      return 'Done';
+    });
+    task = store.createTask({ title: 'Preserved', notes: 'Notes', label: 'work', dueAt: '2026-10-09', status: 'proposed' });
+    await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Cleanup').id, 'Edit a proposal');
+    expect(failures).toHaveLength(invalid.length + 1);
+    expect(cleared).toMatchObject({ task: { title: task.title, notes: '', label: null, dueAt: null, status: 'proposed' } });
+    store.undoTaskAction();
+    expect(store.get('tasks', task.id)).toMatchObject({ ...task, updatedAt: expect.any(String) });
+    expect(store.undoTaskAction()).toBeNull();
   });
 
   it.each(['chat', 'task', 'routine'] as const)('enforces browser access and releases the session in a %s run', async kind => {

@@ -20,7 +20,7 @@ describe('quick add', () => {
 });
 
 describe('task lists', () => {
-  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
+  const base: Task = { id: '', title: '', notes: '', label: null, dueAt: null, listId: null, status: 'ready', agentId: null, threadId: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: '', updatedAt: '', completedAt: null };
   const tasks: Task[] = [
     { ...base, id: 'undated' }, { ...base, id: 'later', dueAt: '2026-10-02' }, { ...base, id: 'overdue', dueAt: '2026-09-20' },
     { ...base, id: 'suggested', status: 'proposed' }, { ...base, id: 'blocked', status: 'blocked', threadId: 't' }, { ...base, id: 'done', status: 'done', completedAt: '2026-09-25' }, { ...base, id: 'recently-done', status: 'done', completedAt: '2026-09-26' }
@@ -31,6 +31,27 @@ describe('task lists', () => {
     expect(tasksFor('team', tasks, saturday).map(x => x.id)).toEqual(['blocked']);
     expect(tasksFor('needs', tasks, saturday).map(x => x.id)).toEqual(['suggested', 'blocked']);
     expect(tasksFor('completed', tasks, saturday).map(x => x.id)).toEqual(['recently-done', 'done']);
+  });
+  it('files undated tasks out of Today while retaining date and attention views', () => {
+    const filed: Task[] = [
+      { ...base, id: 'unfiled' },
+      { ...base, id: 'filed', listId: 'work' },
+      { ...base, id: 'due', listId: 'work', dueAt: '2026-09-26' },
+      { ...base, id: 'later', listId: 'work', dueAt: '2026-10-02' },
+      { ...base, id: 'review', listId: 'work', status: 'review', threadId: 't' },
+      { ...base, id: 'done', listId: 'work', status: 'done' },
+      { ...base, id: 'dismissed', listId: 'work', status: 'dismissed' },
+      { ...base, id: 'other', listId: 'personal' },
+    ];
+    const ids = (view: Parameters<typeof tasksFor>[0]) => tasksFor(view, filed, saturday).map(task => task.id);
+    expect(ids('inbox')).toEqual(['unfiled']);
+    expect(ids('today')).toEqual(['unfiled', 'due']);
+    expect(ids('upcoming')).toEqual(['later']);
+    expect(ids('list:work')).toEqual(['filed', 'due', 'later', 'review']);
+    expect(ids('list:missing')).toEqual([]);
+    expect(ids('needs')).toEqual(['review']);
+    expect(ids('team')).toEqual(['review']);
+    expect(ids('completed')).toEqual(['done']);
   });
   it.each(['ready', 'dismissed'] as const)('advances past a proposal changed to %s instead of jumping to review', status => {
     const before: Task[] = [

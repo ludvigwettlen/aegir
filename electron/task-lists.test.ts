@@ -1,0 +1,68 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates, files, renames and deletes task lists with keyboard and recoverable failures', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
+  server.middlewares.use('/task-lists', (_req, response) => {
+    response.setHeader('Content-Type', 'text/html');
+    response.end('<div id="root"></div><script type="module" src="/src/ui/testing/task-lists.tsx"></script>');
+  });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    page.setDefaultTimeout(5000);
+    const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
+    await page.goto(`${server.resolvedUrls!.local[0]}task-lists`);
+    await page.getByRole('button', { name: 'New list', exact: true }).click();
+    await page.getByRole('textbox', { name: 'List name' }).fill('Work');
+    await page.evaluate(() => { (window as any).fixture.fail = true; });
+    await page.getByRole('button', { name: 'Create list' }).click();
+    await page.getByRole('alert').filter({ hasText: 'Could not save list' }).waitFor();
+    expect(await page.getByRole('textbox', { name: 'List name' }).inputValue()).toBe('Work');
+    await page.evaluate(() => { (window as any).fixture.fail = false; (window as any).fixture.delay = 300; });
+    await page.getByRole('button', { name: 'Create list' }).click();
+    await page.getByRole('button', { name: 'Saving…' }).waitFor();
+    await page.getByRole('heading', { name: 'Work', exact: true }).waitFor();
+    await page.getByText('No tasks in this list yet.', { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Today', exact: true }).click();
+    await page.locator('[data-task-row]').focus(); await page.keyboard.press('m');
+    expect(await page.getByRole('combobox', { name: 'Move to list' }).evaluate(element => element === document.activeElement)).toBe(true);
+    await page.getByRole('combobox', { name: 'Move to list' }).selectOption({ label: 'Work' });
+    await page.getByText('Nothing due today.', { exact: false }).waitFor();
+    await page.locator('.ws-rows').focus(); await page.keyboard.press('Meta+z');
+    await page.locator('[data-task-row]').waitFor();
+    await page.getByRole('combobox', { name: 'Move to list' }).selectOption({ label: 'Work' });
+    await page.getByText('Nothing due today.', { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Work', exact: true }).click();
+    expect(await page.getByRole('textbox', { name: 'Task notes' }).inputValue()).toBe('Keep this context');
+    await page.evaluate(() => { (window as any).fixture.fail = true; });
+    await page.getByRole('combobox', { name: 'Move to list' }).selectOption({ label: 'Inbox' });
+    await page.getByRole('alert').filter({ hasText: 'Could not save list' }).waitFor();
+    expect(await page.getByRole('combobox', { name: 'Move to list' }).locator('option:checked').innerText()).toBe('Work');
+    await page.evaluate(() => { (window as any).fixture.fail = false; });
+    await page.keyboard.press('Meta+n');
+    await page.getByRole('textbox', { name: 'New task' }).fill('Second task'); await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('[data-task-row]').length === 2);
+    await page.screenshot({ path: '/tmp/aegir-custom-lists-wide.png' });
+    await page.getByRole('button', { name: 'Rename list', exact: true }).click();
+    const longName = 'Projects and follow-ups across the team with a deliberately long list name';
+    await page.getByRole('textbox', { name: 'List name' }).fill(longName);
+    await page.getByRole('dialog').getByRole('button', { name: 'Rename list' }).click();
+    await page.getByRole('heading', { name: longName }).waitFor();
+    await page.setViewportSize({ width: 950, height: 800 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.screenshot({ path: '/tmp/aegir-custom-lists-compact.png' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Delete list', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect.poll(async () => page.getByRole('button', { name: 'Delete list', exact: true }).evaluate(element => element === document.activeElement)).toBe(true);
+    await page.getByRole('button', { name: 'Delete list', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete list' }).click();
+    await page.getByRole('heading', { name: 'Inbox', exact: true }).waitFor();
+    expect(await page.locator('[data-task-row]').count()).toBe(2);
+    expect(await page.getByRole('button', { name: longName, exact: true }).count()).toBe(0);
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 60000);

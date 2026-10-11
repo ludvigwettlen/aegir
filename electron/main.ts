@@ -60,6 +60,7 @@ function snapshot(): Snapshot {
     groups: store.groups(),
     threads: store.threadSummaries(),
     tasks: store.list('tasks'),
+    taskLists: store.taskLists(),
     taskLinks: store.taskLinks(),
     routines: store.routines(),
     routineRuns: store.routineRuns(),
@@ -206,9 +207,22 @@ function registerIpc() {
     store.setThreadStatus(threadId, 'closed');
     refresh();
   });
+  handle('create-task-list', (name: string) => {
+    const list = store.createTaskList(name);
+    refresh();
+    return list;
+  });
+  handle('rename-task-list', (id: string, name: string) => {
+    store.renameTaskList(id, name);
+    refresh();
+  });
+  handle('delete-task-list', (id: string) => {
+    store.deleteTaskList(id);
+    refresh();
+  });
   handle(
     'create-task',
-    (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null }) => {
+    (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null; listId?: string | null }) => {
       const task = store.createTask(input, true);
       refresh();
       return task;
@@ -216,7 +230,7 @@ function registerIpc() {
   );
   handle('update-task', (id: string, change: TaskChange) => {
     const allowed: TaskChange = {};
-    for (const key of ['title', 'notes', 'status', 'label', 'dueAt'] as const)
+    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
     store.updateTask(id, allowed, true);
     refresh();

@@ -15,6 +15,7 @@ import type {
   RunEvent,
   Task,
   TaskLink,
+  TaskList,
   TaskChange,
   Thread,
   ThreadSummary,
@@ -67,6 +68,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY,title TEXT NOT NULL,kind TEXT NOT NULL,agentIds TEXT NOT NULL,leadAgentId TEXT NOT NULL,instructions TEXT NOT NULL,createdAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,groupId TEXT NOT NULL,title TEXT NOT NULL,kind TEXT NOT NULL,taskId TEXT,status TEXT NOT NULL,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,roomId TEXT NOT NULL,agentId TEXT,role TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,createdAt TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_lists(id TEXT PRIMARY KEY,name TEXT NOT NULL,createdAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,status TEXT NOT NULL,agentId TEXT,sourceUrl TEXT,sourceKey TEXT UNIQUE,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS routines(id TEXT PRIMARY KEY,name TEXT NOT NULL,instructions TEXT NOT NULL,agentId TEXT NOT NULL,schedule TEXT NOT NULL,enabled INTEGER NOT NULL,lastRunAt TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS routine_runs(id TEXT PRIMARY KEY,routineId TEXT NOT NULL,trigger TEXT NOT NULL,status TEXT NOT NULL,summary TEXT NOT NULL,startedAt TEXT NOT NULL,endedAt TEXT);
@@ -175,6 +177,7 @@ export class Store {
     };
     add('messages', 'threadId', 'TEXT');
     add('messages', 'meta', 'TEXT');
+    add('tasks', 'listId', 'TEXT');
     add('tasks', 'label', 'TEXT');
     add('tasks', 'dueAt', 'TEXT');
     add('tasks', 'threadId', 'TEXT');
@@ -498,23 +501,66 @@ export class Store {
     if (message) this.onMessage?.(message);
   }
 
+  taskLists(): TaskList[] {
+    return this.db.prepare('SELECT * FROM task_lists ORDER BY createdAt,rowid').all() as TaskList[];
+  }
+  private taskListName(name: string, exceptId?: string) {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('A list needs a name');
+    const trimmed = name.trim();
+    if (trimmed.length > 80) throw new Error('List names can have up to 80 characters');
+    if (this.taskLists().some(list => list.id !== exceptId && list.name.toLowerCase() === trimmed.toLowerCase()))
+      throw new Error('A list with this name already exists');
+    return trimmed;
+  }
+  private validateTaskList(id: string | null) {
+    if (id !== null && (typeof id !== 'string' || !this.db.prepare('SELECT id FROM task_lists WHERE id=?').get(id)))
+      throw new Error('Task list not found');
+  }
+  createTaskList(name: string): TaskList {
+    const list = { id: randomUUID(), name: this.taskListName(name), createdAt: now() };
+    this.db.prepare('INSERT INTO task_lists(id,name,createdAt) VALUES (@id,@name,@createdAt)').run(list);
+    return list;
+  }
+  renameTaskList(id: string, name: string) {
+    this.validateTaskList(id);
+    this.db.prepare('UPDATE task_lists SET name=? WHERE id=?').run(this.taskListName(name, id), id);
+  }
+  deleteTaskList(id: string) {
+    this.validateTaskList(id);
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE tasks SET listId=NULL,updatedAt=? WHERE listId=?').run(now(), id);
+      this.db.prepare('DELETE FROM task_lists WHERE id=?').run(id);
+    })();
+    // Pending undo records must never restore a reference to a deleted list.
+    for (const action of this.taskUndo) {
+      if (action.kind === 'deleted' && action.task.listId === id) action.task.listId = null;
+      if (action.kind === 'updated') {
+        if (action.before.listId === id) action.before.listId = null;
+        if (action.after.listId === id) action.after.listId = null;
+      }
+    }
+  }
+
   createTask(input: {
     title: string;
     notes?: string;
     label?: string | null;
     dueAt?: string | null;
+    listId?: string | null;
     status?: Task['status'];
     sourceUrl?: string | null;
     sourceKey?: string | null;
   }, undoable = false): Task {
     const title = input.title.trim();
     if (!title) throw new Error('A task needs a title');
+    this.validateTaskList(input.listId ?? null);
     const row: Task = {
       id: randomUUID(),
       title,
       notes: input.notes?.trim() || '',
       label: input.label || null,
       dueAt: input.dueAt || null,
+      listId: input.listId ?? null,
       status: input.status || 'ready',
       agentId: null,
       threadId: null,
@@ -527,7 +573,7 @@ export class Store {
     };
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)',
+        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)',
       )
       .run(row);
     if (undoable) this.rememberTaskAction({ kind: 'created', taskId: row.id });
@@ -540,6 +586,7 @@ export class Store {
   ) {
     const row = this.get('tasks', id);
     if (!row) throw new Error('Task not found');
+    if ('listId' in change) this.validateTaskList(change.listId as string | null);
     const next = { ...row, ...change, updatedAt: now() };
     if (change.status === 'done' && row.status !== 'done') next.completedAt = next.updatedAt;
     if (change.status && change.status !== 'done') next.completedAt = null;
@@ -548,7 +595,7 @@ export class Store {
     this.db.transaction(() => {
       this.db
         .prepare(
-          'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt WHERE id=@id',
+          'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt WHERE id=@id',
         )
         .run(next);
       if (change.title !== undefined && next.threadId)
@@ -638,7 +685,7 @@ export class Store {
       label = 'task edit';
     } else if (action.kind === 'deleted') {
       this.db.transaction(() => {
-        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)').run(action.task);
+        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)').run(action.task);
         if (action.thread) {
           this.db.prepare('INSERT INTO threads(id,groupId,title,kind,taskId,status,createdAt,updatedAt) VALUES (@id,@groupId,@title,@kind,@taskId,@status,@createdAt,@updatedAt)').run(action.thread);
           for (const message of action.messages)

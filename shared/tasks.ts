@@ -27,7 +27,9 @@ export function parseQuickAdd(text: string, today = new Date()): { title: string
   return { title: kept.join(' '), label, dueAt };
 }
 
-export type TaskView = 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
+export type BuiltInTaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
+export type TaskView = BuiltInTaskView | `list:${string}`;
+export const customListId = (view: TaskView): string | null => view.startsWith('list:') ? view.slice(5) : null;
 
 // Keep selection near a removed task in the previous visible order.
 export function taskCursor(order: string[], previousOrder: string[], selected?: string): string | undefined {
@@ -47,8 +49,11 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
   const open = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
+  const listId = customListId(view);
+  if (listId) return open.filter(task => task.listId === listId);
+  if (view === 'inbox') return open.filter(task => !task.listId);
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
-  if (view === 'today') return open.filter(task => task.status !== 'proposed' && (!task.dueAt || task.dueAt <= now));
+  if (view === 'today') return open.filter(task => task.status !== 'proposed' && (task.dueAt ? task.dueAt <= now : !task.listId));
   return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
 }

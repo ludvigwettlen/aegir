@@ -25,6 +25,7 @@ import { mentionsAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
 import {
   cleanRoutineChange,
+  cleanTaskProposalChange,
   connectorToolsFor,
   jsonObject,
   logText,
@@ -37,6 +38,9 @@ import {
   suggestTaskTool,
   taskSourceKey,
   taskReadTools,
+  taskProposalTools,
+  taskProposalInstructions,
+  taskStatuses,
   type RunKind,
 } from './agent-tools.js';
 
@@ -285,6 +289,7 @@ export class Runtime {
         memoryRecallTool(agent),
         ...skillTools,
         ...taskReadTools,
+        ...taskProposalTools,
         ...(kind === 'chat' ? [proposeRoutineTool] : []),
         ...(suggestTitle ? [threadTitleTool] : []),
       ];
@@ -384,11 +389,13 @@ export class Runtime {
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
 Slack and Notion tools are read-only; use them to research. Do not write to external systems through commands or connectors. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
 ${collaboration}
+${taskProposalInstructions}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
     return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Aegir.${purpose}
 Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 ${collaboration}
+${taskProposalInstructions}
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}`;
   }
@@ -479,8 +486,24 @@ ${memoryGuidance}`;
       const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
       const offset = args.offset === undefined ? 0 : args.offset;
       if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid offset');
-      const tasks = this.store.list('tasks').filter(task => !query || `${task.title}\n${task.notes}`.toLowerCase().includes(query));
+      if (args.status !== undefined && !taskStatuses.includes(args.status as Task['status'])) throw new Error('Invalid task status');
+      const tasks = this.store.list('tasks').filter(task => (args.status === undefined || task.status === args.status)
+        && (!query || `${task.title}\n${task.notes}`.toLowerCase().includes(query)));
       return { tasks: tasks.slice(offset, offset + 50).map(({ id, title, status, label }) => ({ id, title, status, label })), nextOffset: offset + 50 < tasks.length ? offset + 50 : null };
+    }
+    if (provider === 'tasks' && (tool === 'update_proposal' || tool === 'dismiss_proposal')) {
+      if (!context?.threadId || (context.kind !== 'chat' && context.kind !== 'task')
+        || !this.runningThreads.has(context.threadId) || this.runningThreads.get(context.threadId)?.cancelled)
+        throw new Error('Proposal changes require an active chat or handed-off task run');
+      if (typeof args.id !== 'string' || !args.id.trim()) throw new Error('A proposal id is required');
+      const task = this.store.get('tasks', args.id);
+      if (!task) throw new Error('Task proposal not found');
+      // Recheck current state at execution time: the user may have accepted it since it was read.
+      if (task.status !== 'proposed') throw new Error('Only pending task proposals can be changed');
+      const change = tool === 'dismiss_proposal' ? { status: 'dismissed' as const } : cleanTaskProposalChange(args.change);
+      this.store.updateTask(task.id, change, true);
+      this.refresh();
+      return { updated: true, task: this.store.get('tasks', task.id) };
     }
     if (provider === 'tasks' && tool === 'suggest') {
       const title = String(args.title || '').trim();

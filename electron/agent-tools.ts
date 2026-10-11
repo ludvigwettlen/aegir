@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Agent, Routine, RoutineChange } from '../shared/types.js';
+import type { Agent, Routine, RoutineChange, Task, TaskChange } from '../shared/types.js';
 import type { Tool } from './codex.js';
 import { validSchedule } from '../shared/routines.js';
 
@@ -19,11 +19,13 @@ export function memoryRecallTool(agent: Agent): Tool {
   return { name: `memory__recall_${agent.id.replace(/-/g, '_')}`, description: 'Search and retrieve durable memories from the shared bank and your own private bank in Mnemosyne. Use a focused query when you need prior decisions, preferences, or project context; you can search again with different terms.', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['query'], additionalProperties: false }, readOnly: true };
 }
 
+export const taskStatuses: Task['status'][] = ['proposed', 'ready', 'running', 'review', 'blocked', 'done', 'dismissed'];
+
 export const taskReadTools: Tool[] = [
   {
     name: 'tasks__list',
-    description: 'Find the user’s todos in Aegir by title or notes. Returns ids and summaries; use tasks__read for the complete saved notes. Omit query to browse all todos, and use nextOffset for more results.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, additionalProperties: false },
+    description: 'Find the user’s todos in Aegir by title or notes. Returns ids and summaries; use tasks__read for the complete saved notes. Use status="proposed" for pending proposals. Omit query to browse all todos, and use nextOffset for more results. Collect matching ids across all pages before editing or dismissing results.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, status: { type: 'string', enum: taskStatuses }, offset: { type: 'integer', minimum: 0 } }, additionalProperties: false },
     readOnly: true,
   },
   {
@@ -33,6 +35,60 @@ export const taskReadTools: Tool[] = [
     readOnly: true,
   },
 ];
+
+export const taskProposalTools: Tool[] = [
+  {
+    name: 'tasks__update_proposal',
+    description: 'Edit a pending task proposal in Aegir as requested by the user. Only tasks with status proposed can be changed. Omitted fields are preserved; null clears label or dueAt. Returns the saved task. Cannot accept proposals or edit accepted tasks.',
+    inputSchema: { type: 'object', properties: {
+      id: { type: 'string', minLength: 1 },
+      change: { type: 'object', properties: {
+        title: { type: 'string', minLength: 1, maxLength: 240 },
+        notes: { type: 'string' },
+        label: { type: ['string', 'null'] },
+        dueAt: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null to clear' },
+      }, minProperties: 1, additionalProperties: false },
+    }, required: ['id', 'change'], additionalProperties: false },
+    readOnly: false,
+  },
+  {
+    name: 'tasks__dismiss_proposal',
+    description: 'Dismiss a pending task proposal in Aegir as requested by the user, removing it from Needs you. Preserves its source and deduplication record. Only tasks with status proposed can be dismissed. Returns the saved task.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string', minLength: 1 } }, required: ['id'], additionalProperties: false },
+    readOnly: false,
+  },
+];
+
+export const taskProposalInstructions = `Task proposals in Aegir:
+Use tasks__list with status="proposed" and tasks__read to inspect pending proposals. When the user asks to correct or clean up proposals, use tasks__update_proposal or tasks__dismiss_proposal directly within that request. These local tools do not require browser control or external-write approval. Collect all matching ids before mutating a paginated list. Only pending proposals can be changed; accepted tasks are protected. Preserve source attribution and report the actual saved results. Changes can be undone in the task list.`;
+
+export function cleanTaskProposalChange(value: unknown): TaskChange {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('A proposal change is required');
+  const input = value as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (!keys.length) throw new Error('The proposal change is empty');
+  if (keys.some(key => !['title', 'notes', 'label', 'dueAt'].includes(key))) throw new Error('Unsupported proposal field');
+  const change: TaskChange = {};
+  if ('title' in input) {
+    if (typeof input.title !== 'string' || !input.title.trim() || input.title.trim().length > 240) throw new Error('A proposal title must be 1–240 characters');
+    change.title = input.title.trim();
+  }
+  if ('notes' in input) {
+    if (typeof input.notes !== 'string') throw new Error('Proposal notes must be text');
+    change.notes = input.notes;
+  }
+  if ('label' in input) {
+    if (input.label !== null && typeof input.label !== 'string') throw new Error('Proposal label must be text or null');
+    change.label = input.label?.trim().replace(/^#/, '').toLowerCase() || null;
+  }
+  if ('dueAt' in input) {
+    if (input.dueAt !== null && (typeof input.dueAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.dueAt)
+      || !Number.isFinite(Date.parse(input.dueAt)) || new Date(input.dueAt).toISOString().slice(0, 10) !== input.dueAt))
+      throw new Error('Proposal dueAt must be a valid YYYY-MM-DD date or null');
+    change.dueAt = input.dueAt as string | null;
+  }
+  return change;
+}
 
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',

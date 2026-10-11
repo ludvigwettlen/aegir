@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, Inbox, Plus, Repeat2, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Sun, Users } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -47,11 +47,13 @@ export function Sidebar({
   route,
   go,
   onNewGroup,
+  onNewList,
 }: {
   data: Snapshot;
   route: Route;
   go: (route: Route) => void;
   onNewGroup: () => void;
+  onNewList: () => void;
 }) {
   const needs = tasksFor('needs', data.tasks).length;
   const isList = (list: string) => route.view === 'tasks' && route.list === list;
@@ -60,6 +62,8 @@ export function Sidebar({
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
       <div className="ws-nav-label">TASKS</div>
+      <Item active={isList('inbox')} onClick={() => go({ view: 'tasks', list: 'inbox' })}
+        icon={<Inbox size={16} />} label="Inbox" count={tasksFor('inbox', data.tasks).length} />
       <Item
         active={isList('needs')}
         onClick={() => go({ view: 'tasks', list: 'needs' })}
@@ -96,6 +100,13 @@ export function Sidebar({
         label="Completed"
         count={tasksFor('completed', data.tasks).length}
       />
+      <div className="ws-nav-label">
+        <span>MY LISTS</span>
+        <button aria-label="New list" title="New list" onClick={onNewList}><Plus size={13} /></button>
+      </div>
+      {data.taskLists.map(list => <Item key={list.id} active={isList(`list:${list.id}`)}
+        onClick={() => go({ view: 'tasks', list: `list:${list.id}` })}
+        icon={<List size={16} />} label={list.name} count={tasksFor(`list:${list.id}`, data.tasks).length} />)}
       <div className="ws-nav-label">
         <span>GROUPS</span>
         <button aria-label="New group" onClick={onNewGroup}>

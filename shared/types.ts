@@ -57,12 +57,14 @@ export type Message = {
   meta: MessageMeta | null;
   createdAt: string;
 };
+export type TaskList = { id: string; name: string; createdAt: string };
 export type Task = {
   id: string;
   title: string;
   notes: string;
   label: string | null;
   dueAt: string | null;
+  listId: string | null;
   status: 'proposed' | 'ready' | 'running' | 'review' | 'blocked' | 'done' | 'dismissed';
   agentId: string | null;
   threadId: string | null;
@@ -142,6 +144,7 @@ export type Snapshot = {
   groups: Group[];
   threads: ThreadSummary[];
   tasks: Task[];
+  taskLists: TaskList[];
   taskLinks: TaskLink[];
   routines: Routine[];
   routineRuns: RoutineRun[];
@@ -160,7 +163,7 @@ export type AppEvent =
   | { type: 'snapshot'; value: Snapshot }
   | { type: 'message'; value: Message }
   | { type: 'run-event'; value: RunEvent };
-export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
+export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId'>>;
 
 export interface DesktopApi extends SkillsApi {
   listDocuments(threadId: string): Promise<string[]>;
@@ -178,11 +181,15 @@ export interface DesktopApi extends SkillsApi {
   sendMessage(threadId: string, content: string): Promise<void>;
   stopThread(threadId: string): Promise<void>;
   closeThread(threadId: string): Promise<void>;
+  createTaskList(name: string): Promise<TaskList>;
+  renameTaskList(id: string, name: string): Promise<void>;
+  deleteTaskList(id: string): Promise<void>;
   createTask(input: {
     title: string;
     notes?: string;
     label?: string | null;
     dueAt?: string | null;
+    listId?: string | null;
   }): Promise<Task>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
   deleteTask(taskId: string): Promise<void>;

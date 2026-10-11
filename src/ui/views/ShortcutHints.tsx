@@ -30,7 +30,7 @@ function contextFor(route: Route): Context {
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['N', 'Edit notes'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
+    ['N', 'Edit notes'], ['M', 'Move task to a list'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
@@ -70,7 +70,7 @@ export function ShortcutHints({ route }: { route: Route }) {
   if (!context) return null;
   const global: Hint[] = context.dialog ? [] : [['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
-    ['G then T / U / W / N / C', 'Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
+    ['G then I / T / U / W / N / C', 'Inbox / Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
   ] : [])];
   return <div className="ws-hints-overlay">
     <section className="ws-hints-panel" role="region" aria-label="Keyboard hints" aria-live="polite">

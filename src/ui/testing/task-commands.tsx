@@ -11,7 +11,7 @@ const data = {
   groups: [{ id: 'team', title: 'Team', kind: 'group', leadAgentId: 'lead', agentIds: ['lead', 'writer'] }],
   threads: [{ id: 'task-thread', groupId: 'team', title: 'Research brief', kind: 'task', taskId: 'task', status: 'closed', agentIds: ['lead'], busyAgentIds: [], snippet: 'Existing conversation', messageCount: 1, createdAt: now, updatedAt: now }],
   tasks: [{ id: 'task', title: 'Research brief', notes: '', status: 'review', threadId: 'task-thread', dueAt: null, label: null, createdAt: now }],
-  taskLinks: [], routines: [], approvals: [], connectors: [], routineRuns: [],
+  taskLists: [], taskLinks: [], routines: [], approvals: [], connectors: [], routineRuns: [],
 } as unknown as Snapshot;
 const params = new URLSearchParams(location.search);
 const fixture = { sent: [] as string[], fail: false, failSkills: params.has('failSkills'), skillDelay: params.has('loading') ? 2000 : 0 };

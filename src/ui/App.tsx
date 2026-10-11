@@ -12,6 +12,7 @@ import { SkillsView } from './views/SkillsView';
 import { SettingsView } from './views/SettingsView';
 import { ShortcutHints } from './views/ShortcutHints';
 import { Sidebar } from './views/Sidebar';
+import { TaskListDialog, type TaskListAction } from './views/TaskListDialog';
 import { TasksView } from './views/TasksView';
 import { SplashScreen } from './views/SplashScreen';
 
@@ -22,6 +23,7 @@ export function App() {
   const [route, setRoute] = useState<Route>({ view: 'tasks', list: 'today' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [listAction, setListAction] = useState<TaskListAction | null>(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   useEffect(() => {
     void api.snapshot().then(setData);
@@ -29,6 +31,7 @@ export function App() {
       if (event.type === 'snapshot') setData(event.value);
       if (event.type === 'open-settings') {
         setShowNewGroup(false);
+        setListAction(null);
         setRoute({ view: 'settings' });
       }
     });
@@ -64,10 +67,10 @@ export function App() {
   return (
     <div className="ws-shell">
       <ShortcutHints route={route} />
-      <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} />
+      <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
       <div className="ws-main">
         {route.view === 'tasks' && (
-          <TasksView data={data} run={run} list={route.list} notify={setNotice}
+          <TasksView data={data} run={run} list={route.list} notify={setNotice} onManageList={setListAction}
             onOpenThread={(groupId, threadId) => setRoute({ view: 'group', groupId, threadId })} />
         )}
         {route.view === 'group' && group && (
@@ -112,6 +115,8 @@ export function App() {
         </div>
       )}
       {notice && <div className="ws-notice" role="status">{notice}</div>}
+      {listAction && <TaskListDialog action={listAction} onClose={() => setListAction(null)}
+        onSaved={id => setRoute({ view: 'tasks', list: id ? `list:${id}` : 'inbox' })} />}
       {showNewGroup && (
         <NewGroupModal
           agents={data.agents}

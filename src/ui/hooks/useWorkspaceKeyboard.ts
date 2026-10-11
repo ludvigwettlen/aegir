@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { api, isTyping, type Route, type Run } from '../views/common';
 
-const listShortcuts = { t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
+const listShortcuts = { i: 'inbox', t: 'today', u: 'upcoming', w: 'team', n: 'needs', c: 'completed' } as const;
 
 export function useWorkspaceKeyboard(
   run: Run,
@@ -62,7 +62,8 @@ export function useWorkspaceKeyboard(
             else setNotice('Close the document with Escape to start a new thread');
             return;
           }
-          setRoute({ view: 'tasks', list: 'today' });
+          const taskView = document.querySelector<HTMLElement>('[data-quick-add]')?.dataset.taskView;
+          if (taskView !== 'inbox' && !taskView?.startsWith('list:')) setRoute({ view: 'tasks', list: 'today' });
           window.requestAnimationFrame(() =>
             window.requestAnimationFrame(() =>
               document.querySelector<HTMLInputElement>('[data-quick-add]')?.focus(),
