@@ -7,9 +7,11 @@ export function useWorkspaceKeyboard(
   run: Run,
   setRoute: (route: Route) => void,
   setNotice: (message: string) => void,
+  enabled = true,
 ) {
   // One focus graph for the sidebar, list and detail panes. Text editors keep native keys.
   useEffect(() => {
+    if (!enabled) return;
     let pending = false;
     let timer = 0;
     const onKey = (event: KeyboardEvent) => {
@@ -177,5 +179,5 @@ export function useWorkspaceKeyboard(
     };
     window.addEventListener('keydown', onKey, { capture: true });
     return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [run]);
+  }, [run, enabled, setRoute, setNotice]);
 }

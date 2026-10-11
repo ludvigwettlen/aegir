@@ -46,6 +46,12 @@ Use for a small set of mutually exclusive views or filters. The current workspac
 
 ## Workspace layout
 
+### Launch splash
+
+`SplashScreen` fills the window at renderer startup while the initial snapshot loads. Three vector arches echo the app icon in lemon/lime/lemon, snaking along straight paths with crisp 90-degree turns from the left, right and bottom edges, holding as a logo and unwinding along right-angle exit paths over 2.6 seconds; the settled logo retains its curved arches. The canvas, ambient lemon-soft/lime-soft glow, and ink wordmark use semantic tokens. The mark scales with the window; native macOS window controls remain available.
+
+Any key or a click dismisses immediately; no visible skip hint is shown. The full surface is an accessible skip button, focused on launch without a perimeter focus ring because any key dismisses it; the dismissal key is consumed and workspace shortcuts stay disabled during the intro. Reduced-motion users see a static mark for 180 ms. The splash plays once per renderer mount, never on navigation or ordinary window reopening. It is time bounded independently of data loading; slow startup returns to the existing loading state after dismissal. It is not an onboarding or progress screen.
+
 The app is a left sidebar plus one working area; there is no top navigation. Views live in `src/ui/views/` and share `src/ui/workspace.scss`. Two-column views (task list + detail, thread list + thread, run list + log) put the list on the left and keep the list's width fixed so the working column absorbs resizing.
 
 ### Sidebar

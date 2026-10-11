@@ -331,7 +331,7 @@ function createWindow() {
     minHeight: 620,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 20 },
-    backgroundColor: '#111116',
+    backgroundColor: '#fcfdf9',
     show: !app.getLoginItemSettings().wasOpenedAsHidden,
     webPreferences: {
       preload: join(here, 'preload.cjs'),

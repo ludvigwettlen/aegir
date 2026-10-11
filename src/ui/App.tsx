@@ -13,8 +13,11 @@ import { SettingsView } from './views/SettingsView';
 import { ShortcutHints } from './views/ShortcutHints';
 import { Sidebar } from './views/Sidebar';
 import { TasksView } from './views/TasksView';
+import { SplashScreen } from './views/SplashScreen';
 
 export function App() {
+  const [showSplash, setShowSplash] = useState(true);
+  const dismissSplash = useCallback(() => setShowSplash(false), []);
   const [data, setData] = useState<Snapshot | null>(null);
   const [route, setRoute] = useState<Route>({ view: 'tasks', list: 'today' });
   const [error, setError] = useState('');
@@ -40,12 +43,13 @@ export function App() {
       );
     }
   }, []);
-  useWorkspaceKeyboard(run, setRoute, setNotice);
+  useWorkspaceKeyboard(run, setRoute, setNotice, !showSplash);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+  if (showSplash) return <SplashScreen onComplete={dismissSplash} />;
   if (!data) return <div className="loading">Loading Aegir…</div>;
   const group =
     route.view === 'group' ? data.groups.find((item) => item.id === route.groupId) : undefined;
