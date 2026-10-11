@@ -86,7 +86,7 @@
   .ws-nav-label { font-size: 0; min-height: 12px; padding: 0; margin: 12px 0 4px; > * { display: none; } }
   .ws-nav-label:first-child { display: none; }
   .ws-nav-item { justify-content: center; padding: 9px; }
-  .ws-thread-list, .ws-task-list { display: none; }
+  .ws-thread-list, .ws-task-list, .ws-task-divider { display: none; }
   .ws-task-detail { flex: 1; width: auto; border: 0; }
 }
 @media (max-width: 1000px) {

@@ -103,6 +103,12 @@
 
 /* Tasks */
 .ws-tasks { display: flex; min-width: 0; }
+.ws-tasks.resizing { cursor: col-resize; user-select: none; }
+.ws-task-divider { position: relative; z-index: 2; flex: none; width: 8px; margin-inline: -4px; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag;
+  &::after { content: ''; position: absolute; inset: 0 3px; background: transparent; }
+  &:hover::after, &:focus-visible::after, .resizing > &::after { background: var(--ds-color-lime-strong); }
+  &:focus-visible { outline: none; }
+}
 .ws-task-list { flex: 1; min-width: 0; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.45); }
 .ws-page-head { padding: 40px 22px 10px; -webkit-app-region: drag;
   h1 { font-size: 24px; font-weight: 800; }
@@ -138,7 +144,7 @@
 .ws-popover-title { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: #6b7866; }
 .ws-popover-foot { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #596753; span, strong { display: inline-flex; align-items: center; gap: 5px; } strong { color: var(--ds-color-ink); } }
 .ws-field-error { font-size: 11.5px; color: var(--ds-color-danger); }
-.ws-task-detail { width: 440px; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--ds-color-line); background: rgba(255, 255, 255, 0.8); }
+.ws-task-detail { width: var(--ws-task-detail-width, 440px); min-width: 0; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--ds-color-line); background: rgba(255, 255, 255, 0.8); }
 .ws-detail-plain { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px; overflow-y: auto; > .ws-row-actions { margin: 0 18px; } }
 .ws-detail-head { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px 12px; border-bottom: 1px solid #e8eee2;
   h2 { font-size: 19px; font-weight: 800; line-height: 1.25; }
@@ -290,7 +296,6 @@
 @keyframes ws-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .ws-glyph-spin, .ws-live, .ws-typing i { animation: none; } }
 @media (max-width: 1180px) {
-  .ws-task-detail { width: 380px; }
   .ws-thread-list, .ws-run-list { width: 290px; }
 }
 

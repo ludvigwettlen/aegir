@@ -21,6 +21,7 @@ export function useWorkspaceKeyboard(
       const documentWorkspace = document.querySelector<HTMLElement>('.document-open');
       const documentPane = documentWorkspace?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
       const keyTarget = event.target instanceof Element ? event.target : null;
+      if (keyTarget?.closest('.ws-task-divider')) return;
       if (documentPane && !event.isComposing) {
         if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
           event.preventDefault();

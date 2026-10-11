@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
@@ -24,6 +25,7 @@ import { ThreadView } from './ThreadView';
 import { Button } from '../design-system/primitives';
 import { MoveTaskDialog } from './MoveTaskDialog';
 import type { TaskListAction } from './TaskListDialog';
+import { useTaskDetailWidth } from '../hooks/useTaskDetailWidth';
 
 const titles: Record<BuiltInTaskView, string> = {
   inbox: 'Inbox',
@@ -89,6 +91,9 @@ export function TasksView({
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
+  const detailWidth = useTaskDetailWidth();
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
   const adding = useRef(false);
   const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
   const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
@@ -156,6 +161,7 @@ export function TasksView({
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"]')) return;
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[role="separator"]')) return;
       if (event.key === 'Escape' && openId) {
         event.preventDefault(); returnToList(); return;
       }
@@ -257,7 +263,8 @@ export function TasksView({
   const count = order.length;
   const team = order.filter((task) => task.threadId).length;
   return (
-    <div className="ws-tasks">
+    <div ref={detailWidth.container} className={`ws-tasks${resizing ? ' resizing' : ''}`}
+      style={{ '--ws-task-detail-width': `${detailWidth.width}px` } as CSSProperties}>
       {moveTask && <MoveTaskDialog key={`move-${moveTask.id}`} task={moveTask} lists={data.taskLists}
         onClose={() => setMoveTaskId(null)} onMoved={name => notify(`Moved to ${name} · ⌘Z to undo`)} />}
       <section className="ws-task-list" aria-label={title}>
@@ -332,6 +339,38 @@ export function TasksView({
           {!order.length && <Empty list={list} />}
         </div>
       </section>
+      {open && <div className="ws-task-divider" role="separator" tabIndex={0}
+        aria-label="Resize task details" aria-orientation="vertical" aria-controls="task-detail"
+        aria-valuemin={detailWidth.min} aria-valuemax={detailWidth.max} aria-valuenow={detailWidth.width}
+        aria-valuetext={`${detailWidth.width} pixels wide`}
+        title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.focus();
+          resizeStart.current = { x: event.clientX, width: detailWidth.width };
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setResizing(true);
+        }}
+        onPointerMove={event => {
+          if (!event.currentTarget.hasPointerCapture(event.pointerId) || !resizeStart.current) return;
+          detailWidth.resize(resizeStart.current.width + resizeStart.current.x - event.clientX);
+        }}
+        onPointerUp={event => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onLostPointerCapture={() => { resizeStart.current = null; setResizing(false); }}
+        onDoubleClick={detailWidth.reset}
+        onKeyDown={event => {
+          const step = event.shiftKey ? 50 : 10;
+          if (event.key === 'ArrowLeft') detailWidth.resize(detailWidth.width + step);
+          else if (event.key === 'ArrowRight') detailWidth.resize(detailWidth.width - step);
+          else if (event.key === 'Home') detailWidth.resize(detailWidth.max);
+          else if (event.key === 'End') detailWidth.resize(detailWidth.min);
+          else if (event.key === 'Enter') detailWidth.reset();
+          else return;
+          event.preventDefault();
+        }} />}
       {open && (
         <TaskDetail
           key={open.id}
@@ -660,7 +699,7 @@ function TaskDetail({
     </header>
   );
   return (
-    <aside className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1}>
+    <aside id="task-detail" className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1}>
       {thread && group ? (
         <ThreadView
           key={thread.id}
