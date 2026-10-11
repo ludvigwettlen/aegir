@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -6,7 +6,7 @@ import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
-import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
@@ -18,6 +18,7 @@ import { DocumentCommands } from './DocumentCommands';
 import { Button } from '../design-system/primitives';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { DocumentTypography } from '../document-typography';
+import { DocumentCompanion } from './DocumentCompanion';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
 type Draft = { content: string; revision: string };
@@ -56,7 +57,19 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const [showReload, setShowReload] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [typewriterMode, setTypewriterMode] = useState(false);
+  const [showCompanion, setShowCompanion] = useState(true);
+  const companionId = useId();
+  const companionToggle = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const viewport = scroll.current?.parentElement;
+    if (!viewport) return;
+    const fit = () => { if (viewport.clientWidth < 760) setShowCompanion(false); };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
   // Preserve content we cannot faithfully represent instead of silently deleting it on save.
   const [unsupported, setUnsupported] = useState(() => hasUnsupportedMarkdown(content.current));
   const save = async (): Promise<boolean> => {
@@ -157,7 +170,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   };
   return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
     <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
-      <div className="ws-document-modes" role="group" aria-label="Writing modes">
+      <div ref={companionToggle} className="ws-document-modes" role="group" aria-label="Writing modes">
+        <Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setShowCompanion(value => !value)}><PanelLeft size={15} aria-hidden="true" /></Button>
         <Button variant="ghost" size="sm" data-document-focus aria-label="Focus mode" aria-pressed={focusMode} title={focusMode ? 'Exit focus mode (Escape)' : 'Focus mode — fill the window'} onClick={() => { setFocusMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}>{focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</Button>
         <Button variant="ghost" size="sm" aria-label="Typewriter mode" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} title="Typewriter mode — keep the current line centered" onClick={() => { setTypewriterMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
       </div>
@@ -165,7 +179,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
-    <div className="ws-document-viewport"><div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div></div>
+    <div className="ws-document-viewport" data-companion-open={showCompanion}>
+      <DocumentCompanion editor={editor} scrollRef={scroll} storageKey={`${storageKey}:scratchpad`} open={showCompanion} id={companionId}
+        onClose={() => { setShowCompanion(false); companionToggle.current?.querySelector<HTMLButtonElement>('[data-companion-toggle]')?.focus(); }}
+        onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setShowCompanion(false); }} />
+      <div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div>
+    </div>
     <DocumentCommands editor={editor} />
     <DocumentComments editor={editor} />
   </section>;

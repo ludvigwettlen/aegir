@@ -5,7 +5,7 @@ import '../styles';
 import type { DesktopApi } from '../../../shared/types';
 import type { WorkspaceDocument } from '../../../shared/documents';
 
-let saved: WorkspaceDocument = { path: 'writing.md', revision: '0', content: '# A quiet place to write\n\n' + Array.from({ length: 24 }, (_, i) => `Paragraph ${i + 1}. ${'A line of prose with room to think and write. '.repeat(8)}`).join('\n\n') };
+let saved: WorkspaceDocument = { path: new URLSearchParams(location.search).get('document') || 'writing.md', revision: '0', content: '# A quiet place to write\n\n' + Array.from({ length: 24 }, (_, i) => `Paragraph ${i + 1}. ${'A line of prose with room to think and write. '.repeat(8)}`).join('\n\n') };
 Object.assign(window, { saved: () => saved });
 window.aegir = {
   readDocument: async () => saved,

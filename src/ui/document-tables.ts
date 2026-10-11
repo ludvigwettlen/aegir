@@ -1,7 +1,7 @@
 import { Table, TableView } from '@tiptap/extension-table';
 import { closeHistory } from '@tiptap/pm/history';
 import { EditorState, TextSelection } from '@tiptap/pm/state';
-import { addColumnAfter, addRowAfter, CellSelection, TableMap } from '@tiptap/pm/tables';
+import { addColumnAfter, addRowAfter, CellSelection, moveTableColumn, moveTableRow, TableMap } from '@tiptap/pm/tables';
 import { headerlessTableStart, tableHeaderOffMarker } from '../../shared/documents';
 
 export const DocumentTable = Table.extend({
@@ -104,6 +104,164 @@ export const DocumentTable = Table.extend({
         view.focus();
       };
       let cancelDrag: (() => void) | undefined;
+      const handles = document.createElement('div');
+      handles.className = 'ws-table-handles'; handles.contentEditable = 'false';
+      frame.append(handles);
+      const dropLine = document.createElement('div');
+      dropLine.className = 'ws-table-drop-line'; dropLine.hidden = true;
+      frame.append(dropLine);
+      const selectAxis = (axis: 'row' | 'column', index: number) => {
+        const pos = position(); if (pos === undefined) return;
+        const map = TableMap.get(base.node);
+        const start = axis === 'row' ? index * map.width : index;
+        const end = axis === 'row' ? start + map.width - 1 : start + (map.height - 1) * map.width;
+        view.dispatch(view.state.tr.setSelection(CellSelection.create(view.state.doc, pos + 1 + map.map[start], pos + 1 + map.map[end])));
+      };
+      const reorder = (axis: 'row' | 'column', from: number, to: number) => {
+        const pos = position(); if (pos === undefined || from === to) return;
+        const map = TableMap.get(base.node);
+        if (to < 0 || to >= (axis === 'row' ? map.height : map.width)) return;
+        // The move commands also inspect the selection, so resolve it in this
+        // table even when the caret is in a different table or paragraph.
+        const state = EditorState.create({ schema: view.state.schema, doc: view.state.doc,
+          selection: CellSelection.create(view.state.doc, pos + 1 + map.map[0]) });
+        (axis === 'row' ? moveTableRow : moveTableColumn)({ from, to })(state, tr => {
+          view.dispatch(closeHistory(tr));
+          view.dispatch(closeHistory(view.state.tr));
+        });
+      };
+      const axisElements = (axis: 'row' | 'column') => axis === 'row'
+        ? Array.from(base.table.rows) : Array.from(base.table.rows[0]?.cells || []);
+      const createHandle = (axis: 'row' | 'column', index: number) => {
+        let suppressClick = false;
+        const control = button(handles, `Move ${axis} ${index + 1}`, '⠿', () => {
+          if (!suppressClick) selectAxis(axis, index);
+        });
+        control.className = `ws-table-move ws-table-move-${axis}`;
+        control.dataset.axis = axis;
+        control.title = `Drag to move ${axis} ${index + 1}, or use Alt + ${axis === 'row' ? 'Up/Down' : 'Left/Right'}`;
+        control.addEventListener('keydown', event => {
+          suppressClick = false;
+          const keys = axis === 'row' ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
+          if (!event.altKey || !keys.includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          const to = index + (event.key === keys[0] ? -1 : 1);
+          reorder(axis, index, to);
+          handles.querySelectorAll<HTMLButtonElement>(`[data-axis="${axis}"]`)[to]?.focus();
+        });
+        control.addEventListener('pointerdown', event => {
+          if (event.button !== 0 || position() === undefined) return;
+          event.preventDefault(); cancelDrag?.(); suppressClick = false;
+          control.focus({ preventScroll: true });
+          const original = base.node;
+          let moved = false; let target = index;
+          let lastPointer = event; let scrollFrame = 0;
+          control.setPointerCapture(event.pointerId);
+          const move = (next: PointerEvent) => {
+            if (next.pointerId !== event.pointerId) return;
+            lastPointer = next;
+            moved ||= Math.hypot(next.clientX - event.clientX, next.clientY - event.clientY) > 6;
+            if (!moved) return;
+            const bounds = base.table.getBoundingClientRect();
+            const frameBounds = frame.getBoundingClientRect();
+            const rects = axisElements(axis).map(element => element.getBoundingClientRect());
+            const coordinate = axis === 'row' ? next.clientY : next.clientX;
+            const inside = next.clientX >= bounds.left - 28 && next.clientX <= bounds.right + 28
+              && next.clientY >= bounds.top - 28 && next.clientY <= bounds.bottom + 28;
+            let slot = rects.findIndex(rect => coordinate < (axis === 'row' ? rect.top + rect.height / 2 : rect.left + rect.width / 2));
+            if (slot < 0) slot = rects.length;
+            target = inside ? slot - (slot > index ? 1 : 0) : index;
+            base.dom.dataset.dragging = 'true';
+            control.dataset.dragging = 'true';
+            dropLine.hidden = target === index;
+            hint.textContent = target === index ? '' : `Move ${axis} ${index + 1} to position ${target + 1}`;
+            if (target === index) return;
+            const edge = slot < rects.length ? rects[slot] : rects[rects.length - 1];
+            const offset = axis === 'row' ? (slot < rects.length ? edge.top : edge.bottom) : (slot < rects.length ? edge.left : edge.right);
+            Object.assign(dropLine.style, axis === 'row'
+              ? { left: `${bounds.left - frameBounds.left}px`, top: `${offset - frameBounds.top}px`, width: `${bounds.width}px`, height: '3px' }
+              : { left: `${offset - frameBounds.left}px`, top: `${bounds.top - frameBounds.top}px`, width: '3px', height: `${bounds.height}px` });
+          };
+          const scroll = () => {
+            if (moved) {
+              const viewport = axis === 'column' ? base.dom : base.dom.closest('.ws-document-scroll');
+              if (viewport) {
+                const bounds = viewport.getBoundingClientRect();
+                const coordinate = axis === 'row' ? lastPointer.clientY : lastPointer.clientX;
+                const start = axis === 'row' ? bounds.top : bounds.left;
+                const end = axis === 'row' ? bounds.bottom : bounds.right;
+                const cross = axis === 'row' ? lastPointer.clientX : lastPointer.clientY;
+                const crossStart = axis === 'row' ? bounds.left : bounds.top;
+                const crossEnd = axis === 'row' ? bounds.right : bounds.bottom;
+                if (coordinate >= start - 24 && coordinate <= end + 24 && cross >= crossStart && cross <= crossEnd) {
+                  const delta = coordinate < start + 28 ? -8 : coordinate > end - 28 ? 8 : 0;
+                  if (delta) {
+                    viewport.scrollBy(axis === 'row' ? { top: delta } : { left: delta });
+                    move(lastPointer);
+                  }
+                }
+              }
+            }
+            scrollFrame = requestAnimationFrame(scroll);
+          };
+          scrollFrame = requestAnimationFrame(scroll);
+          const cleanup = () => {
+            cancelAnimationFrame(scrollFrame);
+            control.removeEventListener('pointermove', move);
+            control.removeEventListener('pointerup', up);
+            control.removeEventListener('pointercancel', cancel);
+            control.removeEventListener('lostpointercapture', cancel);
+            window.removeEventListener('keydown', escape, true);
+            window.removeEventListener('blur', cancel);
+            if (control.hasPointerCapture(event.pointerId)) control.releasePointerCapture(event.pointerId);
+            dropLine.hidden = true; hint.textContent = '';
+            delete base.dom.dataset.dragging; delete control.dataset.dragging; cancelDrag = undefined;
+          };
+          const cancel = () => { suppressClick = true; cleanup(); };
+          const escape = (key: KeyboardEvent) => {
+            if (key.key === 'Escape') { key.preventDefault(); key.stopImmediatePropagation(); cancel(); }
+          };
+          const up = (next: PointerEvent) => {
+            if (next.pointerId !== event.pointerId) return;
+            move(next); suppressClick = moved; cleanup();
+            if (moved && base.node.eq(original)) {
+              reorder(axis, index, target);
+              handles.querySelectorAll<HTMLButtonElement>(`[data-axis="${axis}"]`)[target]?.focus({ preventScroll: true });
+            }
+          };
+          cancelDrag = cancel;
+          control.addEventListener('pointermove', move);
+          control.addEventListener('pointerup', up);
+          control.addEventListener('pointercancel', cancel);
+          control.addEventListener('lostpointercapture', cancel);
+          window.addEventListener('keydown', escape, true);
+          window.addEventListener('blur', cancel);
+        });
+      };
+      let layoutFrame = 0;
+      const layoutHandles = () => {
+        cancelAnimationFrame(layoutFrame);
+        layoutFrame = requestAnimationFrame(() => {
+          const bounds = frame.getBoundingClientRect();
+          for (const axis of ['row', 'column'] as const) {
+            const elements = axisElements(axis);
+            let controls = Array.from(handles.querySelectorAll<HTMLButtonElement>(`[data-axis="${axis}"]`));
+            if (controls.length !== elements.length) {
+              cancelDrag?.(); controls.forEach(control => control.remove());
+              elements.forEach((_, index) => createHandle(axis, index));
+              controls = Array.from(handles.querySelectorAll<HTMLButtonElement>(`[data-axis="${axis}"]`));
+            }
+            elements.forEach((element, index) => {
+              const rect = element.getBoundingClientRect();
+              Object.assign(controls[index].style, axis === 'row'
+                ? { top: `${rect.top - bounds.top}px`, height: `${rect.height}px` }
+                : { left: `${rect.left - bounds.left}px`, width: `${rect.width}px` });
+            });
+          }
+        });
+      };
+      const resize = new ResizeObserver(layoutHandles);
+      resize.observe(base.table);
       for (const axis of ['row', 'column'] as const) {
         const control = button(frame, `Add ${axis}`, '+', () => { if (!suppressClick) add(axis, 1); });
         control.className = `ws-table-add ws-table-add-${axis}`;
@@ -153,6 +311,7 @@ export const DocumentTable = Table.extend({
         control.addEventListener('keydown', () => { suppressClick = false; });
       }
       const sync = () => {
+        layoutHandles();
         base.dom.style.setProperty('--table-columns', String(TableMap.get(base.node).width));
         const pos = getPos();
         const selection = view.state.selection;
@@ -166,10 +325,10 @@ export const DocumentTable = Table.extend({
       editor.on('transaction', sync); editor.on('update', sync); sync();
       return {
         dom: base.dom, contentDOM: base.contentDOM,
-        update(next) { const updated = base.update(next); if (updated) sync(); return updated; },
+        update(next) { if (!next.eq(base.node)) cancelDrag?.(); const updated = base.update(next); if (updated) sync(); return updated; },
         ignoreMutation: mutation => base.ignoreMutation(mutation),
         stopEvent: event => event.target instanceof Element && Boolean(event.target.closest('button, .ws-table-toolbar')),
-        destroy() { cancelDrag?.(); editor.off('transaction', sync); editor.off('update', sync); },
+        destroy() { cancelDrag?.(); resize.disconnect(); cancelAnimationFrame(layoutFrame); editor.off('transaction', sync); editor.off('update', sync); },
       };
     };
   },
