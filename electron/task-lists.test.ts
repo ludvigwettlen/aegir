@@ -39,7 +39,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates, files, renames and delet
     await page.getByRole('dialog', { name: 'Move to list' }).waitFor({ state: 'hidden' });
     await page.locator('.ws-rows').focus(); await page.keyboard.press('Meta+z');
     await page.locator('[data-task-row]').waitFor();
-    await page.getByRole('button', { name: 'Move to list', exact: true }).click();
+    await page.locator('[data-task-row][data-keyboard-current]').focus(); await page.keyboard.press('m');
     await page.keyboard.type('Wor');
     expect(await page.getByRole('option').count()).toBe(1);
     await page.keyboard.press('Enter');
@@ -48,7 +48,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates, files, renames and delet
     await page.getByRole('button', { name: 'Work', exact: true }).click();
     expect(await page.getByRole('textbox', { name: 'Task notes' }).inputValue()).toBe('Keep this context');
     await page.evaluate(() => { (window as any).fixture.fail = true; });
-    await page.getByRole('button', { name: 'Move to list', exact: true }).click();
+    await page.locator('[data-task-row][data-keyboard-current]').focus(); await page.keyboard.press('m');
     await page.keyboard.press('/');
     await page.getByRole('combobox', { name: 'Search lists' }).fill('jkl-no-match');
     await page.getByText('No matching lists').waitFor();
@@ -58,8 +58,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates, files, renames and delet
     await page.keyboard.press('Enter');
     await page.getByRole('alert').filter({ hasText: 'Could not save list' }).waitFor();
     await page.keyboard.press('Escape');
-    await expect.poll(() => page.getByRole('button', { name: 'Move to list', exact: true }).evaluate(element => element === document.activeElement)).toBe(true);
-    expect(await page.getByRole('button', { name: 'Move to list', exact: true }).innerText()).toBe('Work');
+    await expect.poll(() => page.locator('[data-task-row][data-keyboard-current]').evaluate(element => element === document.activeElement)).toBe(true);
+    expect(await page.locator('[data-task-row]').count()).toBe(1);
+    expect(await page.getByRole('heading', { name: 'Work', exact: true }).count()).toBe(1);
     await page.evaluate(() => { (window as any).fixture.fail = false; });
     await page.keyboard.press('Meta+n');
     await page.getByRole('textbox', { name: 'New task' }).fill('Second task'); await page.keyboard.press('Enter');
@@ -74,7 +75,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates, files, renames and delet
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const notes = page.getByRole('textbox', { name: 'Task notes' });
     expect(await notes.evaluate(element => Math.abs(element.getBoundingClientRect().width - (element.closest('.ws-task-detail')!.getBoundingClientRect().width - 37)) < 2)).toBe(true);
-    await page.getByRole('button', { name: 'Move to list', exact: true }).click();
+    await page.locator('[data-task-row][data-keyboard-current]').focus(); await page.keyboard.press('m');
     await page.screenshot({ path: '/tmp/aegir-move-picker-compact.png' });
     await page.keyboard.press('Escape');
     await page.screenshot({ path: '/tmp/aegir-custom-lists-compact.png' });

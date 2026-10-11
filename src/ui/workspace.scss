@@ -381,7 +381,7 @@
   max-height: min(220px, 35vh); color: var(--ds-color-ink); line-height: 1.5;
 }
 
-.ws-task-thread-link { flex: 1; min-width: 0; justify-content: flex-start; text-align: left;
+.ws-task-thread-link { flex: 0 1 auto; min-width: 0; max-width: 100%; justify-content: flex-start; text-align: left;
   span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   svg { flex: none; }
 }
@@ -400,12 +400,6 @@
 /* Custom task lists */
 .ws-task-list > .ws-page-head h1 { overflow-wrap: anywhere; }
 .ws-list-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; -webkit-app-region: no-drag; }
-.ws-task-list-field { margin: 12px 0;
-  .ws-task-list-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ws-task-list-trigger svg { flex: none; }
-  .ws-task-list-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); color: var(--ds-color-ink); font: inherit; letter-spacing: 0; }
-  small { color: var(--ds-color-muted); font-weight: 400; letter-spacing: 0; }
-}
 .ws-list-dialog-overlay { position: fixed; inset: 0; z-index: 80; background: color-mix(in srgb, var(--ds-color-ink) 25%, transparent); }
 .ws-list-dialog { position: fixed; z-index: 81; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box; padding: 24px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-panel); background: var(--ds-color-surface); color: var(--ds-color-ink);
   h2 { margin: 0; font-size: 19px; }

@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ChevronDown, ExternalLink, Plus, Square, Users, X } from 'lucide-react';
+import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { customListId, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
@@ -338,7 +338,6 @@ export function TasksView({
           task={open}
           data={data}
           run={run}
-          onMove={() => setMoveTaskId(open.id)}
           onOpenThread={onOpenThread}
           onReturnToList={() =>
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
@@ -557,7 +556,6 @@ function TaskDetail({
   task,
   data,
   run,
-  onMove,
   onReturnToList,
   onHandOff,
   onOpenThread,
@@ -565,7 +563,6 @@ function TaskDetail({
   task: Task;
   data: Snapshot;
   run: Run;
-  onMove: () => void;
   onReturnToList: () => void;
   onHandOff: () => void;
   onOpenThread: (groupId: string, threadId: string) => void;
@@ -585,14 +582,16 @@ function TaskDetail({
     }
     if (next !== task.title) void run(() => api.updateTask(task.id, { title: next }));
   };
+  const threadLink = group && thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
+    aria-label={`Thread in ${group.kind === 'private' ? group.title : `#${group.title}`}`}
+    title={`Open thread in ${group.title} (Shift+A)`}
+    onClick={() => onOpenThread(group.id, thread.id)}>
+    <span>{group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={14} aria-hidden="true" />
+  </Button> : null;
   const header = (
     <header className="ws-detail-head">
-      {(group || task.sourceUrl || task.status === 'running') && <div className="ws-detail-top">
-        {group && thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
-          title="Open conversation in channel (Shift+A)"
-          onClick={() => onOpenThread(group.id, thread.id)}>
-          <span>Thread in {group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={12} />
-        </Button> : task.sourceUrl && <span className="ws-crumb">From a source</span>}
+      {((!group && task.sourceUrl) || task.status === 'running') && <div className="ws-detail-top">
+        {!group && task.sourceUrl && <span className="ws-crumb">From a source</span>}
         {task.status === 'running' && (
           <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
             <Square size={12} /> Stop
@@ -616,8 +615,8 @@ function TaskDetail({
           }
         }}
       />
-      <div className="ws-detail-meta">
-        <span className={`ws-status ${task.status}`}>{taskStatusText[task.status]}</span>
+      {(task.status !== 'review' || task.sourceUrl || links.length > 0) && <div className="ws-detail-meta">
+        {task.status !== 'review' && <span className={`ws-status ${task.status}`}>{taskStatusText[task.status]}</span>}
         {task.sourceUrl && (
           <a
             href={task.sourceUrl}
@@ -637,14 +636,7 @@ function TaskDetail({
             <button type="button" aria-label={`Remove link ${link.url}`} title="Remove link" onClick={() => void run(() => api.removeTaskLink(link.id))}><X size={11} /></button>
           </span>
         ))}
-      </div>
-      <div className="ws-field ws-task-list-field">
-        <span>List</span>
-        <button type="button" className="ws-task-list-trigger" aria-label="Move to list" aria-haspopup="dialog" onClick={onMove}>
-          <span>{data.taskLists.find(list => list.id === task.listId)?.name || 'Inbox'}</span><ChevronDown size={15} aria-hidden="true" />
-        </button>
-        {task.listId && task.dueAt && <small>Due dates also appear in Today or Upcoming.</small>}
-      </div>
+      </div>}
       <label className="ws-field ws-task-notes">
         <span>Notes</span>
         <textarea
@@ -677,6 +669,7 @@ function TaskDetail({
           group={group}
           run={run}
           header={header}
+          leadingActions={threadLink}
           compact
         />
       ) : (

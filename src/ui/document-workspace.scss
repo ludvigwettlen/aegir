@@ -103,7 +103,10 @@
 }
 .ws-conversation-head:has(> .ws-detail-head) {
   flex-direction: column;
-  > .ws-conversation-actions { order: -1; align-self: flex-end; flex-direction: row; margin: 24px 18px 0; }
+  > .ws-conversation-actions { order: -1; align-self: stretch; justify-content: flex-end; align-items: center; flex-direction: row; min-width: 0; font-size: 12px; margin: 24px 18px 0;
+    > .ws-task-thread-link { margin-right: auto; }
+    > .ws-document-access, > .ws-copy-chat { flex: none; }
+  }
   > .ws-detail-head { flex: none; width: 100%; box-sizing: border-box; }
   .ws-detail-top { padding-top: 0; }
 }

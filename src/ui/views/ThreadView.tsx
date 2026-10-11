@@ -10,6 +10,7 @@ import { api, Avatar, time, YouAvatar, type Run } from './common';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
 import { SkillChangeCard } from './SkillChangeCard';
+import { Button } from '../design-system/primitives';
 import { CopyChatButton } from './CopyChatButton';
 import { CopyMessageButton } from './CopyMessageButton';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
@@ -25,6 +26,7 @@ export function ThreadView({
   group,
   run,
   header,
+  leadingActions,
   compact = false,
 }: {
   data: Snapshot;
@@ -32,6 +34,7 @@ export function ThreadView({
   group: Group;
   run: Run;
   header?: ReactNode;
+  leadingActions?: ReactNode;
   compact?: boolean;
 }) {
   const { messages, hasOlder, loading, loadOlder } = useThreadMessages(thread.id, run);
@@ -104,7 +107,7 @@ export function ThreadView({
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
   const filePicker = <div ref={fileAccess} className="ws-document-access">
-    <button className="ws-btn ghost" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} />{opening ? 'Opening…' : 'Files'}</button>
+    <Button variant="ghost" size="sm" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} aria-hidden="true" />{opening ? 'Opening…' : 'Files'}</Button>
     {showFiles && <div className="ws-document-files" aria-label="Workspace files">
       <strong>Markdown files</strong>
       {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <div key={path} className="ws-document-file-row">
@@ -122,7 +125,7 @@ export function ThreadView({
       {document ? <header className="ws-editing-head" role="banner" aria-label="Window header">
         <div className="ws-editing-context"><span title={group.title}>{group.kind === 'private' ? group.title : `# ${group.title}`}</span><ChevronRight size={13} aria-hidden="true" /><h2 title={thread.title}>{thread.title}</h2></div>
         <div className="ws-document-tabs"><button className="ws-btn" aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>Conversation</button><button className="ws-btn" aria-pressed={mobilePane === 'document'} onClick={() => setMobilePane('document')}>Document</button></div>
-      </header> : <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div></div>}
+      </header> : <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div></div>}
       <div className="ws-thread-panes">
     <section
       style={document ? { flex: `0 0 ${chatWidth}%` } : undefined}
