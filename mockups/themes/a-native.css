@@ -1,0 +1,110 @@
+/* Direction A, Apple native: the desktop shows through a frosted window, the sidebar floats as a glass pane, glass is
+   used on the things that float (buttons, ⌘K, popovers, composer). Lists and text sit on a clean white pane.
+   The wallpaper layer stands in for macOS's own window blur (NSVisualEffectView), which the real build would use. */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  --ink: #1d1d1f; --ink-2: #424245; --muted: #86868b; --hairline: rgba(0, 0, 0, 0.09);
+  --accent: #a9e929; --accent-ink: #3d7a0c; --accent-fill: rgba(169, 233, 41, 0.22); --accent-soft: rgba(169, 233, 41, 0.13);
+  --glass: rgba(255, 255, 255, 0.5); --glass-strong: rgba(250, 250, 252, 0.72);
+  --glass-edge: inset 0 0 0 1px rgba(255, 255, 255, 0.7), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  --wallpaper:
+    radial-gradient(1100px 760px at 8% 0%, #5b9dff 0%, transparent 62%),
+    radial-gradient(900px 700px at 92% 12%, #b18cff 0%, transparent 60%),
+    radial-gradient(1000px 820px at 62% 104%, #43d3c2 0%, transparent 60%),
+    radial-gradient(760px 600px at 0% 100%, #ff9ac4 0%, transparent 56%),
+    linear-gradient(135deg, #3a6cf2, #7a5bef);
+}
+html:root { background: #e9edf5; }
+body { background: transparent !important; }
+body::before { content: ''; position: fixed; inset: -120px; z-index: -1; background: var(--wallpaper); filter: blur(70px) saturate(1.15); }
+body::after { content: ''; position: fixed; inset: 0; z-index: -1; background: rgba(244, 245, 248, 0.4); }
+
+body, body .ws-shell, .ws-modal-backdrop { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
+body .ws-shell :is(h1, h2, h3, input, textarea, .ws-avatar, .ws-draft-text, .ws-draft-readonly, .ws-task-title-input),
+.ws-modal-backdrop :is(input, textarea) { font-family: var(--font) !important; }
+body .ws-shell { background: transparent; padding: 8px; gap: 8px; box-sizing: border-box; }
+
+/* Sidebar: a floating glass pane, Tahoe style. */
+body .ws-sidebar { background: rgba(255, 255, 255, 0.34); border: 0; border-radius: 18px; padding-top: 58px;
+  backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: var(--glass-edge), 0 8px 28px rgba(20, 30, 60, 0.1); }
+body .ws-sidebar-search { height: 32px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.55); color: var(--muted); font-size: 13px;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08); }
+body .ws-sidebar-search:hover { background: rgba(255, 255, 255, 0.8); }
+body .ws-nav-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: rgba(60, 60, 67, 0.6); padding-top: 14px; }
+body .ws-nav-item { min-height: 30px; border-radius: 8px; font-size: 13px; color: var(--ink); }
+body .ws-nav-item:hover { background: rgba(0, 0, 0, 0.045); }
+body .ws-nav-item.active { background: rgba(0, 0, 0, 0.08); color: var(--ink); font-weight: 600; }
+body .ws-nav-icon, body .ws-hash { color: var(--accent-ink); }
+body .ws-nav-count { color: var(--muted); font-size: 12px; }
+body .ws-nav-count.attention { background: var(--accent); color: #1d2b0a; }
+body .ws-kbd { border: 0; border-radius: 5px; background: rgba(0, 0, 0, 0.06); color: var(--ink-2); font-family: var(--font); font-size: 11px; }
+
+/* Content: one white pane, flush text, Reminders-like rows. */
+body .ws-main { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 12px 40px rgba(20, 30, 60, 0.12); }
+body .ws-task-list { background: transparent; }
+body .ws-page-head { padding: 34px 26px 8px; }
+body .ws-page-head h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+body .ws-page-head p { font-size: 12.5px; color: var(--muted); }
+body .ws-p1-over { color: #c2410c; }
+body .ws-task-list > .ws-quick-add { margin: 6px 22px 8px; height: 38px; border: 0; border-radius: 11px; background: #f5f5f7; color: var(--muted); }
+body .ws-quick-add input { font-size: 13.5px; }
+body .ws-group-label { padding: 16px 14px 5px; font-size: 13px; font-weight: 700; letter-spacing: 0; color: var(--ink); }
+body .ws-group-label span { color: var(--muted); font-weight: 500; }
+body .ws-task-row { height: 36px; border-radius: 10px; }
+body .ws-task-row:hover { background: rgba(0, 0, 0, 0.035); }
+body .ws-task-row.selected { background: var(--accent-fill); box-shadow: none; }
+body .ws-task-title { font-size: 13.5px; color: var(--ink); }
+body .ws-glyph-open { border: 1.5px solid #c7c7cc; }
+body .ws-label { color: var(--muted); font-weight: 400; }
+body .ws-due { color: var(--muted); }
+body .ws-due.overdue { color: #b2620f; font-weight: 400; }
+body .ws-ball.yours { background: rgba(255, 204, 0, 0.2); color: #7a5600; border-radius: 999px; }
+
+/* Task panel: a quiet inspector on the right. */
+body .ws-task-detail { background: #fafafc; border-left: 0.5px solid var(--hairline); }
+body .ws-detail-head { border-bottom: 0.5px solid var(--hairline); }
+body .ws-task-title-input { font-weight: 700 !important; font-size: 19px !important; letter-spacing: -0.01em; }
+body .ws-detail-hint { background: var(--accent-soft); color: #2f4a12; border-radius: 12px; padding: 9px 12px; }
+body .ws-status { border-radius: 999px; }
+body .ws-status.review { background: rgba(255, 204, 0, 0.2); color: #7a5600; }
+body .ws-inline-field { color: var(--muted); }
+body .ws-priority-field { background: rgba(0, 0, 0, 0.055); border-radius: 9px; padding: 2px; gap: 2px; }
+body .ws-inline-field .ws-priority-choice { border: 0; background: transparent; border-radius: 7px; height: 24px; color: var(--ink-2); }
+body .ws-inline-field .ws-priority-choice.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06); }
+body .ws-inline-field .ws-due-button, body .ws-inline-field input { border: 0 !important; border-radius: 8px; background: rgba(0, 0, 0, 0.05) !important; }
+
+/* Buttons: glass capsules; the primary one is the accent. */
+body .ws-btn, body .ds-button { height: 30px; border: 0; border-radius: 999px; padding: 0 13px; background: rgba(255, 255, 255, 0.72); color: var(--ink);
+  backdrop-filter: blur(12px) saturate(1.6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8), 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.06); }
+body .ws-btn:hover:not(:disabled) { background: #fff; }
+body .ws-btn.primary { background: var(--accent); color: #1d2b0a; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 0 0.5px rgba(60, 110, 0, 0.3), 0 2px 6px rgba(90, 150, 0, 0.25); }
+body .ws-btn.primary:hover:not(:disabled) { background: #b6f03c; }
+body .ws-btn.ghost { background: transparent; box-shadow: none; }
+
+/* Conversation and draft cards. */
+body .ws-message-text { font-size: 13.5px; color: var(--ink); }
+body .ws-message-head time { color: var(--muted); }
+body .ws-draft { border: 0; border-radius: 16px; background: #fff; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 4px 18px rgba(0, 0, 0, 0.06); padding: 14px 16px; }
+body .ws-draft-head { color: var(--accent-ink); letter-spacing: 0.03em; }
+body .ws-draft-text, body .ws-draft-readonly { border: 0 !important; border-radius: 11px; background: #f5f5f7 !important; font-size: 13.5px !important; line-height: 1.55 !important; }
+body .ws-draft-state { border-radius: 999px; }
+body .ws-composer { border: 0; border-radius: 20px; background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(20px) saturate(1.7);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 8px 26px rgba(0, 0, 0, 0.08); }
+
+/* Floating layers: real glass over a light dim. */
+.ws-modal-backdrop { background: rgba(0, 0, 0, 0.1) !important; }
+body .ws-palette { border: 0; border-radius: 22px; background: var(--glass-strong); backdrop-filter: blur(40px) saturate(1.9); -webkit-backdrop-filter: blur(40px) saturate(1.9);
+  box-shadow: var(--glass-edge), 0 30px 90px rgba(0, 0, 0, 0.28); }
+body .ws-palette-search { padding: 15px 18px; border-bottom: 0.5px solid var(--hairline); font-size: 17px; }
+body .ws-palette-search input { font-size: 17px !important; }
+body .ws-palette-section { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+body .ws-palette-row { border-radius: 10px; min-height: 36px; font-size: 13.5px; }
+body .ws-palette-row.active { background: var(--accent-fill); }
+body .ws-palette-row > svg { color: var(--accent-ink); }
+body .ws-palette-foot { border-top: 0.5px solid var(--hairline); color: var(--muted); }
+body .ws-modal .ws-popover { border: 0; border-radius: 20px; padding: 16px; background: var(--glass-strong); backdrop-filter: blur(40px) saturate(1.9); -webkit-backdrop-filter: blur(40px) saturate(1.9);
+  box-shadow: var(--glass-edge), 0 30px 90px rgba(0, 0, 0, 0.28); }
+body .ws-popover-title { color: var(--muted); letter-spacing: 0.04em; }
+body .ws-popover input { border: 0 !important; border-radius: 11px; background: rgba(255, 255, 255, 0.75) !important; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12) !important; }
+body .ws-when-quick .ws-btn span { color: var(--muted); }

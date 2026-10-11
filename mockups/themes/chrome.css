@@ -1,0 +1,5 @@
+/* Window chrome for the mockups: the three macOS window buttons, drawn where Legolas's real ones sit. */
+.ws-sidebar::before {
+  content: ''; position: fixed; left: 18px; top: 18px; z-index: 50; width: 12px; height: 12px; border-radius: 50%;
+  background: #ff5f57; box-shadow: 20px 0 0 #febc2e, 40px 0 0 #28c840;
+}
