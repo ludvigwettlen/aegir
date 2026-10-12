@@ -55,3 +55,11 @@ export function rankCommands<T extends Searchable>(items: readonly T[], query: s
     .sort((a, b) => b.total - a.total || a.index - b.index)
     .map((entry) => entry.item);
 }
+
+// The name itself says what was typed: every typed word starts one of its words ("done" for "Mark done"). ⌘K lists
+// these commands above the tasks it finds, and the looser matches below them.
+export function titleMatch(item: Searchable, query: string) {
+  const queryWords = wordsOf(query);
+  const titleWords = wordsOf(item.title);
+  return queryWords.length > 0 && queryWords.every((word) => titleWords.some((part) => part.startsWith(word)));
+}

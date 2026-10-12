@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Store } from './db.js';
+import { searchWords } from '../shared/task-search.js';
 import { defaultAgents, legacyAgents } from './default-agents.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
@@ -591,8 +592,9 @@ describe('conversation search', () => {
     return { task, thread };
   };
 
-  it('finds task conversations by every word, ignoring case and accents, best message per task', () => {
+  it('finds which searched words each task conversation holds, ignoring case and accents, quoting the message with the most', () => {
     const store = new Store(path());
+    const search = (query: string) => store.searchTaskMessages(searchWords(query));
     try {
       const memo = taskWithThread(store, 'Draft investor memo');
       const board = taskWithThread(store, 'Board pack');
@@ -602,16 +604,18 @@ describe('conversation search', () => {
       // A chat outside any task is not searched.
       const chat = store.createThread(store.groups()[0].id, 'Chat');
       store.addMessage(chat.id, null, 'user', 'Fjelltek renewal in a chat');
-      const found = store.searchTaskMessages('fjelltek RENEWAL');
-      expect(found.map((match) => match.taskId)).toEqual([memo.task.id]);
-      expect(found[0]).toMatchObject({ hits: 2, draft: false });
-      expect(found[0].snippet).toMatch(/Fjelltek/);
-      expect(store.searchTaskMessages('asne kongs')[0]).toMatchObject({ taskId: memo.task.id, role: 'user' });
-      expect(store.searchTaskMessages('fjelltek').map((match) => match.taskId).sort()).toEqual([memo.task.id, board.task.id].sort());
-      expect(store.searchTaskMessages('k')).toEqual([]);
+      // Each task says which words it holds, the most first; the quote is the newest message holding the most.
+      const found = search('fjelltek RENEWAL');
+      expect(found.map((match) => [match.taskId, match.words])).toEqual([[memo.task.id, [0, 1]], [board.task.id, [0]]]);
+      expect(found[0]).toMatchObject({ where: 'conversation', role: 'agent', draft: false, document: null });
+      expect(found[0].snippet).toMatch(/Fjelltek signed the renewal/);
+      expect(search('asne kongs')[0]).toMatchObject({ taskId: memo.task.id, role: 'user', words: [0, 1] });
+      expect(search('k')).toEqual([]);
+      // A #word is a label, never looked up in conversations.
+      expect(search('#board numbers')).toMatchObject([{ taskId: board.task.id, words: [1] }]);
       // Typed punctuation and words like NOT are searched as text, never read as search operators.
-      expect(() => store.searchTaskMessages('"OR) NOT fjelltek*')).not.toThrow();
-      expect(store.searchTaskMessages('not fjelltek').map((match) => match.taskId)).toEqual([board.task.id]);
+      expect(() => search('"OR) NOT fjelltek*')).not.toThrow();
+      expect(search('not fjelltek').map((match) => [match.taskId, match.words])).toEqual([[board.task.id, [0, 1]], [memo.task.id, [1]]]);
     } finally { store.close(); }
   });
 
@@ -621,19 +625,19 @@ describe('conversation search', () => {
       const { task, thread } = taskWithThread(store, 'Reply to Tove');
       const reply = store.addMessage(thread.id, null, 'agent', '', 'streaming');
       store.updateMessage(reply.id, 'Hej Tove, siffrorna kommer i morgon', 'complete');
-      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+      expect(store.searchTaskMessages(searchWords('siffrorna'))[0]?.messageId).toBe(reply.id);
       const card = store.addMessage(thread.id, null, 'system', 'Slack draft: Group DM', 'complete',
         { type: 'message-draft', channel: 'slack', label: 'Group DM', original: 'Läst ett varv nu', text: 'Läst ett varv nu', state: 'pending' });
-      expect(store.searchTaskMessages('last varv')[0]).toMatchObject({ messageId: card.id, draft: true });
+      expect(store.searchTaskMessages(searchWords('last varv'))[0]).toMatchObject({ messageId: card.id, draft: true });
       store.setMessageMeta(card.id, { type: 'message-draft', channel: 'slack', label: 'Group DM', original: 'Läst ett varv nu', text: 'Bra material, good work', state: 'pending' });
-      expect(store.searchTaskMessages('varv')).toEqual([]);
-      expect(store.searchTaskMessages('material')[0]?.messageId).toBe(card.id);
+      expect(store.searchTaskMessages(searchWords('varv'))).toEqual([]);
+      expect(store.searchTaskMessages(searchWords('material'))[0]?.messageId).toBe(card.id);
       store.moveMessageToEnd(reply.id);
-      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+      expect(store.searchTaskMessages(searchWords('siffrorna'))[0]?.messageId).toBe(reply.id);
       store.deleteTask(task.id, true);
-      expect(store.searchTaskMessages('siffrorna')).toEqual([]);
+      expect(store.searchTaskMessages(searchWords('siffrorna'))).toEqual([]);
       store.undoTaskAction();
-      expect(store.searchTaskMessages('siffrorna')[0]?.messageId).toBe(reply.id);
+      expect(store.searchTaskMessages(searchWords('siffrorna'))[0]?.messageId).toBe(reply.id);
     } finally { store.close(); }
   });
 
@@ -648,7 +652,7 @@ describe('conversation search', () => {
     raw.close();
     const store = new Store(file);
     try {
-      expect(store.searchTaskMessages('fjordline dpa')[0]?.taskId).toBe(task.id);
+      expect(store.searchTaskMessages(searchWords('fjordline dpa'))[0]?.taskId).toBe(task.id);
     } finally { store.close(); }
   });
 });

@@ -47,6 +47,8 @@ import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
 import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
 import { chatTranscript } from './chat-transcript.js';
+import { searchTaskDocuments } from './document-search.js';
+import { CONTENT_WORDS, mergeContent, searchWords } from '../shared/task-search.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -504,8 +506,12 @@ function registerIpc() {
     refresh();
     if (value === null) triage?.schedule(15_000);
   });
-  // Find a task: the task conversations that mention what was typed. Read-only.
-  handle('search-conversations', (query: unknown) => (typeof query === 'string' && query.length <= 200 ? store.searchTaskMessages(query) : []));
+  // Find a task: the typed words each task's conversation and documents hold. Read-only.
+  handle('search-task-content', (query: unknown) => {
+    if (typeof query !== 'string' || query.length > 200) return [];
+    const words = searchWords(query).slice(0, CONTENT_WORDS);
+    return mergeContent(store.searchTaskMessages(words), searchTaskDocuments(store.list('tasks'), words)).slice(0, 200);
+  });
   handle('prioritize-tasks', () => {
     if (!triage) throw new Error(engine === 'claude' ? 'Prioritizing is not available yet' : 'Prioritizing needs the Claude Code engine');
     void triage.run('full');

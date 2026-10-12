@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { conversationQuery, fold, homeList, searchTasks } from './task-search.js';
-import type { Task } from './types.js';
+import { conversationQuery, fold, homeList, mergeContent, searchTasks, searchWords } from './task-search.js';
+import type { ContentMatch, Task } from './types.js';
 
 const wednesday = new Date(2026, 9, 7);
 const base: Task = {
@@ -72,6 +72,35 @@ describe('finding a task', () => {
     expect(homeList(task('t', { status: 'review', threadId: 'x', dueAt: '2026-10-12' }), wednesday)).toBe('upcoming');
     expect(homeList(task('t', { status: 'done' }), wednesday)).toBe('completed');
     expect(homeList(task('t', { status: 'dismissed' }), wednesday)).toBeNull();
+  });
+
+  it('finds a task when the words are spread over its title, context, conversation and documents', () => {
+    const said = (taskId: string, words: number[], where: ContentMatch['where'] = 'conversation'): ContentMatch => ({
+      taskId, words, where, snippet: 'the PDF from Tove', role: 'user', agentId: null, draft: false, messageId: null, document: null,
+    });
+    const tasks = [task('pack', { title: 'Board pack', notes: 'Numbers from finance' }), task('dinner', { title: 'Board dinner' })];
+    // "pdf" is only in the board pack's conversation: without the database's answer nothing matches every word.
+    expect(ids('board pdf', tasks)).toEqual([]);
+    const content = new Map([['pack', said('pack', [1])], ['dinner', said('dinner', [2])]]);
+    const [match, ...rest] = searchTasks(tasks, 'board pdf finance', wednesday, 50, content);
+    expect([match.task.id, rest.length]).toEqual(['pack', 0]);
+    // The row quotes the conversation, since a word was only there.
+    expect(match.content).toBe(content.get('pack'));
+    // A task whose own text holds every word quotes nothing from its conversation.
+    expect(searchTasks(tasks, 'board', wednesday, 50, content).map((found) => found.content)).toEqual([null, null]);
+    // Finished tasks are found the same way.
+    const done = [task('signed', { title: 'Close renewal', status: 'done' })];
+    expect(searchTasks(done, 'renewal pdf', wednesday, 50, new Map([['signed', said('signed', [1])]])).map((found) => [found.task.id, found.list])).toEqual([['signed', 'completed']]);
+  });
+
+  it('numbers the searched words the same way on both sides, and merges what conversations and documents hold', () => {
+    expect(searchWords('  Board  #GTM pdf ')).toEqual(['board', '#gtm', 'pdf']);
+    const base = { snippet: '', role: null, agentId: null, draft: false, messageId: null, document: null };
+    const merged = mergeContent(
+      [{ ...base, taskId: 'a', words: [0], where: 'conversation', snippet: 'chat' }, { ...base, taskId: 'b', words: [0, 1], where: 'conversation', snippet: 'b chat' }],
+      [{ ...base, taskId: 'a', words: [1, 2], where: 'document', snippet: 'doc', document: 'memo.md' }],
+    );
+    expect(merged.map((match) => [match.taskId, match.words, match.snippet])).toEqual([['a', [0, 1, 2], 'doc'], ['b', [0, 1], 'b chat']]);
   });
 
   it('builds a conversation query where every word is a quoted prefix, and nothing typed is an operator', () => {

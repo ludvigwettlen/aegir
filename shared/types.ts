@@ -173,10 +173,12 @@ export type PriorityEvent = {
   source: string | null;
   notes: string;
 };
-// A task conversation that mentions every word searched for: its best-matching message, a few words around the match,
-// and how many of its messages matched.
-export type ConversationMatch = {
-  taskId: string; messageId: string; role: Message['role']; agentId: string | null; draft: boolean; createdAt: string; snippet: string; hits: number;
+// What a task's conversation or the documents in its folder hold of a search: which of the typed words (indices into
+// searchWords(query)), and a few words to quote from the place that holds the most of them. From a conversation, the
+// message and who wrote it; from a document, its path in the task's folder.
+export type ContentMatch = {
+  taskId: string; words: number[]; snippet: string; where: 'conversation' | 'document';
+  role: Message['role'] | null; agentId: string | null; draft: boolean; messageId: string | null; document: string | null;
 };
 // The background run that prioritizes tasks, as the list header shows it.
 export type TriageState = { state: 'idle' | 'running' | 'failed'; detail: string; lastRunAt: string | null };
@@ -359,8 +361,8 @@ export interface DesktopApi extends SkillsApi {
   setTaskPriority(taskId: string, priority: Priority | null): Promise<void>;
   // Runs Claude's prioritization now over every task it may set, not just new ones.
   prioritizeTasks(): Promise<void>;
-  // Find a task: task conversations whose messages mention every word (see Store.searchTaskMessages).
-  searchConversations(query: string): Promise<ConversationMatch[]>;
+  // Find a task: the typed words each task's conversation and documents hold (see Store.searchTaskMessages).
+  searchTaskContent(query: string): Promise<ContentMatch[]>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;
   attachFileToTask(fileId: string, taskId: string): Promise<TaskFile>;

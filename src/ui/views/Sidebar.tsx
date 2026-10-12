@@ -63,11 +63,11 @@ export function Sidebar({
   const privates = data.groups.filter((group) => group.kind === 'private');
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
-      {/* Finds any task on any list, the same box as ⌘F. */}
-      <button type="button" className="ws-sidebar-search" title="Find any task (⌘F)" onClick={() => openCommandPalette('go.find')}>
+      {/* Finds any task on any list, and any command: the same box as ⌘K. */}
+      <button type="button" className="ws-sidebar-search" title="Search tasks and commands (⌘K)" onClick={() => openCommandPalette()}>
         <Search size={14} aria-hidden="true" />
         <span>Search tasks</span>
-        <Kbd>⌘F</Kbd>
+        <Kbd>⌘K</Kbd>
       </button>
       <div className="ws-nav-label">TASKS</div>
       <Item

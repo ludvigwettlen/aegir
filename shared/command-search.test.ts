@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rankCommands } from './command-search.js';
+import { rankCommands, titleMatch } from './command-search.js';
 
 const commands = [
   { title: 'Mark done', keywords: ['complete', 'finish', 'check'] },
@@ -55,5 +55,13 @@ describe('command search', () => {
 
   it('keeps the given order between equal matches', () => {
     expect(titles('go to')).toEqual(['Go to Today', 'Go to Upcoming', 'Go to Hourly discovery', 'Go to #Lidingö']);
+  });
+
+  it('tells a command named by what was typed from a looser match', () => {
+    expect(titleMatch({ title: 'Mark done' }, 'done')).toBe(true);
+    expect(titleMatch({ title: 'Set due date…' }, 'set da')).toBe(true);
+    expect(titleMatch({ title: 'Mark done' }, 'ark')).toBe(false);
+    expect(titleMatch({ title: 'Undo last task action', keywords: ['revert'] }, 'revert')).toBe(false);
+    expect(titleMatch({ title: 'Mark done' }, '')).toBe(false);
   });
 });

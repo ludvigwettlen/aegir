@@ -23,7 +23,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${server.resolvedUrls!.local[0]}command-palette`);
     const palette = page.getByRole('dialog', { name: 'Command palette' });
-    const search = page.getByRole('combobox', { name: 'Search commands' });
+    const search = page.getByRole('combobox', { name: 'Search tasks and commands' });
     const options = () => page.getByRole('option').allInnerTexts();
     const highlighted = () => page.locator('[role="option"][aria-selected="true"]').innerText();
     const calls = () => page.evaluate(() => (window as any).fixture.calls as unknown[][]);
@@ -110,7 +110,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds and runs task and app comma
     await search.fill('tomorrow');
     expect((await options())[0]).toContain('Set due date to');
     await search.fill('zzzz');
-    await page.getByText('No command matches “zzzz”.').waitFor();
+    await page.getByText('Nothing matches “zzzz”.').waitFor();
 
     // Set label is a second step: Escape goes back to the commands, Enter creates and applies a label.
     await search.fill('label');

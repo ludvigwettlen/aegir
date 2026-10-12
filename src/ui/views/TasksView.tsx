@@ -125,7 +125,7 @@ export function TasksView({
     } else if (listFocused.current && document.activeElement === document.body) {
       rows.current?.querySelector<HTMLElement>('[data-keyboard-current]')?.focus();
     }
-    // A task picked in Find a task: select it here once this list shows it. Navigation focuses the row after.
+    // A task picked in ⌘K's search: select it here once this list shows it. Navigation focuses the row after.
     const found = takeTaskFocus(list, order.map(task => task.id));
     if (found && found !== currentId) setCursors(previous => ({ ...previous, [list]: found }));
   });

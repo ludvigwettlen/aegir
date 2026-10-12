@@ -3,9 +3,10 @@ import { ThemeProvider } from '@usefragments/ui';
 import '../styles';
 import type { AppEvent, DesktopApi, Snapshot, Task } from '../../../shared/types';
 import { isoDate } from '../../../shared/tasks';
-import { fold } from '../../../shared/task-search';
+import { fold, searchWords, snippetFor } from '../../../shared/task-search';
 
-// Isolated fixture for Find a task: tasks on every list, a finished one and a dismissed one.
+// Isolated fixture for searching tasks in ⌘K: tasks on every list, a finished one and a dismissed one, a conversation
+// and a document.
 const now = new Date().toISOString();
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
 const today = isoDate(new Date());
@@ -25,6 +26,7 @@ const data = {
     task('signed', 'Close the Q3 renewal', { status: 'done', completedAt: ago(5), updatedAt: ago(5), label: 'gtm',
       notes: 'Signed on Friday. Fjordline asked for the DPA as well, sent by Noor the same day.' }),
     task('dropped', 'Fjordline dinner', { status: 'dismissed', updatedAt: ago(1) }),
+    task('offsite', 'Set up the Harborlight offsite', { label: 'ops', updatedAt: ago(4) }),
   ],
   taskLinks: [], taskFiles: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '',
   codexStatus: 'Connected', engine: 'Claude Code', memoryProvider: 'gbrain', brainDir: null,
@@ -34,11 +36,13 @@ const data = {
   mcpSettings: { slackClientId: '', slackConfigured: false },
 } as unknown as Snapshot;
 
-// What was said in the memo task's conversation; nothing of it is in the task's title or context.
+// What was said in the memo and deck tasks' conversations, and a document in the deck's folder; none of it is in a
+// task's title or context.
 const conversation = [
   { id: 'm1', taskId: 'memo', role: 'agent', text: 'Fjelltek signed the renewal on Friday, so the memo can lead with it.' },
   { id: 'm2', taskId: 'deck', role: 'user', text: 'Put the churn slide last.' },
 ];
+const documents = [{ taskId: 'deck', path: 'drafts/board-deck-outline.md', text: '# Outline\nSlide 4: churn by cohort, then the Lidingö pilot.' }];
 let release: (() => void) | null = null;
 const fixture = { hold: false, waiting: false, release: () => release?.() };
 Object.assign(window, { fixture });
@@ -52,13 +56,26 @@ window.aegir = {
   listDocuments: async () => [],
   runEvents: async () => [],
   claudeRoutines: async () => ({ source: null, tasks: [] }),
-  // Stands in for the app's conversation index: every word must be in one message, accents ignored.
-  searchConversations: async (query: string) => {
+  // Stands in for the app's database: which searched words each task's conversation and documents hold, quoting the
+  // place that holds the most.
+  searchTaskContent: async (query: string) => {
     if (fixture.hold) { fixture.waiting = true; await new Promise<void>((done) => { release = done; }); fixture.waiting = false; }
-    const words = fold(query).split(/\s+/).filter(Boolean);
-    return conversation.filter((message) => words.every((word) => fold(message.text).includes(word)))
-      .map((message) => ({ taskId: message.taskId, messageId: message.id, role: message.role, agentId: message.role === 'agent' ? 'lead' : null, draft: false,
-        createdAt: now, snippet: message.text, hits: 1 }));
+    const words = searchWords(query);
+    const places = [
+      ...conversation.map((message) => ({ ...message, where: 'conversation', document: null })),
+      ...documents.map((document) => ({ ...document, id: null, role: null, where: 'document', document: document.path })),
+    ].map((place) => ({ ...place, held: words.flatMap((word, index) => (!word.startsWith('#') && fold(place.text).includes(word) ? [index] : [])) }))
+      .filter((place) => place.held.length);
+    const tasks = [...new Set(places.map((place) => place.taskId))];
+    return tasks.map((taskId) => {
+      const mine = places.filter((place) => place.taskId === taskId);
+      const best = mine.reduce((top, place) => (place.held.length > top.held.length ? place : top));
+      return {
+        taskId, words: [...new Set(mine.flatMap((place) => place.held))].sort(), where: best.where, document: best.document,
+        role: best.role, agentId: best.role === 'agent' ? 'lead' : null, draft: false, messageId: best.id,
+        snippet: snippetFor(best.text, ...best.held.map((index) => words[index])) || best.text,
+      };
+    });
   },
 } as unknown as DesktopApi;
 

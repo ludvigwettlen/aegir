@@ -36,7 +36,7 @@
   -webkit-app-region: drag;
   > * { -webkit-app-region: no-drag; }
 }
-// Looks like a search field; opens Find a task (⌘F) in the palette, where the typing happens.
+// Looks like a search field; opens the ⌘K palette, where the typing happens.
 .ws-sidebar-search { display: flex; align-items: center; gap: 8px; height: 30px; margin: 0 2px 8px; padding: 0 6px 0 9px; box-sizing: border-box;
   border: 0; border-radius: 10px; background: #ffffff8c; box-shadow: inset 0 0 0 0.5px #00000014; color: var(--ds-color-muted); font-size: 13px; cursor: text;
   > span { flex: 1; text-align: left; }

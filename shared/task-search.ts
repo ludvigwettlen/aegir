@@ -1,17 +1,25 @@
-import type { Task } from './types.js';
+import type { ContentMatch, Task } from './types.js';
 import { tasksFor, type TaskView } from './tasks.js';
 
 // ---- Find a task: one search across every list -----------------------------------------------
-// ⌘F, the sidebar's search bar and "Find a task…" in ⌘K all use this. Every word typed must match the task's title,
-// its label or its context (notes); case and accents don't matter, so "jobbspranget" finds Jobbsprånget. A title match
-// ranks above a label match, which ranks above one only in the context. Open tasks come before finished ones, then the
-// most recently changed. Dismissed tasks are on no list, so they are never found.
+// ⌘K and the sidebar's search bar use this. Every word typed must be somewhere in the task: its title, its label, its
+// context (notes), its conversation or the documents in its folder. The words can be in different places ("board pdf"
+// finds the board task whose chat mentions the PDF). Case and accents don't matter, so "jobbspranget" finds
+// Jobbsprånget. A title match ranks above a label match, which ranks above one only in the context, conversation or a
+// document. Open tasks come before finished ones, then the most recently changed. Finished tasks are found too and open
+// in Completed; dismissed tasks are on no list, so they are never found.
 
-export type TaskMatch = { task: Task; list: TaskView; snippet: string | null };
+// content is set when a word was only in the task's conversation or a document: the row then quotes that.
+export type TaskMatch = { task: Task; list: TaskView; snippet: string | null; content: ContentMatch | null };
 
-// The full-text query for task conversations (SQLite FTS5): every word a prefix, all required, case and accents left
-// to the index. Words are split the way the index splits text, and quoted so nothing typed is read as an operator.
-// Null when there is too little to search for.
+// The words searched for, as both sides number them: the app's database answers with indices into this list.
+export const searchWords = (query: string) => fold(query).split(/\s+/).filter(Boolean);
+// Only the first few words are looked up in conversations and documents; later ones must be in the task itself.
+export const CONTENT_WORDS = 8;
+
+// The full-text query for one searched word in task conversations (SQLite FTS5): a prefix, case and accents left to the
+// index. A word with punctuation ("q3-plan") becomes its parts, all required in one message. Parts are split the way the
+// index splits text, and quoted so nothing typed is read as an operator. Null when there is too little to search for.
 export function conversationQuery(text: string): string | null {
   const words = (text.normalize('NFC').match(/[\p{L}\p{N}]+/gu) || []).slice(0, 8);
   if (words.join('').length < 2) return null;
@@ -29,12 +37,15 @@ export function homeList(task: Task, today = new Date()): TaskView | null {
   return views.find((view) => tasksFor(view, [task], today).length > 0) ?? null;
 }
 
-const oneLine = (text: string) => text.replace(/^#+ /gm, '').replace(/\s+/g, ' ').trim();
-// A few words either side of the first place the context matches, for a match that is not in the title.
-function snippetFor(notes: string, token: string) {
-  const flat = oneLine(notes);
-  const at = fold(flat).indexOf(token);
-  if (at < 0) return null;
+// Agents write Markdown: headings, bold and code marks would show as raw characters in a one-line quote.
+const oneLine = (text: string) => text.replace(/^#+ /gm, '').replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim();
+// A few words either side of the first place the text holds any of the words, for a match that is not in the title.
+export function snippetFor(text: string, ...tokens: string[]) {
+  const flat = oneLine(text);
+  const folded = fold(flat);
+  const hits = tokens.map((word) => [folded.indexOf(word), word] as const).filter(([at]) => at >= 0).sort((a, b) => a[0] - b[0]);
+  if (!hits.length) return null;
+  const [at, token] = hits[0];
   const start = Math.max(0, flat.lastIndexOf(' ', Math.max(0, at - 30)) + 1);
   const end = Math.min(flat.length, at + token.length + 50);
   return `${start > 0 ? '…' : ''}${flat.slice(start, end).trim()}${end < flat.length ? '…' : ''}`;
@@ -48,8 +59,23 @@ const textOf = (task: Task) => {
   return text;
 };
 
-export function searchTasks(tasks: Task[], query: string, today = new Date(), limit = 50): TaskMatch[] {
-  const words = fold(query).split(/\s+/).filter(Boolean);
+// Conversation and document matches from two sources, one per task: the words either holds, quoting the one that holds
+// more of them (the conversation when even).
+export function mergeContent(...sources: ContentMatch[][]): ContentMatch[] {
+  const merged = new Map<string, ContentMatch>();
+  for (const match of sources.flat()) {
+    const seen = merged.get(match.taskId);
+    if (!seen) { merged.set(match.taskId, match); continue; }
+    const words = [...new Set([...seen.words, ...match.words])].sort((a, b) => a - b);
+    merged.set(match.taskId, { ...(match.words.length > seen.words.length ? match : seen), words });
+  }
+  return [...merged.values()].sort((a, b) => b.words.length - a.words.length);
+}
+
+// content: what the app's database found in conversations and documents, by task. Without it only the task's own
+// fields are searched, which is instant; the palette searches again once content arrives.
+export function searchTasks(tasks: Task[], query: string, today = new Date(), limit = 50, content?: ReadonlyMap<string, ContentMatch>): TaskMatch[] {
+  const words = searchWords(query);
   // Built once per search: does the word start a word in the title.
   const starts = new Map(words.map((raw) => [raw, new RegExp(`(^|[^a-z0-9])${raw.replace(/^#/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)]));
   const scored: { match: TaskMatch; score: number }[] = [];
@@ -58,14 +84,16 @@ export function searchTasks(tasks: Task[], query: string, today = new Date(), li
     if (!list) continue;
     if (!words.length) {
       // Nothing typed yet: the open tasks you touched last.
-      if (task.status !== 'done') scored.push({ match: { task, list, snippet: null }, score: 0 });
+      if (task.status !== 'done') scored.push({ match: { task, list, snippet: null, content: null }, score: 0 });
       continue;
     }
     const { title, label, notes } = textOf(task);
     let score = 0;
     let snippet: string | null = null;
+    let quoted: ContentMatch | null = null;
     let all = true;
-    for (const raw of words) {
+    const found = content?.get(task.id);
+    for (const [index, raw] of words.entries()) {
       // "#board" means the label.
       const word = raw.replace(/^#/, '');
       if (!word) continue;
@@ -77,11 +105,12 @@ export function searchTasks(tasks: Task[], query: string, today = new Date(), li
       else if (title.includes(word)) score += 3;
       else if (label.includes(word)) score += 2;
       else if (notes.includes(word)) { score += 1; snippet ??= snippetFor(task.notes, word); }
+      else if (found?.words.includes(index)) { score += 1; quoted = found; }
       else { all = false; break; }
     }
     if (!all) continue;
     if (words.length > 1 && title.includes(words.join(' '))) score += 3;
-    scored.push({ match: { task, list, snippet }, score });
+    scored.push({ match: { task, list, snippet, content: quoted }, score });
   }
   return scored
     .sort((a, b) => b.score - a.score

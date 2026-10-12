@@ -13,7 +13,7 @@ import type {
   RoutineRun,
   RoutineSchedule,
   RunEvent,
-  ConversationMatch,
+  ContentMatch,
   Priority,
   PriorityEvent,
   PriorityEventKind,
@@ -30,7 +30,7 @@ import { defaultAgents, legacyAgents , singleLeadInstructions } from './default-
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import { MAX_FILES_PER_MESSAGE } from '../shared/task-files.js';
 import { sourceKind } from '../shared/tasks.js';
-import { conversationQuery } from '../shared/task-search.js';
+import { conversationQuery, snippetFor } from '../shared/task-search.js';
 import type { SkillProposal } from '../shared/skills.js';
 
 const now = () => new Date().toISOString();
@@ -218,26 +218,49 @@ export class Store {
       this.setSetting('messageSearchVersion', MESSAGE_SEARCH_VERSION);
     })();
   }
-  // Task conversations that mention every word, the best message of each first. Chats outside tasks are left out.
-  searchTaskMessages(text: string, limit = 30): ConversationMatch[] {
-    const query = conversationQuery(text);
-    if (!query) return [];
-    const rows = this.db.prepare(`SELECT t.id AS taskId, m.id AS messageId, m.role AS role, m.agentId AS agentId, m.createdAt AS createdAt,
-        CASE WHEN json_valid(m.meta) AND json_extract(m.meta, '$.type') = 'message-draft' THEN 1 ELSE 0 END AS draft,
-        snippet(message_search, 0, '', '', '…', 12) AS snippet
+  // Which of the searched words (see searchWords) each task's conversation holds, quoting the message that holds the
+  // most of them, the newest when even. A word with a # is a label and never looked up here. Chats outside tasks are
+  // left out.
+  searchTaskMessages(words: readonly string[], limit = 200): ContentMatch[] {
+    const lookup = this.db.prepare(`SELECT message_search.rowid AS rowid, th.taskId AS taskId, m.createdAt AS createdAt
       FROM message_search
       JOIN messages m ON m.rowid = message_search.rowid
       JOIN threads th ON th.id = m.threadId AND th.kind = 'task'
       JOIN tasks t ON t.id = th.taskId
-      WHERE message_search MATCH ? ORDER BY bm25(message_search), m.createdAt DESC LIMIT 400`).all(query) as (Omit<ConversationMatch, 'draft' | 'hits'> & { draft: number })[];
-    const best = new Map<string, ConversationMatch>();
-    for (const row of rows) {
-      const seen = best.get(row.taskId);
-      if (seen) seen.hits++;
-      // Agents write Markdown: the bold and code marks would show as raw characters in a one-line snippet.
-      else best.set(row.taskId, { ...row, draft: row.draft === 1, snippet: row.snippet.replace(/\*\*|`/g, '').replace(/\s+/g, ' ').trim(), hits: 1 });
+      WHERE message_search MATCH ?`);
+    const messages = new Map<number, { taskId: string; createdAt: string; words: number[] }>();
+    words.forEach((word, index) => {
+      const query = word.startsWith('#') ? null : conversationQuery(word);
+      if (!query) return;
+      for (const row of lookup.all(query) as { rowid: number; taskId: string; createdAt: string }[]) {
+        const seen = messages.get(row.rowid);
+        if (seen) seen.words.push(index);
+        else messages.set(row.rowid, { taskId: row.taskId, createdAt: row.createdAt, words: [index] });
+      }
+    });
+    const tasks = new Map<string, { words: Set<number>; best: number }>();
+    for (const [rowid, message] of messages) {
+      const task = tasks.get(message.taskId);
+      if (!task) { tasks.set(message.taskId, { words: new Set(message.words), best: rowid }); continue; }
+      message.words.forEach((word) => task.words.add(word));
+      const best = messages.get(task.best)!;
+      const newer = message.createdAt > best.createdAt || (message.createdAt === best.createdAt && rowid > task.best);
+      if (message.words.length > best.words.length || (message.words.length === best.words.length && newer)) task.best = rowid;
     }
-    return [...best.values()].slice(0, limit);
+    const ranked = [...tasks].sort((a, b) => b[1].words.size - a[1].words.size).slice(0, limit);
+    const quote = this.db.prepare(`SELECT message_search.body AS body, m.id AS messageId, m.role AS role, m.agentId AS agentId,
+        CASE WHEN json_valid(m.meta) AND json_extract(m.meta, '$.type') = 'message-draft' THEN 1 ELSE 0 END AS draft
+      FROM message_search JOIN messages m ON m.rowid = message_search.rowid WHERE message_search.rowid = ?`);
+    return ranked.map(([taskId, task]) => {
+      const row = quote.get(task.best) as { body: string; messageId: string; role: Message['role']; agentId: string | null; draft: number };
+      const held = messages.get(task.best)!.words.map((index) => words[index]);
+      return {
+        taskId, words: [...task.words].sort((a, b) => a - b), where: 'conversation' as const, document: null,
+        messageId: row.messageId, role: row.role, agentId: row.agentId, draft: row.draft === 1,
+        // The index matched a word's start; the quote looks for the whole word, then its first part.
+        snippet: snippetFor(row.body, ...held, ...held.map((word) => word.split(/[^\p{L}\p{N}]+/u).find(Boolean) || word)) || row.body.slice(0, 80),
+      };
+    });
   }
   // Earlier versions had rooms without threads. Each room becomes a group and its history one closed thread.
   private migrate() {

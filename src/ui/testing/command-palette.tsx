@@ -55,6 +55,7 @@ window.aegir = {
   threadMessages: async () => ({ messages: [], before: null }),
   skillLibrary: async () => ({ skills: [], proposals: [], routineBindings: {} }),
   listDocuments: async () => [],
+  searchTaskContent: async () => [],
   runEvents: async () => [],
   claudeRoutines: async () => ({ source: '/fixture/scheduled-tasks.json', tasks: [
     { id: 'cron-daily-brief', name: 'cron-daily-brief', description: 'Morning brief', schedule: 'Daily at 05:00', cron: '0 5 * * *', enabled: true, lastRunAt: null, runs: [] },

@@ -1,6 +1,6 @@
 import type { TaskView } from '../../shared/tasks';
 
-// A task to select in a list once that list is on screen: set by Find a task, taken by the task list as it renders.
+// A task to select in a list once that list is on screen: set by a task found in ⌘K, taken by the task list as it renders.
 // It waits for the list to be shown, because the finder navigates and asks in the same moment.
 let pending: { list: TaskView; taskId: string } | null = null;
 

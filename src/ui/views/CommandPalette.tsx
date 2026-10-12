@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, Bot, CalendarDays, Check, CheckCheck, Hash, Inbox, MessageCircle, MessageSquare, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
+  Archive, Bot, CalendarDays, Check, CheckCheck, FileText, Hash, Inbox, MessageCircle, MessageSquare, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
   Undo2, Users, Wand2, type LucideIcon,
 } from 'lucide-react';
-import type { ClaudeRoutines, Snapshot, Task } from '../../../shared/types';
+import type { ClaudeRoutines, ContentMatch, Snapshot, Task } from '../../../shared/types';
 import { claudeRoutineName } from '../../../shared/cron';
 import type { TaskView } from '../../../shared/tasks';
-import { rankCommands } from '../../../shared/command-search';
-import { homeList, searchTasks } from '../../../shared/task-search';
+import { rankCommands, titleMatch } from '../../../shared/command-search';
+import { searchTasks, type TaskMatch } from '../../../shared/task-search';
 import { focusTask } from '../task-focus';
 import { registeredCommands, setCommandPaletteOpener, type Command, type CommandOption, type CommandSection, type CommandStep } from '../commands';
 import { goTo, goToList, newTask, newThread, undoTaskAction } from '../hooks/useWorkspaceKeyboard';
@@ -20,7 +20,7 @@ type Props = {
 type Row = Command | CommandOption;
 // What the palette works from while it's open. It's read once when the palette opens, so a snapshot
 // arriving meanwhile can't swap the task under a highlighted Delete.
-type Frozen = { context?: string; commands: Command[]; forQuery: (query: string) => Command[] };
+type Frozen = { context?: string; commands: Command[]; forQuery: (query: string) => Command[]; tasks: Task[]; agents: Snapshot['agents'] };
 // rootQuery is null when a key like ⌘L opened the step directly; Esc then closes instead of going back.
 type Step = { step: CommandStep; rootQuery: string | null };
 
@@ -41,41 +41,25 @@ const shortDate = (iso: string) => {
 const factsOf = (task: Task, list: TaskView) =>
   [listInfo.get(list)!.title, task.priority ? `P${task.priority}` : '', task.label ? `#${task.label}` : '', task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean).join(' · ');
 
-// Find a task (⌘F, the sidebar's search bar, ⌘K): every list at once, and every task conversation. A row says which
-// list the task is on, its band, label and date, and the words around the match when it was in the context or the
-// conversation (who said them, for a conversation). Choosing it opens that list with the task selected.
-export const findTaskCommand = (data: Snapshot, go: Props['go']): Command => {
-  const open = (task: Task, list: TaskView) => () => { focusTask(list, task.id); goToList(go, list); };
+// A task found by what was typed in ⌘K: the list it is on, its band, label and date, and the words around the match
+// when it was not in the title (who said them, for a conversation; the file, for a document). Choosing it opens that
+// list with the task selected.
+const taskRow = ({ task, list, snippet, content }: TaskMatch, agents: Snapshot['agents'], go: Props['go']): CommandOption => {
+  const who = (match: ContentMatch) => (match.where === 'document' ? match.document!.split('/').pop()!
+    : match.draft ? 'Draft' : match.role === 'user' ? 'You'
+      : match.role === 'agent' ? agents.find((agent) => agent.id === match.agentId)?.name || 'Claude' : 'Note');
+  const quote = content ? `${who(content)}: “${content.snippet}”` : snippet;
   return {
-    id: 'go.find', section: 'go', title: 'Find a task…', icon: Search, keys: '⌘ F', keywords: ['search', 'find', 'look up', 'all tasks', 'where', 'conversation'],
-    step: {
-      title: 'Find', placeholder: 'Search every task, its context and its conversation…', empty: 'No task matches.', standalone: true,
-      pending: 'Searching conversations…',
-      options: (query) => searchTasks(data.tasks, query).map(({ task, list, snippet }) => ({
-        id: `find.${task.id}`, title: task.title, icon: listInfo.get(list)!.icon,
-        subtitle: snippet ? `${factsOf(task, list)} · ${snippet}` : factsOf(task, list),
-        run: open(task, list),
-      })),
-      // Conversations live in the app's database, so they are searched there and arrive a moment later.
-      more: async (query) => (await api.searchConversations(query)).flatMap((match) => {
-        const task = data.tasks.find((item) => item.id === match.taskId);
-        const list = task && homeList(task);
-        if (!task || !list) return [];
-        const who = match.draft ? 'Draft' : match.role === 'user' ? 'You' : match.role === 'agent'
-          ? data.agents.find((agent) => agent.id === match.agentId)?.name || 'Claude' : 'Note';
-        return [{
-          id: `find.${task.id}`, title: task.title, icon: MessageSquare,
-          subtitle: `${factsOf(task, list)} · ${who}: “${match.snippet}”${match.hits > 1 ? ` · ${match.hits} messages` : ''}`,
-          run: open(task, list),
-        }];
-      }),
-    },
+    id: `find.${task.id}`, title: task.title,
+    icon: content?.where === 'document' ? FileText : content ? MessageSquare : listInfo.get(list)!.icon,
+    subtitle: quote ? `${factsOf(task, list)} · ${quote}` : factsOf(task, list),
+    run: () => { focusTask(list, task.id); goToList(go, list); },
   };
 };
 
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.
 function appCommands({ data, claude, route, go, run, notify, onNewGroup }: Props): Command[] {
-  const commands: Command[] = [findTaskCommand(data, go), ...lists.map(([list, title, icon, key]): Command => ({
+  const commands: Command[] = [...lists.map(([list, title, icon, key]): Command => ({
     id: `go.${list}`, section: 'go', title: `Go to ${title}`, icon, keys: `G then ${key}`,
     keywords: ['list', 'jump', 'open', 'show'], run: () => goToList(go, list),
   }))];
@@ -124,14 +108,17 @@ function Keys({ keys }: { keys: string }) {
   </span>;
 }
 
-// ⌘K: one box that finds any action by name, shows its shortcut and runs it. Modelled on Godspeed's command palette.
+// ⌘K: one box that finds any task and any action. Typing lists the commands whose name it matches, then every task that
+// holds the words (title, label, context, conversation, documents, finished tasks included), then the commands that
+// match less well. Modelled on Godspeed's command palette.
 export function CommandPalette(props: Props) {
   const [frozen, setFrozen] = useState<Frozen | null>(null);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [step, setStep] = useState<Step | null>(null);
-  // Rows a step fetches (step.more), for the query they answer. Answers to an older query are dropped.
-  const [extra, setExtra] = useState<{ query: string; rows: CommandOption[]; done: boolean } | null>(null);
+  // What tasks' conversations and documents hold of the query, from the app's database. Answers to an older query are
+  // dropped.
+  const [content, setContent] = useState<{ query: string; matches: Map<string, ContentMatch>; done: boolean } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
@@ -154,9 +141,11 @@ export function CommandPalette(props: Props) {
     returnTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     pointer.current = mouse.current;
     isOpen.current = true;
-    setFrozen({ context: sets.find((set) => set.context)?.context, commands, forQuery: (text) => sets.flatMap((set) => set.forQuery?.(text) || []) });
+    const { data } = latestProps.current;
+    setFrozen({ context: sets.find((set) => set.context)?.context, commands, forQuery: (text) => sets.flatMap((set) => set.forQuery?.(text) || []),
+      tasks: data.tasks, agents: data.agents });
     setStep(direct ? { step: direct, rootQuery: null } : null);
-    setExtra(null);
+    setContent(null);
     setQuery('');
     setActive(0);
   };
@@ -178,14 +167,13 @@ export function CommandPalette(props: Props) {
     const onKey = (event: KeyboardEvent) => {
       if (isOpen.current) { handleKey.current(event); return; }
       const key = event.key.toLowerCase();
-      if (!(event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (key === 'k' || key === 'f'))) return;
+      if (!(event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && key === 'k')) return;
       if (event.isComposing || event.defaultPrevented || event.repeat) return;
       // In a rich-text editor ⌘K belongs to the editor (the document editor inserts links with it).
       if (event.target instanceof Element && event.target.closest('[contenteditable="true"]')) return;
       event.preventDefault();
       event.stopPropagation();
-      // ⌘F opens the palette straight at Find a task, the way ⌘L opens it at Set label.
-      open(key === 'f' ? 'go.find' : undefined);
+      open();
     };
     const onMouse = (event: MouseEvent) => { mouse.current = `${event.clientX},${event.clientY}`; };
     const onFocus = (event: FocusEvent) => {
@@ -203,32 +191,48 @@ export function CommandPalette(props: Props) {
     };
   }, []);
 
+  const text = query.trim();
   useEffect(() => {
-    const more = step?.step.more;
-    const text = query.trim();
-    if (!more || text.length < 2) { setExtra(null); return; }
+    if (!frozen || step || text.length < 2) { setContent(null); return; }
     let live = true;
-    setExtra((previous) => (previous?.query === text ? previous : { query: text, rows: [], done: false }));
+    setContent((previous) => (previous?.query === text ? previous : { query: text, matches: new Map(), done: false }));
     // A short pause while typing, so each keystroke doesn't search the database.
     const timer = window.setTimeout(() => {
-      more(text).then((rows) => { if (live) setExtra({ query: text, rows, done: true }); })
-        .catch(() => { if (live) setExtra({ query: text, rows: [], done: true }); });
+      Promise.resolve().then(() => api.searchTaskContent(text)).then((matches) => { if (live) setContent({ query: text, matches: new Map(matches.map((match) => [match.taskId, match])), done: true }); })
+        .catch(() => { if (live) setContent({ query: text, matches: new Map(), done: true }); });
     }, 150);
     return () => { live = false; window.clearTimeout(timer); };
-  }, [step, query]);
+  }, [frozen, step, text]);
 
-  const typed = frozen && !step && query.trim() ? frozen.forQuery(query.trim()) : [];
-  const stepRows = (current: Step) => {
-    const base = current.step.options(query);
-    if (!extra || extra.query !== query.trim()) return base;
-    const ids = new Set(base.map((row) => row.id));
-    return [...base, ...extra.rows.filter((row) => !ids.has(row.id))];
+  // Typed into the first step: commands named by it, then tasks, then the commands it matches less well. Tasks found
+  // only through their conversation or documents arrive a moment later and go below the ones already listed, so the
+  // highlighted row never moves.
+  const searched = (): { rows: Row[]; labels: Map<number, string> } => {
+    // Rows built from what was typed ("Set due date to Fri 9 Oct" for "fri") always lead.
+    const ranked = rankCommands(frozen!.commands, text);
+    const named = [...frozen!.forQuery(text), ...ranked.filter((command) => titleMatch(command, text)).slice(0, 5)];
+    const rest = ranked.filter((command) => !named.includes(command));
+    const now = new Date();
+    const found = searchTasks(frozen!.tasks, text, now, 30);
+    const answer = content?.query === text ? content : null;
+    const ids = new Set(found.map((match) => match.task.id));
+    const later = answer?.matches.size
+      ? searchTasks(frozen!.tasks, text, now, 30, answer.matches).filter((match) => !ids.has(match.task.id)) : [];
+    const { go } = latestProps.current;
+    const tasks = [...found, ...later].map((match) => taskRow(match, frozen!.agents, go));
+    const labels = new Map<number, string>();
+    if (tasks.length && (named.length || rest.length)) {
+      if (named.length) labels.set(0, 'Commands');
+      labels.set(named.length, 'Tasks');
+      if (rest.length) labels.set(named.length + tasks.length, named.length ? 'More commands' : 'Commands');
+    }
+    return { rows: [...named, ...tasks, ...rest], labels };
   };
-  const searching = !!step?.step.more && query.trim().length >= 2 && !(extra?.query === query.trim() && extra.done);
-  const rows: Row[] = !frozen ? []
-    : step ? stepRows(step)
-      : query.trim() ? [...typed, ...rankCommands(frozen.commands, query)]
-        : frozen.commands.filter((command) => !command.searchOnly);
+  const searching = !!frozen && !step && text.length >= 2 && !(content?.query === text && content.done);
+  const { rows, labels }: { rows: Row[]; labels: Map<number, string> } = !frozen ? { rows: [], labels: new Map() }
+    : step ? { rows: step.step.options(query), labels: new Map() }
+      : text ? searched()
+        : { rows: frozen.commands.filter((command) => !command.searchOnly), labels: new Map() };
   const index = rows.length ? Math.min(active, rows.length - 1) : -1;
   useLayoutEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -264,7 +268,6 @@ export function CommandPalette(props: Props) {
     const handled = () => { event.preventDefault(); event.stopPropagation(); };
     const move = (by: number) => { handled(); if (rows.length) setActive((index + by + rows.length) % rows.length); };
     if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') { handled(); if (!event.repeat) close(); }
-    else if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') handled();
     else if (event.key === 'ArrowDown' || (event.ctrlKey && event.key === 'n')) move(1);
     else if (event.key === 'ArrowUp' || (event.ctrlKey && event.key === 'p')) move(-1);
     else if (event.key === 'Enter') { handled(); if (!event.repeat) execute(rows[index]); }
@@ -283,18 +286,20 @@ export function CommandPalette(props: Props) {
           {step ? <span className="ws-palette-step">{step.step.title}</span> : <Search size={15} aria-hidden="true" />}
           <input ref={input} autoFocus spellCheck={false} role="combobox" aria-expanded="true" aria-controls="ws-palette-list"
             aria-autocomplete="list" aria-activedescendant={index >= 0 ? `ws-palette-${index}` : undefined}
-            aria-label={step ? step.step.title : 'Search commands'} placeholder={step ? step.step.placeholder : 'Search commands…'}
+            aria-label={step ? step.step.title : 'Search tasks and commands'} placeholder={step ? step.step.placeholder : 'Search tasks and commands…'}
             value={query} onChange={(event) => { setQuery(event.target.value); setActive(0); }} />
         </div>
-        {frozen.context && !step?.step.standalone && <p className="ws-palette-context">{frozen.context}</p>}
+        {/* The line naming the selected task shows while its own commands are listed. */}
+        {frozen.context && (step || !text || rows.some((row) => 'section' in row && row.section === 'task')) && <p className="ws-palette-context">{frozen.context}</p>}
         <div className="ws-palette-list" id="ws-palette-list" role="listbox" aria-label={step ? step.step.title : 'Commands'} ref={list}>
           {rows.map((row, at) => {
             const section = 'section' in row ? row.section : undefined;
             const previous = rows[at - 1];
-            const label = sectioned && section && sectionTitles[section] && (!previous || !('section' in previous) || previous.section !== section);
+            const label = sectioned ? section && sectionTitles[section] && (!previous || !('section' in previous) || previous.section !== section) && sectionTitles[section]
+              : labels.get(at);
             const Icon = row.icon;
             return <Fragment key={row.id}>
-              {label && <div className="ws-palette-section" aria-hidden="true">{sectionTitles[section]}</div>}
+              {label && <div className="ws-palette-section" aria-hidden="true">{label}</div>}
               <div id={`ws-palette-${at}`} role="option" aria-selected={at === index} className={`ws-palette-row ${at === index ? 'active' : ''}`}
                 // Only a real pointer move changes the highlight, never rows sliding under a resting pointer.
                 onMouseMove={(event) => {
@@ -312,7 +317,7 @@ export function CommandPalette(props: Props) {
             </Fragment>;
           })}
           {!rows.length && <p className="ws-palette-empty" role="status">
-            {step ? (searching && step.step.pending) || step.step.empty : `No command matches “${query.trim()}”.`}
+            {step ? step.step.empty : searching ? 'Searching conversations and documents…' : `Nothing matches “${text}”.`}
           </p>}
         </div>
         <footer className="ws-palette-foot">↑↓ move · ↵ {step ? 'choose' : 'run'} · esc {step && step.rootQuery !== null ? 'back' : 'close'}</footer>
