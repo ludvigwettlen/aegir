@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import type { Editor } from '@tiptap/react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { List, NotebookPen, X } from 'lucide-react';
-import { ToggleGroup } from '../design-system/primitives';
+import { List, MessageSquareText, NotebookPen, Send, X } from 'lucide-react';
+import { Button, ToggleGroup } from '../design-system/primitives';
+import type { ListedComment } from '../document-review';
 import { DocumentScratchpad } from './DocumentScratchpad';
 
 type Heading = { position: number; level: number; text: string };
@@ -14,9 +15,13 @@ function headingsIn(doc: ProseMirrorNode) {
   return headings;
 }
 
-export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onClose, onNavigate }: {
+// comments: the review waiting to go to Claude, listed under Comments with its Send button. Left out where the document
+// can't be reviewed (read only, or no conversation to send to).
+export type CompanionComments = { list: ListedComment[]; send: () => void; canSend: boolean; label: string; title: string };
+
+export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onClose, onNavigate, comments }: {
   editor: Editor | null; scrollRef: RefObject<HTMLDivElement | null>; storageKey: string;
-  open: boolean; id: string; onClose: () => void; onNavigate: () => void;
+  open: boolean; id: string; onClose: () => void; onNavigate: () => void; comments?: CompanionComments;
 }) {
   const [mode, setMode] = useState('contents');
   const [headings, setHeadings] = useState<Heading[]>([]);
@@ -63,9 +68,10 @@ export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onC
     return () => { editor.off('transaction', selection); scroll?.removeEventListener('scroll', scrolled); cancelAnimationFrame(scrollFrame.current); cancelAnimationFrame(jumpFrame.current); };
   }, [editor, scrollRef]);
 
-  const jump = (heading: Heading) => {
+  const jump = (heading: Heading) => goTo(heading.position + 1);
+  const goTo = (position: number) => {
     if (!editor || editor.isDestroyed) return;
-    editor.chain().setTextSelection(heading.position + 1).focus(undefined, { scrollIntoView: false }).run();
+    editor.chain().setTextSelection(position).focus(undefined, { scrollIntoView: false }).run();
     onNavigate();
     cancelAnimationFrame(jumpFrame.current);
     jumpFrame.current = requestAnimationFrame(() => {
@@ -79,9 +85,10 @@ export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onC
 
   return <aside id={id} hidden={!open} className="ws-document-companion" aria-label="Document outline and notes" onKeyDown={event => event.stopPropagation()}>
     <header>
-      <ToggleGroup size="sm" className="ws-companion-switch" aria-label="Document panel mode" value={mode} onValueChange={setMode} data-mode={mode}>
+      <ToggleGroup size="sm" className="ws-companion-switch" aria-label="Document panel mode" value={mode} onValueChange={setMode} data-mode={mode} data-count={comments ? 3 : 2}>
         <ToggleGroup.Item value="contents" aria-controls={`${panelId}-contents`}><List size={13} aria-hidden="true" />Contents</ToggleGroup.Item>
         <ToggleGroup.Item value="notes" aria-controls={`${panelId}-notes`}><NotebookPen size={13} aria-hidden="true" />Scratchpad</ToggleGroup.Item>
+        {comments && <ToggleGroup.Item value="comments" aria-controls={`${panelId}-comments`}><MessageSquareText size={13} aria-hidden="true" />Comments{comments.list.length ? ` ${comments.list.length}` : ''}</ToggleGroup.Item>}
       </ToggleGroup>
       <button className="ws-icon-btn" data-close-companion aria-label="Hide outline and notes" title="Hide panel" onClick={onClose}><X size={13} aria-hidden="true" /></button>
     </header>
@@ -92,6 +99,19 @@ export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onC
         </button>
       </li>)}</ol> : <p>Add headings to your document to build an outline.</p>}
     </nav>
+    {comments && <div id={`${panelId}-comments`} hidden={mode !== 'comments'} className="ws-document-review" aria-label="Comments to send">
+      {comments.list.length ? <>
+        <ol>{comments.list.map(comment => <li key={comment.id}>
+          <button title="Go to this passage" onClick={() => goTo(comment.from + 1)}>
+            <span className="ws-review-passage">{comment.passage}</span><span className="ws-review-comment">{comment.text}</span>
+          </button>
+        </li>)}</ol>
+        <footer>
+          <Button size="sm" data-send-comments disabled={!comments.canSend} title={comments.title} onClick={comments.send}><Send size={14} aria-hidden="true" />{comments.label}</Button>
+          <p>Claude gets them in one message, and they leave the document.</p>
+        </footer>
+      </> : <p>No comments yet. Select text, then Comment or ⇧⌘M. Send them to Claude together when you are done.</p>}
+    </div>}
     <div id={`${panelId}-notes`} hidden={mode !== 'notes'} className="ws-document-scratchpad">
       <DocumentScratchpad key={storageKey} storageKey={storageKey} statusId={`${panelId}-status`} />
     </div>

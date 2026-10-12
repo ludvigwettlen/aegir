@@ -48,7 +48,7 @@ Codex runs chat and routines in a read-only sandbox. Commands that need broader 
 
 Upgrading keeps existing data: rooms become groups, each room's history becomes a closed "Earlier conversation" thread, and goal output becomes a task thread. The old tables stay in the database. No Slack, Notion, or Mnemosyne account was connected during local development, so live OAuth, retrieval and full agent runs need an end-to-end check with your accounts.
 
-The in-app Markdown workspace supports formatted editing, autosave, and selected-passage references to the team. The active heading shows its `#` level in the left margin. Type `/` on an empty paragraph to insert a table, link, list, checklist, quote, code block, or divider; Cmd+K opens link insertion for selected text.
+The in-app Markdown workspace supports formatted editing, autosave, and selected-passage references to the team. To review a whole document, select passages and press Comment (or `Shift+Cmd+M`) as you read, edit wording directly, then press **Send N comments** (or `Shift+Cmd+Enter`): Claude gets every comment in one message and the comments leave the file. The active heading shows its `#` level in the left margin. Type `/` on an empty paragraph to insert a table, link, list, checklist, quote, code block, or divider; Cmd+K opens link insertion for selected text.
 
 The UI is documented in [the design system](docs/design-system.md).
 Current follow-up work is tracked in [TODO.md](TODO.md). Shared agent behavior and the Hermes comparison are documented in [the instruction review](docs/agent-instructions-review.md).

@@ -7,6 +7,7 @@ import { ArrowDownRight, ChevronRight, FilePenLine, FileText, FolderSearch, Mess
 import type { Agent, Group, Message, Routine, Snapshot, Step, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { reviewMirror, reviewRequest } from '../../../shared/review';
+import { reviewBatchMessage } from '../../../shared/document-review';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 import { ComposerAttachments, MessageAttachments, type Chip } from './Attachments';
 
@@ -203,7 +204,12 @@ export function ThreadView({
           onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setChatWidth(Math.max(25, Math.min(55, (event.clientX - rect.left) / rect.width * 100))); } }}
           onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)}
           onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowRight' ? 2 : -2)))); } }} />
-        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument} headerActions={filePicker} />
+        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument} headerActions={filePicker}
+          review={{ busy, send: async (batch) => {
+            // In a task on Claude Code, each round is committed to the brain like a human-review round.
+            beforeSend?.();
+            await api.sendMessage(thread.id, reviewBatchMessage(batch, threadTask ? reviewMirror(batch.path, threadTask.createdAt) : undefined));
+          } }} />
       </>}
       </div>
     </div>

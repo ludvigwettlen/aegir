@@ -11,7 +11,7 @@ function contextFor(route: Route): Context {
   const focusMode = Boolean(document.querySelector('.ws-document-focus'));
   if (document.querySelector('.document-open') && !dialog) return {
     title: 'Document workspace', editing: true, dialog: false,
-    hints: [['Esc', focusMode ? 'Exit focus mode' : 'Save and close document'], ['F6', focusMode ? 'Focus document text' : 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['/', 'Insert formatting on an empty line'], ['⌘K', 'Insert link'], ['⇧⌘M', 'Comment on selected text'], ['Tab / ⇧Tab', 'Move between controls']],
+    hints: [['Esc', focusMode ? 'Exit focus mode' : 'Save and close document'], ['F6', focusMode ? 'Focus document text' : 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['/', 'Insert formatting on an empty line'], ['⌘K', 'Insert link'], ['⇧⌘M', 'Comment on selected text'], ['⇧⌘↵', 'Send all comments to Claude'], ['Tab / ⇧Tab', 'Move between controls']],
   };
   if (dialog?.classList.contains('ws-palette')) return { title: 'Command palette', editing: true, dialog: true,
     hints: [['Type', 'Find a command by name, initials or a synonym'], ['↑ / ↓', 'Move the highlight'], ['Enter', 'Run the command'], ['Esc', 'Close, or go back from a second step'], ['⌘K', 'Close the palette']] };

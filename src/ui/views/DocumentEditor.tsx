@@ -6,13 +6,17 @@ import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Image from '@tiptap/extension-image';
-import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, PanelLeft, Send, X } from 'lucide-react';
+import { closeHistory } from '@tiptap/pm/history';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
 import { DocumentTable } from '../document-tables';
 import { DocumentHeadingMarkers } from '../document-headings';
-import { DocumentComment, DocumentCommentParagraph } from '../document-comments';
+import { DocumentComment, DocumentCommentParagraph, commentName } from '../document-comments';
+import { removeAllComments, reviewComments, type ListedComment } from '../document-review';
+import { unwrapComments } from '../../../shared/document-comments';
+import type { ReviewBatch } from '../../../shared/document-review';
 import { DocumentComments } from './DocumentComments';
 import { DocumentCommands } from './DocumentCommands';
 import { Button } from '../design-system/primitives';
@@ -23,11 +27,15 @@ export type DocumentEditorHandle = { save: () => Promise<boolean> };
 type Draft = { content: string; revision: string };
 const errorText = (error: unknown) => String(error).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )?/, '');
 
+// review: sends the document's comments to Claude in one message. busy while Claude is working on the conversation.
+export type DocumentReview = { busy: boolean; send: (batch: ReviewBatch) => Promise<void> };
+
 export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   document: WorkspaceDocument; threadId: string; onClose: () => void; headerActions?: ReactNode;
   onSelection: (selection: DocumentReference | null) => void;
   onOpenDocument: (path: string) => void;
-}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions }, ref) {
+  review?: DocumentReview;
+}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions, review }, ref) {
   const storageKey = `aegir-document:${threadId}:${initial.path}`;
   const [recovered] = useState<Draft | null>(() => {
     try { const draft = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof draft?.content === 'string' && typeof draft?.revision === 'string' ? draft : null; } catch { return null; }
@@ -42,6 +50,12 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const [copyStatus, setCopyStatus] = useState('');
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  // A short line in the header's status spot: Copied, Sent 3 comments to Claude.
+  const notify = (text: string) => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    setCopyStatus(text);
+    copyTimer.current = setTimeout(() => setCopyStatus(''), 3000);
+  };
   const copy = async () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
     try {
@@ -121,6 +135,68 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     },
   });
   useTypewriter(editor, scroll, typewriterMode && !unsupported);
+
+  // The comments waiting to go to Claude, and the text as it was when the last batch went (comments left out), to
+  // tell Claude whether you also edited the text yourself.
+  const [comments, setComments] = useState<ListedComment[]>([]);
+  const [sending, setSending] = useState(false);
+  const plain = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editor) return;
+    plain.current ??= unwrapComments(editor.getMarkdown());
+    const sync = ({ transaction }: { transaction: { docChanged: boolean } }) => { if (transaction.docChanged) setComments(reviewComments(editor.state.doc)); };
+    setComments(reviewComments(editor.state.doc));
+    editor.on('transaction', sync);
+    return () => { editor.off('transaction', sync); };
+  }, [editor]);
+  const canSend = Boolean(review && editor?.isEditable && comments.length && !review.busy && !sending);
+  // The comments leave the file first and the file is saved, so Claude never reads them twice; then one message goes.
+  // If either step fails, the comments go back where they were.
+  const sendComments = async () => {
+    if (!editor || !review || !canSend) return;
+    const batch: ReviewBatch = {
+      path: initial.path, comments: comments.map(({ passage, text }) => ({ passage, text })),
+      edited: plain.current !== null && unwrapComments(editor.getMarkdown()) !== plain.current,
+    };
+    setSending(true);
+    const tr = closeHistory(editor.state.tr);
+    const taken = removeAllComments(tr);
+    editor.view.dispatch(tr);
+    editor.view.dispatch(closeHistory(editor.state.tr));
+    const stripped = editor.state.doc;
+    const putBack = () => {
+      if (!editor.state.doc.eq(stripped)) return false;
+      const restore = closeHistory(editor.state.tr);
+      const mark = editor.schema.marks[commentName];
+      for (const range of taken) restore.addMark(range.from, range.to, mark.create({ id: range.id, text: range.text }));
+      editor.view.dispatch(restore);
+      return true;
+    };
+    try {
+      if (!await save()) { putBack(); return; }
+      await review.send(batch);
+      plain.current = unwrapComments(editor.getMarkdown());
+      notify(batch.comments.length === 1 ? 'Sent 1 comment to Claude' : `Sent ${batch.comments.length} comments to Claude`);
+    } catch (cause) {
+      notify(putBack() ? 'Not sent. Your comments are back in the document.' : 'Not sent. The document changed, so the comments could not be put back.');
+      console.error(cause);
+    } finally { setSending(false); }
+  };
+  const sendRef = useRef(sendComments); sendRef.current = sendComments;
+  // ⇧⌘↵ in the document sends the comments.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (!(event.metaKey && event.shiftKey && event.key === 'Enter') || event.isComposing) return;
+      if (!(event.target instanceof Element && event.target.closest('.ws-document'))) return;
+      event.preventDefault(); event.stopPropagation();
+      void sendRef.current();
+    };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, []);
+  const sendTitle = !review ? '' : review.busy ? 'Claude is working. Send when it finishes; your comments are saved in the file.'
+    : 'Send every comment to Claude in one message (⇧⌘↵)';
+  const sendLabel = comments.length === 1 ? 'Send 1 comment' : `Send ${comments.length} comments`;
   useEffect(() => { editor?.setEditable(!unsupported, false); }, [editor, unsupported]);
   useEffect(() => {
     let active = true;
@@ -138,6 +214,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
         base.current = latest; content.current = latest.content;
         setUnsupported(hasUnsupportedMarkdown(latest.content));
         editor?.commands.setContent(latest.content, { contentType: 'markdown', emitUpdate: false });
+        if (editor) plain.current = unwrapComments(editor.getMarkdown());
         onSelection(null); setStatus('Updated from disk');
       } catch (cause) { if (active) setError(errorText(cause)); }
       finally { checking = false; }
@@ -164,6 +241,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
       dirty.current = false; setUnsupported(hasUnsupportedMarkdown(latest.content));
       localStorage.removeItem(storageKey);
       editor?.commands.setContent(latest.content, { contentType: 'markdown', emitUpdate: false });
+      if (editor) plain.current = unwrapComments(editor.getMarkdown());
       onSelection(null); setError(''); setDiskChanged(false); setShowReload(false); setStatus('Saved');
     } catch (cause) { setError(errorText(cause)); }
   };
@@ -174,12 +252,15 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
         <Button variant="ghost" size="sm" data-document-focus aria-label="Focus mode" aria-pressed={focusMode} title={focusMode ? 'Exit focus mode (Escape)' : 'Focus mode: fill the window'} onClick={() => { setFocusMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}>{focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</Button>
         <Button variant="ghost" size="sm" aria-label="Typewriter mode" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} title="Typewriter mode: keep the current line centred" onClick={() => { setTypewriterMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
       </div>
+      {review && comments.length > 0 && !unsupported && <Button size="sm" data-send-comments disabled={!canSend} title={sendTitle} onClick={() => void sendComments()}>
+        <Send size={14} aria-hidden="true" />{sending ? 'Sending…' : sendLabel}</Button>}
       <button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
     <div className="ws-document-viewport" data-companion-open={showCompanion}>
       <DocumentCompanion editor={editor} scrollRef={scroll} storageKey={`${storageKey}:scratchpad`} open={showCompanion} id={companionId}
+        comments={review && !unsupported ? { list: comments, send: () => void sendComments(), canSend, label: sending ? 'Sending…' : sendLabel, title: sendTitle } : undefined}
         onClose={() => { setShowCompanion(false); companionToggle.current?.querySelector<HTMLButtonElement>('[data-companion-toggle]')?.focus(); }}
         onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setShowCompanion(false); }} />
       <div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div>
