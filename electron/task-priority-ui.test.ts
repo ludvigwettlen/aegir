@@ -31,15 +31,14 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
       `${group.querySelector('.ws-group-label')!.firstChild!.textContent}: ${[...group.querySelectorAll('.ws-task-title')].map((title) => title.textContent).join(' | ')}`));
     const calls = () => page.evaluate(() => (window as any).fixture.calls);
 
-    // Today holds undated P1s (the suggestion) and today's; next week's two P1s wait in Upcoming, since a date wins.
+    // Today is dated work only: the undated suggestion is in the Inbox, the undated work with Claude in Upcoming, and next
+    // week's two P1s wait in Upcoming too.
     expect(await groups()).toEqual([
-      'P1: Prep for Jobbsprånget | Answer Tove on the September report',
+      'P1: Answer Tove on the September report',
       'P2: Prep Greenfield call with Dana Whitfield',
-      'P3: Can I add my grok bots to Legolas? | Read the Cognition playbook piece',
+      'P3: Read the Cognition playbook piece',
       'Not prioritized yet: Map direct reports to level and stage',
     ]);
-    // Delegated work stays on Today with whose move it is; with no date it would otherwise only be in Needs you.
-    expect(await page.locator('.ws-task-row', { hasText: 'grok bots' }).locator('.ws-ball').textContent()).toBe('Your review');
     // Four P1s: said in the header, not blocked. The sweep's "P1: " prefix shows as a flag, not as a second P1.
     await page.getByText('4 P1s, aim for 3').waitFor();
     expect(await page.locator('.ws-task-row', { hasText: 'Answer Tove' }).locator('.ws-sweep-flag').textContent()).toBe('urgent');
@@ -51,7 +50,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.getByText('Claude: Investor intro call, prep can wait a day').waitFor();
     await page.keyboard.press('1');
     await page.getByText('P1 · ⌘Z to undo').waitFor();
-    expect((await groups())[0]).toBe('P1: Prep for Jobbsprånget | Prep Greenfield call with Dana Whitfield | Answer Tove on the September report');
+    expect((await groups())[0]).toBe('P1: Prep Greenfield call with Dana Whitfield | Answer Tove on the September report');
     await page.getByText('5 P1s, aim for 3').waitFor();
     await page.getByText('You set P1. Claude said P2: Investor intro call, prep can wait a day').waitFor();
     expect(await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P1' }).getAttribute('aria-pressed')).toBe('true');
@@ -84,16 +83,16 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.keyboard.press('g');
     await page.keyboard.press('3');
 
-    // Demoting an undated P1 takes it off Today; the notice says where it went.
-    await page.locator('.ws-task-row', { hasText: 'Prep for Jobbsprånget' }).click();
+    // The panel's buttons set the band too.
+    await page.locator('.ws-task-row', { hasText: 'Answer Tove' }).click();
     await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
-    await page.getByText('P2 · moved to Inbox · ⌘Z to undo').waitFor();
+    await page.getByText('P2 · ⌘Z to undo').waitFor();
     await page.locator('.ws-task-row', { hasText: 'Map direct reports' }).click();
     await page.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'P2' }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('.ws-row-group')].some((group) => group.textContent!.startsWith('P2') && group.textContent!.includes('Map direct reports')));
     expect(await calls()).toEqual([
       ['setTaskPriority', 'greenfield', 1], ['setTaskPriority', 'cognition', 2], ['setTaskPriority', 'cognition', null],
-      ['setTaskPriority', 'jobb', 2], ['setTaskPriority', 'people', 2],
+      ['setTaskPriority', 'tove', 2], ['setTaskPriority', 'people', 2],
     ]);
 
     // ⌘K runs Claude's prioritization over everything; quick add takes !1.
@@ -108,13 +107,19 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('groups Today by Claude\'s bands, 
     await page.waitForFunction(() => (window as any).fixture.calls.some((call: unknown[]) => call[0] === 'createTask'));
     expect((await calls()).find((call: unknown[]) => call[0] === 'createTask')[1]).toMatchObject({ title: 'Send board pack follow-up', label: 'board', priority: 1 });
 
-    // Needs you keeps its status groups and shows the band as a chip.
+    // Undated work with Claude waits at the end of Upcoming, under No date, saying whose move it is.
+    await page.getByRole('button', { name: 'Upcoming' }).click();
+    await page.getByRole('heading', { name: 'Upcoming', level: 1 }).waitFor();
+    expect((await groups()).at(-1)).toBe('No date: Can I add my grok bots to Legolas?');
+    expect(await page.locator('.ws-task-row', { hasText: 'grok bots' }).locator('.ws-ball').textContent()).toBe('Your review');
+    expect(await page.locator('.ws-task-row', { hasText: 'grok bots' }).locator('.ws-priority').textContent()).toBe('P3');
+
+    // Needs you keeps its status groups and shows the band as a chip: Claude's, outlined.
     await page.getByRole('button', { name: 'Needs you' }).click();
     await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
-    // It shows the band the user gave it above, filled because it is theirs.
     const chip = page.locator('.ws-task-row', { hasText: 'Prep for Jobbsprånget' }).locator('.ws-priority');
-    expect(await chip.textContent()).toBe('P2');
-    expect(await chip.getAttribute('class')).toContain('user');
+    expect(await chip.textContent()).toBe('P1');
+    expect(await chip.getAttribute('class')).toContain('agent');
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 90000);

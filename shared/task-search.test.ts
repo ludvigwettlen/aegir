@@ -68,7 +68,7 @@ describe('finding a task', () => {
     expect(homeList(task('t', { dueAt: '2026-10-12' }), wednesday)).toBe('upcoming');
     expect(homeList(task('t', {}), wednesday)).toBe('inbox');
     expect(homeList(task('t', { status: 'proposed' }), wednesday)).toBe('inbox');
-    expect(homeList(task('t', { status: 'review', threadId: 'x' }), wednesday)).toBe('today');
+    expect(homeList(task('t', { status: 'review', threadId: 'x' }), wednesday)).toBe('upcoming');
     expect(homeList(task('t', { status: 'review', threadId: 'x', dueAt: '2026-10-12' }), wednesday)).toBe('upcoming');
     expect(homeList(task('t', { status: 'done' }), wednesday)).toBe('completed');
     expect(homeList(task('t', { status: 'dismissed' }), wednesday)).toBeNull();

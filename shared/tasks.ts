@@ -87,6 +87,8 @@ export function sourceKind(sourceKey: string | null | undefined): string | null 
 export const PRIORITY_GROUPS = ['P1', 'P2', 'P3', 'Not prioritized yet'] as const;
 export const priorityGroup = (task: Pick<Task, 'priority'>) => PRIORITY_GROUPS[(task.priority ?? 4) - 1];
 export const bandedLists: TaskView[] = ['today', 'upcoming', 'inbox'];
+// Upcoming's last group: work an agent has in hand that has no date. It sorts by band inside, after the dated bands.
+export const NO_DATE = 'No date';
 
 const statusRank: Record<Task['status'], number> = { review: 0, blocked: 1, proposed: 2, running: 3, ready: 4, done: 5, dismissed: 6 };
 // What needs you first, then the earliest date (overdue comes first on its own), then the oldest.
@@ -106,7 +108,8 @@ export function taskGroups(list: TaskView, tasks: Task[], statusText: Record<Tas
   const keyOf = (task: Task) =>
     list === 'needs' ? statusText[task.status]
       : list === 'inbox' && task.status === 'proposed' ? 'Suggested'
-        : bandedLists.includes(list) ? priorityGroup(task)
+        : list === 'upcoming' && task.dueAt === null ? NO_DATE
+          : bandedLists.includes(list) ? priorityGroup(task)
           : task.label ? `#${task.label}` : 'No label';
   // Delegated is read for what the agent is waiting on, so status leads there; elsewhere priority does.
   for (const task of [...tasks].sort(list === 'team' ? byStatus : compareTasks)) groups.set(keyOf(task), [...(groups.get(keyOf(task)) || []), task]);
@@ -159,9 +162,9 @@ export function withHeld(view: TaskView, tasks: Task[], held: Task | null | unde
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 // Inbox = all new intake: your own undated tasks that nobody has picked up (phone captures land here) plus agent
 // suggestions, which also stay in Needs you. Work with the agent sits in the team list, never in the Inbox. Today = due today or
-// overdue, plus, when they have no date, every P1 and everything an agent is working on or has handed back (working, ready for
-// review, stopped), so delegating a task never takes it off the list you open. A date always wins: a P1 or a delegated task dated
-// Friday waits in Upcoming until Friday (Malcolm, 7 Oct 2026). Upcoming = later.
+// overdue, and nothing else: a task without a date is never on Today (Malcolm, 12 Oct 2026). Upcoming = due later, plus the work
+// an agent is doing or has handed back that has no date, in a "No date" group at the end, so delegating a task never makes it
+// vanish. Your own undated tasks stay in the Inbox, so each task you see is on one of Today, Upcoming or the Inbox.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
@@ -169,8 +172,6 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
   if (view === 'inbox') return open.filter(task => task.status === 'proposed' || (task.status === 'ready' && !task.dueAt));
-  if (view === 'today') return open.filter(task => (task.dueAt === null
-    ? task.priority === 1 || inHand(task)
-    : task.dueAt <= now && (task.status !== 'proposed' || task.priority === 1)));
-  return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
+  if (view === 'today') return open.filter(task => task.dueAt !== null && task.dueAt <= now && (task.status !== 'proposed' || task.priority === 1));
+  return open.filter(task => task.status !== 'proposed' && (task.dueAt !== null ? task.dueAt > now : inHand(task)));
 }

@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from '@usefragments/ui';
 import '../styles';
 import type { AppEvent, DesktopApi, Message, Snapshot, Task } from '../../../shared/types';
+import { isoDate } from '../../../shared/tasks';
 
 // Isolated fixture for a task in full screen: a working task with a conversation, a long title and a long one-line
 // context, which is what once made the full-screen panel wider than the window (7 Oct 2026).
@@ -10,7 +11,7 @@ const threadId = 'growth-thread';
 const task: Task = {
   id: 'growth', title: 'Raise the bar: plan for 100+ meetings and 2x growth in 2027', status: 'running', agentId: 'lead', threadId,
   notes: 'Mental exercise for mgmt team based on 1-1 notes from Maja yesterday. Current momentum is good (14-20 meetings booked). Question: what would it take to book 100+ meetings a quarter and double new ARR in 2027, and what would we stop doing to get there?',
-  label: 'mgmt', dueAt: null, outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null,
+  label: 'mgmt', dueAt: isoDate(new Date()), outputDir: null, sourceUrl: null, sourceKey: null, createdAt: now, updatedAt: now, completedAt: null,
   priority: 2, prioritySource: 'agent', agentPriority: 2, priorityReason: 'Your 2027 growth frame for mgmt, real work, but the board pack comes first.', prioritySetAt: now, priorityCheckedAt: now,
 };
 const data = {
