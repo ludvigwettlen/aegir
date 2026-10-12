@@ -58,6 +58,19 @@
   --ds-blur-panel: 30px;
   --ds-shadow-pane: 0 0 0 0.5px #0000001a, 0 10px 34px #141e3c1a;
   --ds-shadow-float: 0 0 0 0.5px #0000001f, 0 24px 70px #00000033;
+
+  // Glass (step 3), for what floats over content: ⌘K, popovers, pickers, notices, the message box.
+  // Blur and saturation carry what's behind; the inner edge catches the light.
+  --ds-glass: #fafafcb8;
+  --ds-glass-thin: #ffffffbf;
+  --ds-glass-blur: blur(40px) saturate(1.9);
+  --ds-glass-blur-thin: blur(20px) saturate(1.7);
+  --ds-glass-edge: inset 0 0 0 1px #ffffffb3, 0 0 0 0.5px #0000001f;
+}
+
+// macOS Reduce transparency: glass turns solid, as it does in Apple's own apps.
+@media (prefers-reduced-transparency: reduce) {
+  :root { --ds-glass: #fafafc; --ds-glass-thin: #ffffff; --ds-glass-blur: none; --ds-glass-blur-thin: none; }
 }
 
 // Glass step 2: in a macOS glass window (electron/window-look.ts) the window itself is the frame, Apple's sidebar

@@ -1,8 +1,8 @@
 /* Command palette (⌘K): find any action by name, see its shortcut, run it. Modelled on Godspeed.
    It sits in the same backdrop as the snooze and Ask boxes (.ws-modal-backdrop) and has no motion, like the § overlay. */
-.ws-palette { width: min(580px, 100%); max-height: min(480px, 72vh); display: flex; flex-direction: column; border: 0; border-radius: var(--ds-radius-pane); background: var(--ds-color-surface); box-shadow: var(--ds-shadow-float); overflow: hidden; }
-.ws-palette-search { flex: none; display: flex; align-items: center; gap: 9px; padding: 14px 16px; border-bottom: 0.5px solid var(--ds-color-line-strong); color: var(--ds-color-muted);
-  input { flex: 1; min-width: 0; height: 26px; padding: 0; border: 0; outline: 0; box-shadow: none; background: transparent; font-size: 15px; color: var(--ds-color-ink); }
+.ws-palette { width: min(580px, 100%); max-height: min(480px, 72vh); display: flex; flex-direction: column; border: 0; border-radius: 22px; background: var(--ds-glass); backdrop-filter: var(--ds-glass-blur); -webkit-backdrop-filter: var(--ds-glass-blur); box-shadow: var(--ds-glass-edge), 0 30px 90px #00000040; overflow: hidden; }
+.ws-palette-search { flex: none; display: flex; align-items: center; gap: 9px; padding: 15px 18px; border-bottom: 0.5px solid #0000001a; color: var(--ds-color-muted);
+  input { flex: 1; min-width: 0; height: 26px; padding: 0; border: 0; outline: 0; box-shadow: none; background: transparent; font-size: 17px; color: var(--ds-color-ink); }
 }
 .ws-palette-step { flex: none; padding: 2px 8px; border-radius: 6px; background: var(--ds-color-lime-soft); color: var(--ds-color-lime-ink); font-size: 12px; font-weight: 600; }
 .ws-palette-context { flex: none; margin: 0; padding: 7px 16px 0; font-size: 12px; color: var(--ds-color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

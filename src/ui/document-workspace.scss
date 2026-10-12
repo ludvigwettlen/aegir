@@ -1,7 +1,7 @@
 .ws-thread-workspace { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ws-thread-panes { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .ws-document-access { position: relative; display: flex; align-items: center; gap: 8px; flex: none; color: var(--ds-color-muted); font-size: 12px; }
-.ws-document-files { position: absolute; top: 100%; right: 0; z-index: 10; display: flex; flex-direction: column; align-items: stretch; width: max-content; max-width: min(420px, calc(100vw - 100px)); max-height: 320px; overflow: auto; padding: 12px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); box-shadow: 0 12px 30px color-mix(in srgb, var(--ds-color-ink) 12%, transparent);
+.ws-document-files { position: absolute; top: 100%; right: 0; z-index: 10; display: flex; flex-direction: column; align-items: stretch; width: max-content; max-width: min(420px, calc(100vw - 100px)); max-height: 320px; overflow: auto; padding: 12px; border: 0; border-radius: 14px; background: var(--ds-glass); backdrop-filter: var(--ds-glass-blur); -webkit-backdrop-filter: var(--ds-glass-blur); box-shadow: var(--ds-glass-edge), 0 30px 90px #00000040;
   button { text-align: left; justify-content: flex-start; overflow-wrap: anywhere; height: auto; min-height: 32px; }
   strong { padding: 4px 8px; }
 }

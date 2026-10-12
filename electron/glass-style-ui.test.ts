@@ -61,9 +61,25 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('draws every screen in the system 
     await page.locator('[data-task-row]', { hasText: 'Follow up with Nordvik' }).click();
     await page.getByRole('article', { name: /Email draft/ }).first().waitFor();
     expect(await leftovers()).toEqual([]);
+    // Glass step 3: the message box is glass and floats over the end of the conversation.
+    const surface = (selector: string) => page.evaluate((target) => {
+      const style = getComputedStyle(document.querySelector(target)!);
+      return { blur: style.backdropFilter, alpha: Number((style.backgroundColor.match(/rgba?\(([^)]*)\)/)![1].split(',')[3] ?? '1').trim()) };
+    }, selector);
+    expect(await surface('.ws-composer')).toMatchObject({ blur: expect.stringContaining('blur('), alpha: expect.any(Number) });
+    expect((await surface('.ws-composer')).alpha).toBeLessThan(1);
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('.ws-messages + .ws-composer-wrap')!).marginTop)).toBe('-36px');
     await page.keyboard.press('Meta+K');
     await page.getByRole('dialog', { name: 'Command palette' }).waitFor();
     expect(await leftovers()).toEqual([]);
+    // ⌘K is glass: blurred, see-through. With macOS Reduce transparency it turns solid.
+    const palette = await surface('.ws-palette');
+    expect(palette.blur).toContain('blur(');
+    expect(palette.alpha).toBeLessThan(1);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }] });
+    expect(await surface('.ws-palette')).toEqual({ blur: 'none', alpha: 1 });
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }] });
     await page.keyboard.press('Escape');
     await page.locator('[data-task-row]', { hasText: 'Answer Tove' }).click();
     await page.keyboard.press('Escape');
@@ -71,6 +87,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('draws every screen in the system 
     await page.keyboard.press('d');
     await page.getByRole('dialog', { name: 'Set due date' }).waitFor();
     expect(await leftovers()).toEqual([]);
+    expect((await surface('.ws-modal .ws-popover')).blur).toContain('blur(');
     await page.getByRole('textbox', { name: 'When' }).press('Escape');
     await page.getByRole('dialog', { name: 'Set due date' }).waitFor({ state: 'detached' });
     await page.locator('[data-task-row]', { hasText: 'Follow up with Nordvik' }).click();
