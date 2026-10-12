@@ -48,6 +48,7 @@ vi.mock('electron', async () => {
     powerMonitor: new EventEmitter(),
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
     nativeImage: { createFromDataURL: () => ({}) },
+    nativeTheme: { themeSource: 'system' },
     clipboard: { read: async () => [], readText: async () => '' },
     dialog: {},
     shell: {

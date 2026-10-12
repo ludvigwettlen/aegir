@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   powerMonitor,
   shell,
@@ -17,6 +18,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readlinkSync
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { windowLook } from './window-look.js';
 import type { Agent, AppEvent, Approval, Priority, PriorityEvent, RemindersState, Snapshot, StagedAttachment, Task, TaskChange, TaskFile } from '../shared/types.js';
 import { normalizeTaskLink, normalizeTaskAttachment } from '../shared/task-links.js';
 import { brainSlug, fileSize, MAX_FILES_PER_MESSAGE, MAX_FOLDER_BYTES } from '../shared/task-files.js';
@@ -702,6 +704,7 @@ function registerIpc() {
   });
 }
 function createWindow() {
+  const look = windowLook(process.platform);
   window = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -709,8 +712,11 @@ function createWindow() {
     minHeight: 620,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 20 },
-    backgroundColor: '#e8e8ed', // --ds-color-window, so the window opens in the frame colour instead of flashing dark
+    vibrancy: look.vibrancy,
+    visualEffectState: look.visualEffectState,
+    backgroundColor: look.backgroundColor,
     webPreferences: {
+      additionalArguments: look.args,
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -916,6 +922,8 @@ if (app.requestSingleInstanceLock()) {
     });
     connectors.on('change', refresh);
     registerIpc();
+    // Legolas is drawn light only, so the window material stays light when macOS is in dark mode.
+    nativeTheme.themeSource = 'light';
     createWindow();
     createApplicationMenu();
     createTray();

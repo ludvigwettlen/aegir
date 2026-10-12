@@ -78,6 +78,8 @@ const api: DesktopApi = {
   setLaunchAtLogin: enabled => ipcRenderer.invoke('launch-at-login', enabled),
   setReminders: (enabled, list) => ipcRenderer.invoke('reminders-settings', enabled, list),
   openExternal: url => ipcRenderer.invoke('open-external', url),
-  claudeRoutines: () => ipcRenderer.invoke('claude-routines')
+  claudeRoutines: () => ipcRenderer.invoke('claude-routines'),
+  // Set by the main process when the window is macOS glass (electron/window-look.ts, VIBRANCY_FLAG).
+  windowVibrancy: process.argv.includes('--legolas-vibrancy'),
 };
 contextBridge.exposeInMainWorld('aegir', api);

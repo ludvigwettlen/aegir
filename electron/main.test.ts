@@ -41,7 +41,7 @@ vi.mock('electron', async () => {
     app: fixture.app, BrowserWindow, Tray, Notification,
     ipcMain: { handle: vi.fn() }, powerMonitor: new EventEmitter(),
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
-    nativeImage: { createFromDataURL: () => ({}) }, clipboard: {}, dialog: {}, shell: {},
+    nativeImage: { createFromDataURL: () => ({}) }, nativeTheme: { themeSource: 'system' }, clipboard: {}, dialog: {}, shell: {},
   };
 });
 // This suite covers the Codex engine and Mnemosyne memory, whatever is installed on the machine.

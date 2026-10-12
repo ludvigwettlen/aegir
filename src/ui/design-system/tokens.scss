@@ -60,6 +60,17 @@
   --ds-shadow-float: 0 0 0 0.5px #0000001f, 0 24px 70px #00000033;
 }
 
+// Glass step 2: in a macOS glass window (electron/window-look.ts) the window itself is the frame, Apple's sidebar
+// material over the blurred desktop. The frame goes transparent and the sidebar pane is a light tint over it.
+html.ws-vibrant {
+  --ds-color-window: transparent;
+  --ds-color-sidebar: #ffffff4d;
+  background: transparent;
+  body { background: transparent !important; }
+  // CSS blur can't see the native material behind the page, so it would only cost frames.
+  .ws-sidebar, .ws-editing-head { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
 // The Fragments components read their own variables; point them at ours. Set again on the shell and the modal layer,
 // so a theme wrapper between :root and the app can't override them.
 :root, .ws-shell, .ws-modal-backdrop {

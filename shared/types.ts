@@ -312,6 +312,8 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt'>>;
 
 export interface DesktopApi extends SkillsApi {
+  // True when the window is macOS glass: the page then paints its frame transparent so the material shows.
+  windowVibrancy?: boolean;
   // Draft cards: save the text as you type, send it (five seconds to undo), take the send back, record that you sent
   // it yourself (with the text you sent), or discard it.
   updateDraft(messageId: string, text: string): Promise<void>;

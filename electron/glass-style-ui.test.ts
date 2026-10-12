@@ -82,6 +82,17 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('draws every screen in the system 
     expect(await page.evaluate(() => [getComputedStyle(document.querySelector('.ws-editing-head')!).backgroundColor,
       (document.querySelector('.ws-sidebar-search') as HTMLElement).scrollWidth <= (document.querySelector('.ws-sidebar-search') as HTMLElement).clientWidth]))
       .toEqual(['rgb(232, 232, 237)', true]);
+
+    // Glass step 2: in a macOS glass window (html.ws-vibrant) the page and the frame are transparent so the native
+    // material shows; the sidebar is a light tint over it, and the working area stays solid white.
+    await page.evaluate(() => document.documentElement.classList.add('ws-vibrant'));
+    const glass = await page.evaluate(() => {
+      const bg = (selector: string) => getComputedStyle(document.querySelector(selector)!).backgroundColor;
+      return { html: bg('html'), body: bg('body'), shell: bg('.ws-shell'), toolbar: bg('.ws-editing-head'), sidebar: bg('.ws-sidebar'), main: bg('.ws-main'),
+        blur: getComputedStyle(document.querySelector('.ws-sidebar')!).backdropFilter };
+    });
+    expect(glass).toMatchObject({ html: 'rgba(0, 0, 0, 0)', body: 'rgba(0, 0, 0, 0)', shell: 'rgba(0, 0, 0, 0)', toolbar: 'rgba(0, 0, 0, 0)', main: 'rgb(255, 255, 255)', blur: 'none' });
+    expect(glass.sidebar).toMatch(/^rgba\(255, 255, 255, 0\.3/);
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 90000);
