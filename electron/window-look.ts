@@ -10,7 +10,8 @@ type Look = Pick<BrowserWindowConstructorOptions, 'vibrancy' | 'visualEffectStat
 
 export function windowLook(platform: NodeJS.Platform): Look {
   if (platform !== 'darwin') return { backgroundColor: FRAME, args: [] };
-  // followWindow: like Finder, the material turns flat grey while another app is in front.
+  // under-window is the clearest light material. active keeps the desktop showing while another app is in front
+  // (Finder goes flat grey then; Malcolm found that too grey, 12 Oct 2026).
   // A transparent background lets the material show from the first frame, so nothing flashes at launch.
-  return { vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000', args: [VIBRANCY_FLAG] };
+  return { vibrancy: 'under-window', visualEffectState: 'active', backgroundColor: '#00000000', args: [VIBRANCY_FLAG] };
 }

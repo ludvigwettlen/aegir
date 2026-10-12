@@ -109,7 +109,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('draws every screen in the system 
         blur: getComputedStyle(document.querySelector('.ws-sidebar')!).backdropFilter };
     });
     expect(glass).toMatchObject({ html: 'rgba(0, 0, 0, 0)', body: 'rgba(0, 0, 0, 0)', shell: 'rgba(0, 0, 0, 0)', toolbar: 'rgba(0, 0, 0, 0)', main: 'rgb(255, 255, 255)', blur: 'none' });
-    expect(glass.sidebar).toMatch(/^rgba\(255, 255, 255, 0\.3/);
+    expect(glass.sidebar).toMatch(/^rgba\(255, 255, 255, 0\.12/);
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 90000);

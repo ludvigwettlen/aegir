@@ -77,7 +77,7 @@
 // material over the blurred desktop. The frame goes transparent and the sidebar pane is a light tint over it.
 html.ws-vibrant {
   --ds-color-window: transparent;
-  --ds-color-sidebar: #ffffff4d;
+  --ds-color-sidebar: #ffffff1f; // a light lift over the glass; more turned it milky grey (12 Oct 2026)
   background: transparent;
   body { background: transparent !important; }
   // CSS blur can't see the native material behind the page, so it would only cost frames.
