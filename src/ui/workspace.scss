@@ -431,3 +431,14 @@
   &[aria-disabled='true'] { cursor: wait; }
 }
 .ws-move-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; color: var(--ds-color-muted); font-size: 11px; }
+
+
+.ws-task-repeat {
+  display: flex; flex-direction: column; gap: 5px; color: var(--ds-color-muted);
+  font-size: calc(11px * var(--ds-text-scale, 1));
+  label { display: flex; align-items: center; gap: 7px; }
+  select { min-width: 0; flex: 1; padding: 5px 8px; color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); border-radius: 6px; font: inherit;
+    &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
+    &:disabled { opacity: 0.65; }
+  }
+}

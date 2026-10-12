@@ -22,6 +22,7 @@ import type {
   MessagePage,
 } from '../shared/types.js';
 import { defaultAgents, legacyAgents } from './default-agents.js';
+import { isoDate, nextTaskDue, validTaskDate, validateTaskRecurrence } from '../shared/tasks.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import type { SkillProposal } from '../shared/skills.js';
 
@@ -33,7 +34,7 @@ type MessageRow = Omit<Message, 'meta'> & { meta: string | null };
 type RoutineRow = Omit<Routine, 'schedule' | 'enabled'> & { schedule: string; enabled: number };
 type TaskUndo =
   | { kind: 'created'; taskId: string }
-  | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[] }
+  | { kind: 'updated'; before: Task; after: Task; fields: (keyof TaskChange)[]; occurrence?: Task; occurrenceLinks?: TaskLink[] }
   | { kind: 'deleted'; task: Task; thread: Thread | null; messages: MessageRow[]; links: TaskLink[] }
   | { kind: 'link-added'; link: TaskLink; previous?: TaskLink }
   | { kind: 'link-removed'; link: TaskLink };
@@ -183,6 +184,9 @@ export class Store {
     add('tasks', 'threadId', 'TEXT');
     add('tasks', 'outputDir', 'TEXT');
     add('tasks', 'completedAt', 'TEXT');
+    add('tasks', 'recurrence', 'TEXT');
+    add('tasks', 'recurrenceAnchor', 'TEXT');
+    add('tasks', 'nextOccurrenceId', 'TEXT');
     this.db.prepare("UPDATE tasks SET completedAt=updatedAt WHERE status='done' AND completedAt IS NULL").run();
     const hasTable = (name: string) =>
       this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name) !==
@@ -537,6 +541,7 @@ export class Store {
       if (action.kind === 'updated') {
         if (action.before.listId === id) action.before.listId = null;
         if (action.after.listId === id) action.after.listId = null;
+        if (action.occurrence?.listId === id) action.occurrence.listId = null;
       }
     }
   }
@@ -546,6 +551,7 @@ export class Store {
     notes?: string;
     label?: string | null;
     dueAt?: string | null;
+    recurrence?: Task['recurrence'];
     listId?: string | null;
     status?: Task['status'];
     sourceUrl?: string | null;
@@ -554,12 +560,18 @@ export class Store {
     const title = input.title.trim();
     if (!title) throw new Error('A task needs a title');
     this.validateTaskList(input.listId ?? null);
+    validateTaskRecurrence(input.recurrence ?? null);
+    const dueAt = input.dueAt || (input.recurrence ? isoDate(new Date()) : null);
+    if (input.recurrence && !validTaskDate(dueAt!)) throw new Error('A repeating task needs a valid due date');
     const row: Task = {
       id: randomUUID(),
       title,
       notes: input.notes?.trim() || '',
       label: input.label || null,
-      dueAt: input.dueAt || null,
+      dueAt,
+      recurrence: input.recurrence ?? null,
+      recurrenceAnchor: input.recurrence ? dueAt : null,
+      nextOccurrenceId: null,
       listId: input.listId ?? null,
       status: input.status || 'ready',
       agentId: null,
@@ -573,7 +585,7 @@ export class Store {
     };
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)',
+        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)',
       )
       .run(row);
     if (undoable) this.rememberTaskAction({ kind: 'created', taskId: row.id });
@@ -583,11 +595,22 @@ export class Store {
     id: string,
     change: TaskChange & Partial<Pick<Task, 'agentId' | 'threadId' | 'outputDir'>>,
     undoable = false,
+    generateOccurrence = true,
   ) {
     const row = this.get('tasks', id);
     if (!row) throw new Error('Task not found');
     if ('listId' in change) this.validateTaskList(change.listId as string | null);
     const next = { ...row, ...change, updatedAt: now() };
+    validateTaskRecurrence(next.recurrence ?? null);
+    if (next.recurrence) {
+      if (change.dueAt === null && row.recurrence) throw new Error('Turn off repetition before clearing the due date');
+      if (!next.dueAt) next.dueAt = isoDate(new Date());
+      if (!validTaskDate(next.dueAt)) throw new Error('A repeating task needs a valid due date');
+      if (next.recurrence !== row.recurrence || next.dueAt !== row.dueAt || !next.recurrenceAnchor)
+        next.recurrenceAnchor = next.dueAt;
+    } else next.recurrenceAnchor = null;
+    let occurrence: Task | undefined;
+    const occurrenceLinks: TaskLink[] = [];
     if (change.status === 'done' && row.status !== 'done') next.completedAt = next.updatedAt;
     if (change.status && change.status !== 'done') next.completedAt = null;
     next.title = next.title.trim();
@@ -595,17 +618,33 @@ export class Store {
     this.db.transaction(() => {
       this.db
         .prepare(
-          'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt WHERE id=@id',
+          'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt,recurrence=@recurrence,recurrenceAnchor=@recurrenceAnchor WHERE id=@id',
         )
         .run(next);
+      if (generateOccurrence && next.status === 'done' && row.status !== 'done' && next.recurrence && !row.nextOccurrenceId) {
+        occurrence = this.createTask({ title: next.title, notes: next.notes, label: next.label,
+          listId: next.listId, sourceUrl: next.sourceUrl, recurrence: next.recurrence,
+          dueAt: nextTaskDue(next.dueAt!, next.recurrence, new Date(), next.recurrenceAnchor!),
+        });
+        occurrence.recurrenceAnchor = next.recurrenceAnchor;
+        occurrence.notes = next.notes;
+        this.db.prepare('UPDATE tasks SET recurrenceAnchor=?,notes=? WHERE id=?').run(occurrence.recurrenceAnchor, occurrence.notes, occurrence.id);
+        next.nextOccurrenceId = occurrence.id;
+        this.db.prepare('UPDATE tasks SET nextOccurrenceId=? WHERE id=?').run(occurrence.id, id);
+        for (const link of this.taskLinks(id)) {
+          const copy = { ...link, id: randomUUID(), taskId: occurrence.id, createdAt: now() };
+          this.insertTaskLink(copy);
+          occurrenceLinks.push(copy);
+        }
+      }
       if (change.title !== undefined && next.threadId)
         this.db
           .prepare("UPDATE threads SET title=?,updatedAt=? WHERE id=? AND kind='task'")
           .run(next.title.slice(0, 120), next.updatedAt, next.threadId);
     })();
     if (undoable) {
-      const fields = (Object.keys(change) as (keyof TaskChange)[]).filter(field => row[field] !== next[field]);
-      if (fields.length) this.rememberTaskAction({ kind: 'updated', before: row, after: next, fields });
+      const fields = ([...new Set([...Object.keys(change), 'dueAt'])] as (keyof TaskChange)[]).filter(field => row[field] !== next[field]);
+      if (fields.length) this.rememberTaskAction({ kind: 'updated', before: row, after: next, fields, occurrence, occurrenceLinks });
     }
   }
   deleteTask(id: string, undoable = false) {
@@ -676,8 +715,20 @@ export class Store {
       for (const field of action.fields)
         if (current[field] !== action.after[field]) throw new Error('The task has changed since this action');
       const previous = Object.fromEntries(action.fields.map(field => [field, action.before[field]])) as TaskChange;
+      if (action.occurrence) {
+        const occurrence = this.get('tasks', action.occurrence.id);
+        // Never delete work that has been edited, delegated, or completed since it was generated.
+        if (!occurrence || Object.entries(action.occurrence).some(([key, value]) => key !== 'updatedAt' && occurrence[key as keyof Task] !== value)
+          || JSON.stringify(this.taskLinks(occurrence.id)) !== JSON.stringify(action.occurrenceLinks))
+          throw new Error('The next occurrence has changed; undo its changes before undoing completion');
+      }
       this.db.transaction(() => {
-        this.updateTask(action.before.id, previous);
+        if (action.occurrence) this.deleteTask(action.occurrence.id);
+        this.updateTask(action.before.id, previous, false, false);
+        if (action.fields.includes('recurrence') || action.fields.includes('dueAt'))
+          this.db.prepare('UPDATE tasks SET recurrenceAnchor=? WHERE id=?').run(action.before.recurrenceAnchor, action.before.id);
+        if (action.occurrence)
+          this.db.prepare('UPDATE tasks SET nextOccurrenceId=? WHERE id=?').run(action.before.nextOccurrenceId, action.before.id);
         if (action.fields.includes('status'))
           this.db.prepare('UPDATE tasks SET completedAt=? WHERE id=?').run(action.before.completedAt, action.before.id);
       })();
@@ -685,7 +736,7 @@ export class Store {
       label = 'task edit';
     } else if (action.kind === 'deleted') {
       this.db.transaction(() => {
-        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt)').run(action.task);
+        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)').run(action.task);
         if (action.thread) {
           this.db.prepare('INSERT INTO threads(id,groupId,title,kind,taskId,status,createdAt,updatedAt) VALUES (@id,@groupId,@title,@kind,@taskId,@status,@createdAt,@updatedAt)').run(action.thread);
           for (const message of action.messages)

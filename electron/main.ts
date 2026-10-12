@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Agent, AppEvent, Approval, Snapshot, TaskChange } from '../shared/types.js';
+import type { Agent, AppEvent, Approval, DesktopApi, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { CodexProvider } from './codex.js';
@@ -228,7 +228,7 @@ function registerIpc() {
   });
   handle(
     'create-task',
-    (input: { title: string; notes?: string; label?: string | null; dueAt?: string | null; listId?: string | null }) => {
+    (input: Parameters<DesktopApi['createTask']>[0]) => {
       const task = store.createTask(input, true);
       refresh();
       return task;
@@ -236,7 +236,7 @@ function registerIpc() {
   );
   handle('update-task', (id: string, change: TaskChange) => {
     const allowed: TaskChange = {};
-    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId'] as const)
+    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId', 'recurrence'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
     store.updateTask(id, allowed, true);
     refresh();

@@ -7,10 +7,10 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, Plus, Square, Users, X } from 'lucide-react';
-import type { Snapshot, Task } from '../../../shared/types';
+import { ExternalLink, Plus, Repeat2, Square, Users, X } from 'lucide-react';
+import type { Snapshot, Task, TaskRecurrence } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { customListId, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
+import { customListId, taskRecurrenceLabels, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -295,7 +295,7 @@ export function TasksView({
               data-quick-add
               data-task-view={list}
               aria-label="New task"
-              placeholder="New task — try: Summarise calls #customers fri"
+              placeholder="New task — try: Review inbox every day #work"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -461,6 +461,7 @@ function TaskRow({
           aria-label={task.sourceUrl ? 'From a source' : 'Has attached links'}
         />
       )}
+      {task.recurrence && <Repeat2 size={13} className="ws-muted-icon" aria-label={`Repeats ${taskRecurrenceLabels[task.recurrence].toLowerCase()}`} />}
       {showLabel && task.label && <span className="ws-label">#{task.label}</span>}
       {authors.length > 0 && (
         <span className="ws-agents">
@@ -676,6 +677,7 @@ function TaskDetail({
           </span>
         ))}
       </div>}
+      <TaskRepeat key={task.id} task={task} />
       <label className="ws-field ws-task-notes">
         <span>Notes</span>
         <textarea
@@ -745,4 +747,29 @@ function TaskDetail({
       )}
     </aside>
   );
+}
+
+function TaskRepeat({ task }: { task: Task }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const archived = task.status === 'done' || task.status === 'dismissed' || !!task.nextOccurrenceId;
+  return <div className="ws-task-repeat">
+    <label>
+      <Repeat2 size={13} aria-hidden="true" /> Repeat
+      <select aria-label="Repeat task" value={task.recurrence ?? ''} disabled={saving || archived}
+        onChange={async event => {
+          const recurrence = (event.target.value || null) as TaskRecurrence | null;
+          setSaving(true); setError('');
+          try { await api.updateTask(task.id, { recurrence }); }
+          catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+          finally { setSaving(false); }
+        }}>
+        <option value="">Does not repeat</option>
+        {Object.entries(taskRecurrenceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>
+    </label>
+    {saving && <span role="status">Saving…</span>}
+    {task.recurrence && <span>{archived ? 'Change future repeats on the next occurrence.' : 'Completing creates the next task. Missed dates are skipped.'}</span>}
+    {error && <span className="ws-field-error" role="alert">{error}</span>}
+  </div>;
 }
