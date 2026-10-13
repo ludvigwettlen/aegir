@@ -1,3 +1,4 @@
+import { SlackMessages, slackMessageInstructions } from './slack-messages.js';
 import { GmailService, gmailInstructions } from './gmail.js';
 import type { threadSummary } from './gmail-api.js';
 import { OneOnOnes } from './one-on-ones.js';
@@ -66,6 +67,7 @@ export class Runtime {
   readonly skills: SkillRegistry;
   readonly oneOnOnes: OneOnOnes;
   readonly gmail: GmailService;
+  readonly slackMessages: SlackMessages;
   private active = new Map<string, Context>(); // Codex thread id → what it is running for
   private runningThreads = new Map<string, { cancelled: boolean }>();
   private runningRoutines = new Set<string>();
@@ -85,6 +87,7 @@ export class Runtime {
     private paths: { outputRoot: string; routineCwd: string },
     private browser?: BrowserManager,
   ) {
+    this.slackMessages = new SlackMessages(store, refresh);
     this.gmail = new GmailService(store, (email, threads) => this.reviewEmailReplies(email, threads), refresh);
     this.oneOnOnes = new OneOnOnes(store, meeting => this.prepareOneOnOne(meeting), refresh);
     this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId);
@@ -283,6 +286,7 @@ export class Runtime {
         && page.messages.length === 1 && page.messages[0].role === 'user';
       const proposals = new Map(this.skills.proposals().map(proposal => [proposal.id, proposal]));
       const history = page.messages.map((x) => {
+        if (x.meta?.type === 'slack-draft') return `System: Current inline Slack draft ${x.id}: ${JSON.stringify(x.meta)}`;
         if (x.meta?.type === 'email-draft') return `System: Current inline email draft ${x.id}: ${JSON.stringify(x.meta)}`;
         if (x.meta?.type === 'skill-change') {
           const proposal = proposals.get(x.meta.proposalId);
@@ -297,6 +301,7 @@ export class Runtime {
       const tools: Tool[] = [
         ...connectorToolsFor(kind, this.connectors.listTools()),
         ...this.gmail.tools(true),
+        ...this.slackMessages.tools(true),
         ...(await this.browser?.tools(kind) || []),
         memoryTool(agent),
         memoryRecallTool(agent),
@@ -405,6 +410,7 @@ Slack and Notion tools are read-only; use them to research. Do not write to exte
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
+${this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
     return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Aegir.${purpose}
@@ -412,6 +418,7 @@ Address the user directly. Be clear about source links and tool failures. Connec
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
+${this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}`;
   }
@@ -440,6 +447,11 @@ ${memoryGuidance}`;
   ): Promise<unknown> {
     if (!this.available) throw new Error('Runtime is stopped');
     const context = this.active.get(codexThreadId);
+    if (provider === 'slack_messages') {
+      if (!context || (context.threadId && this.runningThreads.get(context.threadId)?.cancelled)) throw new Error('No active Slack composer session');
+      if (!context.threadId || !['chat', 'task'].includes(context.kind)) throw new Error('Slack drafts require an attended conversation');
+      return this.slackMessages.call(tool, args, context.threadId);
+    }
     if (provider === 'gmail') {
       if (!context || (context.threadId && this.runningThreads.get(context.threadId)?.cancelled)) throw new Error('No active Gmail tool session');
       if (['draft', 'update_draft'].includes(tool) && (!context.threadId || !['chat', 'task'].includes(context.kind))) throw new Error('Email drafts require an attended conversation');
@@ -596,6 +608,7 @@ ${memoryGuidance}`;
     this.stopped = true;
     this.oneOnOnes.stop();
     this.gmail.stop();
+    this.slackMessages.stop();
     if (this.timer) clearInterval(this.timer);
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.timer = null;

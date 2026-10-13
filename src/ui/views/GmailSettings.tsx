@@ -14,7 +14,7 @@ export function GmailSettings({ state }: { state?: GmailState }) {
     catch (cause) { setError(String(cause)); } finally { setPending(false); }
   };
   return <Card className="content-panel settings-panel gmail-settings" variant="outline" padding="none" as="section">
-    <div className="panel-heading"><div><h2>Gmail via Composio</h2><p>Read email and draft replies in chat. Every send requires your approval.</p></div></div>
+    <div className="panel-heading"><div><h2>Gmail via Composio</h2><p>Read email and draft replies in chat. Clicking Send in the editor is your approval.</p></div></div>
     <label>Composio Gmail account<input value={account} onChange={e => setAccount(e.target.value)} placeholder="Gmail account alias" disabled={pending || state?.syncing} /></label>
     <label>Gmail address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" disabled={pending || state?.syncing} /></label>
     <label className="gmail-sync-choice"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} disabled={pending || state?.syncing} />Add emails needing my reply to Inbox automatically</label>

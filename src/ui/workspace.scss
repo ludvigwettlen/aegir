@@ -525,3 +525,28 @@
   input:disabled, textarea:disabled { opacity: 1; background: var(--ds-color-canvas); }
 }
 .gmail-settings .gmail-sync-choice { display: flex; align-items: center; gap: 8px; }
+
+.slack-destination {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;
+  div { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+  span { color: var(--ds-color-muted); }
+}
+.slack-draft-card {
+  .slack-footer-choice { display: flex; align-items: center; gap: 8px; color: var(--ds-color-ink); }
+  .slack-footer-choice input { flex-shrink: 0; }
+  .slack-footer-choice input:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
+  .slack-footer-preview { margin-top: 0; padding-top: 8px; border-top: 1px solid var(--ds-color-line); }
+}
+.slack-thread-context {
+  margin-bottom: 14px; padding: 12px; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control);
+  blockquote { margin: 8px 0; max-height: 140px; overflow: auto; white-space: pre-wrap; font-size: 12px; color: var(--ds-color-muted); }
+}
+.slack-recipient-picker {
+  border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); padding: 12px; margin-bottom: 14px;
+  select { color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); padding: 8px; min-width: 0; }
+  select:focus-visible { outline: 2px solid var(--ds-color-focus); }
+}
+.slack-recipient-results {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; max-height: 220px; overflow: auto; margin: 8px 0;
+  button { justify-content: flex-start; height: auto; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+}

@@ -145,7 +145,11 @@ function registerIpc() {
   handle('gmail-configure', (account: string, email: string, enabled: boolean) => runtime.gmail.configure(account, email, enabled));
   handle('gmail-sync', () => runtime.gmail.sync());
   handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));
-  handle('gmail-draft-send', (id: string, revision: number) => runtime.gmail.send(id, revision, (detail, threadId) => approvalForExternal(detail, threadId, { title: 'Send email', method: 'email-send' })));
+  // These renderer-only endpoints are the user's explicit approval of the displayed draft.
+  handle('gmail-draft-send', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.send(id, revision, fields));
+  handle('slack-draft-targets', (kind: 'people' | 'channels', query: string, cursor?: string) => runtime.slackMessages.findTargets(kind, query, cursor));
+  handle('slack-draft-update', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.update(id, revision, fields));
+  handle('slack-draft-send', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.send(id, revision, fields));
   handle('set-typography', (value: unknown) => {
     store.setSetting('typography', JSON.stringify(validateTypography(value)));
     refresh();

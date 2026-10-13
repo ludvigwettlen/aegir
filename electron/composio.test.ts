@@ -23,8 +23,9 @@ describe('Composio permissions', () => {
     expect(() => prepareComposioCall('COMPOSIO_MULTI_EXECUTE_TOOL', batch('GMAIL_SEND_EMAIL'))).toThrow();
     expect(() => prepareComposioCall('COMPOSIO_REMOTE_BASH_TOOL', { command: 'anything' })).toThrow();
   });
-  it('allows Slack writes only through the approval-gated tool', () => {
-    expect(prepareComposioCall('COMPOSIO_MULTI_EXECUTE_TOOL', batch('SLACK_SEND_MESSAGE')).name).toBe('COMPOSIO_MULTI_EXECUTE_TOOL');
+  it('routes message sends to the editor and keeps other writes approval-gated', () => {
+    expect(() => prepareComposioCall('COMPOSIO_MULTI_EXECUTE_TOOL', batch('SLACK_SEND_MESSAGE'))).toThrow('inline editor');
+    expect(prepareComposioCall('COMPOSIO_MULTI_EXECUTE_TOOL', batch('SLACK_ADD_REACTION')).name).toBe('COMPOSIO_MULTI_EXECUTE_TOOL');
   });
   it('fails closed on malformed or extended execution wrappers', () => {
     for (const args of [{ tools: [] }, { tools: [null] }, { tools: [{ tool_slug: 'SLACK_SEARCH_MESSAGES', arguments: {}, account: 'other' }] }, { ...batch('SLACK_SEARCH_MESSAGES'), custom_auth: {} }]) {

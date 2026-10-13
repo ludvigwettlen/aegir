@@ -777,6 +777,32 @@ describe('Gmail tool exposure', () => {
   });
 });
 
+describe('Slack composer tool exposure', () => {
+  it('opens the inline composer in chat without exposing a send tool', async () => {
+    const { store, runtime } = setup(async (input, id, rt) => {
+      expect(input.tools.filter(tool => tool.name.startsWith('slack_messages__')).map(tool => tool.name)).toEqual(['slack_messages__find_targets', 'slack_messages__draft', 'slack_messages__update_draft']);
+      expect(input.instructions).toContain('explicit Send click');
+      await rt.handleInternalTool('slack_messages', 'draft', { destination: 'C123456', text: 'Hi' }, id);
+      return 'Draft opened';
+    });
+    store.setSetting('composioSlackAccount', 'slack_work');
+    const call = vi.spyOn(runtime.slackMessages, 'call').mockResolvedValue({ draftId: 'draft', revision: 1, sent: false, location: 'Inline editor' });
+    const thread = store.createThread(store.groups()[0].id, 'Slack');
+    await runtime.sendMessage(thread.id, 'Draft a Slack message');
+    expect(call).toHaveBeenCalledWith('draft', expect.any(Object), thread.id);
+    await expect(runtime.handleInternalTool('slack_messages', 'draft', {}, 'inactive')).rejects.toThrow('No active Slack');
+  });
+  it('refuses Slack composer access in unattended runs', async () => {
+    const { store, runtime } = setup(async (input, id, rt) => {
+      expect(input.tools.some(tool => tool.name.startsWith('slack_messages__'))).toBe(false);
+      await expect(rt.handleInternalTool('slack_messages', 'draft', {}, id)).rejects.toThrow('attended');
+      return 'Nothing new';
+    });
+    store.setSetting('composioSlackAccount', 'slack_work');
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+  });
+});
+
 describe('Slack reply proposal suppression', () => {
   it.each(['Respond to Malcolm in Slack', "Resolve Malcolm's question about where the doc is"])('does not save conversation triage: %s', async title => {
     let receipt: unknown;

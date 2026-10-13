@@ -3,6 +3,7 @@ export type EmailDraft = EmailFields & {
   type: 'email-draft'; account: string; email: string; revision: number;
   replyThreadId?: string; inReplyTo?: string; references?: string;
   state: 'draft' | 'awaiting-approval' | 'sending' | 'sent' | 'uncertain';
+  approvedAt?: string; approvedRevision?: number;
   sentId?: string; error?: string;
 };
 export type GmailState = {

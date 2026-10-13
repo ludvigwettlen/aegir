@@ -58,38 +58,39 @@ describe('Gmail approval boundary', () => {
     await expect(service.call('search', { query: 'in:inbox' })).rejects.toThrow('does not match');
     expect(request.mock.calls.filter(c => c[1] === 'messages/send')).toHaveLength(0);
   });
-  it('never posts on denial and preserves edits with optimistic revision checks', async () => {
+  it('does not send from draft creation or edits and rejects mismatched displayed content', async () => {
     const { service, store, draft, request } = setup(); const id = await draft();
     const updated = service.update(id, 1, { ...fields, body: 'Changed' });
     expect(() => service.update(id, 1, fields)).toThrow('changed');
-    await service.send(id, updated.revision, async detail => { expect(detail).toContain('Changed'); return false; });
+    await expect(service.send(id, updated.revision, fields)).rejects.toThrow('displayed email changed');
     expect(store.message(id)?.meta).toMatchObject({ body: 'Changed', state: 'draft' });
     expect(request.mock.calls.filter(c => c[2] === 'POST')).toHaveLength(0);
   });
-  it('locks the exact email during approval and prevents duplicate sends', async () => {
+  it('uses the explicit Send click as approval and locks the message against edits and duplicate sends', async () => {
     const { service, store, draft, request } = setup(); const id = await draft();
-    let resolve!: (approved: boolean) => void;
-    const pending = service.send(id, 1, () => new Promise(r => { resolve = r; }));
-    expect(store.message(id)?.meta).toMatchObject({ state: 'awaiting-approval' });
+    let resolve!: (result: unknown) => void;
+    request.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+    const pending = service.send(id, 1, fields);
+    expect(store.message(id)?.meta).toMatchObject({ state: 'sending', approvedRevision: 1, approvedAt: expect.any(String) });
     expect(() => service.update(id, 1, { ...fields, to: 'attacker@example.com' })).toThrow();
-    await expect(service.send(id, 1, async () => true)).rejects.toThrow();
+    await expect(service.send(id, 1, fields)).rejects.toThrow();
     expect(request.mock.calls.filter(c => c[2] === 'POST')).toHaveLength(0);
-    resolve(true); await pending;
+    resolve({ emailAddress: 'me@example.com' }); await pending;
     expect(store.message(id)?.meta).toMatchObject({ state: 'sent', sentId: 'sent123' });
     expect(request.mock.calls.filter(c => c[2] === 'POST')).toHaveLength(1);
-    await expect(service.send(id, 1, async () => true)).rejects.toThrow();
+    await expect(service.send(id, 1, fields)).rejects.toThrow();
   });
   it('rechecks identity after approval and does not send when it changes', async () => {
     const { service, draft, request } = setup(); const id = await draft(); request.mockResolvedValueOnce({ emailAddress: 'wrong@example.com' });
-    await expect(service.send(id, 1, async () => true)).rejects.toThrow('does not match');
+    await expect(service.send(id, 1, fields)).rejects.toThrow('does not match');
     expect(request.mock.calls.filter(c => c[2] === 'POST')).toHaveLength(0);
   });
   it('does not retry ambiguous delivery and recovers interrupted sends safely', async () => {
     const { service, store, draft, request, review } = setup(); const id = await draft();
     request.mockImplementation(async (_account, path) => { if (path === 'profile') return { emailAddress: 'me@example.com' }; throw new Error('timeout'); });
-    await expect(service.send(id, 1, async () => true)).rejects.toThrow('timeout');
+    await expect(service.send(id, 1, fields)).rejects.toThrow('timeout');
     expect(store.message(id)?.meta).toMatchObject({ state: 'uncertain' });
-    await expect(service.send(id, 1, async () => true)).rejects.toThrow();
+    await expect(service.send(id, 1, fields)).rejects.toThrow();
     store.setMessageMeta(id, { ...(store.message(id)!.meta as EmailDraft), state: 'sending' });
     new GmailService(store, review, () => {}, request);
     expect(store.message(id)?.meta).toMatchObject({ state: 'uncertain' });

@@ -37,7 +37,7 @@ export type RoutineChange = {
   schedule?: RoutineSchedule;
   enabled?: boolean;
 };
-export type MessageMeta = import('./gmail.js').EmailDraft | {
+export type MessageMeta = import('./slack-messages.js').SlackDraft | import('./gmail.js').EmailDraft | {
   type: 'routine-change';
   routineId: string;
   change: RoutineChange;
@@ -177,7 +177,10 @@ export interface DesktopApi extends SkillsApi {
   configureGmail(account: string, email: string, enabled: boolean): Promise<void>;
   syncGmail(): Promise<void>;
   updateEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<import('./gmail.js').EmailDraft>;
-  sendEmailDraft(id: string, revision: number): Promise<void>;
+  sendEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<void>;
+  findSlackTargets(kind: 'people' | 'channels', query: string, cursor?: string): Promise<import('./slack-messages.js').SlackTargets>;
+  updateSlackDraft(id: string, revision: number, fields: import('./slack-messages.js').SlackFields): Promise<import('./slack-messages.js').SlackDraft>;
+  sendSlackDraft(id: string, revision: number, fields: import('./slack-messages.js').SlackFields): Promise<void>;
   configureOneOnOnes(account: string, enabled: boolean): Promise<void>;
   syncOneOnOnes(): Promise<void>;
   prepareOneOnOne(id: string): Promise<void>;

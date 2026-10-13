@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, recovers, reviews, denies and sends an inline email in wide and compact layouts', async () => {
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, recovers and sends an inline email with one explicit approval in wide and compact layouts', async () => {
   const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
   server.middlewares.use('/email-fixture', (_req, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<div id="root"></div><script type="module" src="/src/ui/testing/gmail.tsx"></script>'); });
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -19,19 +19,17 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, recovers, reviews, denies 
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect.poll(() => page.getByRole('button', { name: 'Save draft', exact: true }).isDisabled()).toBe(true);
     await page.screenshot({ path: '/tmp/aegir-gmail-wide.png' });
-    await page.getByRole('button', { name: 'Review send', exact: true }).click();
-    await page.getByRole('button', { name: 'Deny', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'Send declined' }).waitFor();
     await page.getByLabel('To', { exact: true }).fill('another@example.com');
     await page.evaluate(() => { (window as any).fixture.compact(); });
     await expect.poll(() => page.locator('main').evaluate(element => element.clientWidth)).toBe(430); await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.screenshot({ path: '/tmp/aegir-gmail-compact.png' });
     expect(await page.evaluate(() => document.querySelector('main')!.scrollWidth <= 430)).toBe(true);
-    await page.getByRole('button', { name: 'Review send', exact: true }).click();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
     expect(await page.getByLabel('To', { exact: true }).isDisabled()).toBe(true);
-    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    expect(await page.getByRole('button', { name: 'Approve', exact: true }).count()).toBe(0);
     await page.getByText('Gmail confirmed sending.', { exact: true }).waitFor();
-    expect(await page.getByRole('button', { name: 'Review send', exact: true }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Send', exact: true }).count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([{ id: 'email-test', revision: 3, fields: { to: 'another@example.com', cc: '', bcc: '', subject: 'A draft with a longer subject to check narrow email layouts', body: 'Hello\n\nThis is my edited reply.' } }]);
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 45_000);

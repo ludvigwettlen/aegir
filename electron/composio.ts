@@ -16,7 +16,7 @@ const discovery = new Set(['COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS']
 type DiscoveredTool = { name: string; description?: string; inputSchema: Record<string, unknown> };
 
 export function composioTools(tools: DiscoveredTool[], account: string): Tool[] {
-  const guidance = ` Slack only. Discover Slack tools and check the returned connection status before executing. ${account ? `The user expects Slack account ${JSON.stringify(account)}; verify it against connection discovery and stop if it differs or cannot be confirmed. This is an expected account, not a server-side account pin.` : 'Use the active Slack connection returned by discovery.'} Use ${composioReadTool} for supported reads; other Slack actions require chat approval. Remote workbench and shell are unavailable; keep results inline.`;
+  const guidance = ` Slack only. Discover Slack tools and check the returned connection status before executing. ${account ? `The user expects Slack account ${JSON.stringify(account)}; verify it against connection discovery and stop if it differs or cannot be confirmed. This is an expected account, not a server-side account pin.` : 'Use the active Slack connection returned by discovery.'} Use ${composioReadTool} for supported reads; For drafting or sending messages, use slack_messages__draft to open the inline editor; the user clicks Send there. Other Slack actions require chat approval. Remote workbench and shell are unavailable; keep results inline.`;
   return tools.flatMap(tool => {
     if (!discovery.has(tool.name) && tool.name !== executeTool) return [];
     const result: Tool = { ...tool, description: `${tool.description || tool.name}\n${guidance}`, readOnly: discovery.has(tool.name) };
@@ -40,6 +40,8 @@ export function prepareComposioCall(name: string, args: Record<string, unknown>)
       typeof item.tool_slug !== 'string' || !/^SLACK_[A-Z0-9_]+$/.test(item.tool_slug) ||
       !item.arguments || typeof item.arguments !== 'object' || Array.isArray(item.arguments))
       throw new Error('Only Slack tool_slug and arguments entries are supported');
+    if (['SLACK_SEND_MESSAGE', 'SLACK_CHAT_POST_MESSAGE', 'SLACK_POST_MESSAGE', 'SLACK_SCHEDULE_MESSAGE'].includes(item.tool_slug))
+      throw new Error('Use slack_messages__draft to open the inline editor. The user must click Send there; message sending is unavailable through generic execution.');
     if (name === composioReadTool && !slackReads.has(item.tool_slug))
       throw new Error('This Slack action is not approved for read-only execution. Use the approval-gated execution tool in chat.');
   }
