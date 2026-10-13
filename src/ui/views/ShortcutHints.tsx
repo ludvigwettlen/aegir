@@ -25,7 +25,7 @@ function contextFor(route: Route): Context {
     if (target?.closest('.ws-task-detail')) { hints.push(['⌘O', 'Open task output or attachment']); if (label === 'Task notes') hints.push(['Esc', 'Cancel notes edit and return to list']); }
     return { title: label || 'Editing', hints, editing: true, dialog: false };
   }
-  const titles = { tasks: 'Tasks', group: 'Chat', routine: 'Routine', skills: 'Skills', settings: 'Settings', memory: 'Memory' };
+  const titles = { 'one-on-ones': '1:1 prep', tasks: 'Tasks', group: 'Chat', routine: 'Routine', skills: 'Skills', settings: 'Settings', memory: 'Memory' };
   const hints: Hint[] = [['J / K · ↓ / ↑', 'Move through items'], ...(route.view === 'tasks' && !target?.closest('.ws-sidebar') ? [['H / ←', 'Move to the previous pane'] as Hint] : [['H / ←', 'Move to the previous pane'] as Hint, ['L / →', 'Move to the next pane'] as Hint]), ['Tab / ⇧Tab', 'Move between controls']];
   if (target?.closest('.ws-sidebar')) hints.push(['Enter', 'Open selected page']);
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);

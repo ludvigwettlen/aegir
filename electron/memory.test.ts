@@ -68,6 +68,22 @@ function fixture(legacy: Memory[] = []) {
 }
 
 describe('Mnemosyne-only memory', () => {
+  it('excludes old discovery reports from discovery recall without deleting memories', async () => {
+    const { memory, settings } = fixture();
+    settings.set('hermesMemoryDataDir', '/hermes');
+    for (const bank of ['aegir-shared', 'aegir-agent-a1b2', 'hermes'])
+      mnemosyne.banks.set(bank, [
+        { id: bank + '1', content: 'User preference: concise tasks', source: '', timestamp: '' },
+        { id: bank + '2', content: 'Hourly discovery: user has open follow-ups', source: '', timestamp: '' },
+      ]);
+    const filtered = await memory.recall('user', 'a1b2', { excludeDiscoveryReports: true });
+    expect(filtered).toContain('[shared] User preference');
+    expect(filtered).toContain('[agent-a1b2] User preference');
+    expect(filtered).toContain('[hermes] User preference');
+    expect(filtered).not.toContain('Hourly discovery');
+    expect(await memory.recall('user', 'a1b2')).toContain('Hourly discovery');
+  });
+
   it('saves durable memories in the correct bank with source metadata', async () => {
     const { memory } = fixture();
     const saved = await memory.remember('shared', 'Planning brief is due Friday', 'https://example.com/brief');

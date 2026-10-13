@@ -8,6 +8,7 @@ import type { CodexProvider, RunInput } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { MemoryService } from './memory.js';
 import { BrowserManager } from './browser.js';
+import { calendarMeeting } from './one-on-one-calendar.js';
 import { taskSourceKey } from './agent-tools.js';
 import type { Task } from '../shared/types.js';
 
@@ -354,10 +355,10 @@ describe('runtime', () => {
       if (!input.tools.length) return 'Done'; // Task routing does not use memory tools.
       const tool = input.tools.find(tool => tool.name.startsWith('memory__recall_'))!;
       expect(tool).toMatchObject({ readOnly: true });
-      expect(input.tools.some(tool => tool.name.startsWith('memory__remember_'))).toBe(true);
+      expect(input.tools.some(tool => tool.name.startsWith('memory__remember_'))).toBe(kind !== 'routine');
       const agentId = tool.name.slice('memory__recall_'.length).replace(/_/g, '-');
       const result = await rt.handleInternalTool('memory', tool.name.slice('memory__'.length), { query: '  prior project decisions  ' }, id);
-      expect(memory.recall).toHaveBeenLastCalledWith('prior project decisions', agentId);
+      expect(memory.recall).toHaveBeenLastCalledWith('prior project decisions', agentId, ...(kind === 'routine' ? [{ excludeDiscoveryReports: true }] : []));
       expect(result).toEqual({ memories: '[shared] Use weekly reports', found: true });
       checked = true;
       return 'Done';
@@ -370,7 +371,7 @@ describe('runtime', () => {
       await runtime.sendMessage(thread.id, 'Find prior decisions');
     }
     expect(checked).toBe(true);
-    expect(memory.recall).toHaveBeenCalledWith('prior project decisions', expect.any(String));
+    expect(memory.recall).toHaveBeenCalledWith('prior project decisions', expect.any(String), ...(kind === 'routine' ? [{ excludeDiscoveryReports: true }] : []));
   });
 
   it.each(['chat', 'task', 'routine'] as const)('loads scoped skills and records revisions in a %s run', async kind => {
@@ -522,8 +523,9 @@ describe('runtime', () => {
   });
 
   it('logs a routine run and records suggested tasks once', async () => {
-    const { store, runtime } = setup(async (_input, id, rt) => {
-      for (let i = 0; i < 2; i++) await rt.handleInternalTool('tasks', 'suggest', { title: 'Reply to Anna', sourceUrl: 'https://slack.test/1' }, id);
+    const { store, runtime } = setup(async (input, id, rt) => {
+      if (!input.tools.length) return JSON.stringify({ approve: true, reason: 'Explicit new request to the user' });
+      for (let i = 0; i < 2; i++) await rt.handleInternalTool('tasks', 'suggest', { title: 'Reply to Anna', sourceUrl: 'https://slack.test/1', ownershipEvidence: 'Anna asks the user for approval', sourceEvidence: 'Please approve the final draft', freshnessEvidence: 'New request today' }, id);
       return 'Suggested one task';
     });
     const routine = store.routines()[0];
@@ -534,6 +536,130 @@ describe('runtime', () => {
     const kinds = store.runEvents(run.id).map(x => x.kind);
     expect(kinds[0]).toBe('run'); expect(kinds.at(-1)).toBe('run'); expect(kinds).toContain('agent');
     expect(store.routine(routine.id)!.lastRunAt).toBe(run.startedAt);
+  });
+
+  it.each(['proposed', 'ready', 'done', 'dismissed'] as const)('reviews reworded suggestions against %s outcomes with full context', async status => {
+    let receipt: unknown;
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      if (!input.tools.length) {
+        const data = JSON.parse(input.prompt);
+        expect(data.existingTasks).toEqual([expect.objectContaining({ title: 'Follow up on Telecom lost-deal fit', status, notes: 'Same intended outcome', sourceUrl: 'https://notion.test/meeting' })]);
+        expect(input.modelTier).toBe('default');
+        return JSON.stringify({ approve: false, reason: 'Same intended outcome already handled' });
+      }
+      receipt = await rt.handleInternalTool('tasks', 'suggest', {
+        title: 'Follow up on lost Telecom deal', sourceUrl: 'https://notion.test/other-link',
+        ownershipEvidence: 'User was asked to follow up', sourceEvidence: 'Follow up on the lost deal', freshnessEvidence: 'Meeting from yesterday',
+      }, id);
+      return 'No new tasks';
+    });
+    store.createTask({ title: 'Follow up on Telecom lost-deal fit', notes: 'Same intended outcome', status, sourceUrl: 'https://notion.test/meeting' });
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    expect(receipt).toEqual({ created: false, reason: 'Same intended outcome already handled' });
+    expect(store.list('tasks')).toHaveLength(1);
+    expect(runs).toHaveLength(2);
+  });
+
+  it.each(['missing evidence', 'invalid review', 'failed review', 'changed history'] as const)('saves nothing with %s', async failure => {
+    let receipt: unknown;
+    const { store, runtime } = setup(async (input, id, rt) => {
+      if (!input.tools.length) {
+        if (failure === 'failed review') throw new Error('Review unavailable');
+        if (failure === 'changed history') store.createTask({ title: 'Concurrent task' });
+        return failure === 'invalid review' ? 'Looks fine' : '{"approve":true,"reason":"Personal request"}';
+      }
+      receipt = await rt.handleInternalTool('tasks', 'suggest', {
+        title: 'Approve launch', sourceUrl: 'https://notion.test/launch',
+        ...(failure === 'missing evidence' ? {} : { ownershipEvidence: 'Asked user', sourceEvidence: 'Approve launch', freshnessEvidence: 'Today' }),
+      }, id);
+      return 'Done';
+    });
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    expect(store.list('tasks').filter(task => task.status === 'proposed')).toHaveLength(0);
+    if (failure === 'failed review') expect(store.lastRun(store.routines()[0].id)?.status).toBe('failed');
+    else expect(receipt).toMatchObject({ created: false });
+  });
+
+  it('allows separately reviewed actions from the same source and includes user identity context', async () => {
+    const { store, runtime, memory } = setup(async (input, id, rt) => {
+      if (!input.tools.length) {
+        const data = JSON.parse(input.prompt);
+        expect(data.userContext).toBe('The user is Alex');
+        expect(data.existingTasks).toHaveLength(1);
+        expect(data.candidate.title).toBe('Approve launch budget');
+        return '{"approve":true,"reason":"Distinct new personal request"}';
+      }
+      const result = await rt.handleInternalTool('tasks', 'suggest', {
+        title: 'Approve launch budget', sourceUrl: 'https://notion.test/meeting',
+        ownershipEvidence: 'Alex was explicitly asked to approve the budget', sourceEvidence: 'Alex: please approve the launch budget', freshnessEvidence: 'New request today',
+      }, id);
+      expect(result).toMatchObject({ created: true });
+      return 'Saved';
+    });
+    vi.spyOn(memory, 'recall').mockResolvedValue('The user is Alex');
+    store.createTask({ title: 'Send meeting agenda', status: 'done', sourceUrl: 'https://notion.test/meeting' });
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    expect(store.list('tasks')).toHaveLength(2);
+    expect(store.list('tasks').find(task => task.status === 'proposed')?.notes).toContain('Alex was explicitly asked');
+  });
+
+  it('does not advance discovery past a failed run', async () => {
+    const { store, runtime, runs } = setup();
+    const routine = store.routines()[0];
+    const completed = store.startRun(routine.id, 'manual');
+    store.finishRun(completed.id, 'ok', 'Prior successful coverage');
+    store.db.prepare('UPDATE routine_runs SET startedAt=? WHERE id=?').run('2026-10-10T08:00:00Z', completed.id);
+    const failed = store.startRun(routine.id, 'manual');
+    store.finishRun(failed.id, 'failed', 'Source failed');
+    await runtime.runRoutine(routine.id, 'manual');
+    expect(runs[0].prompt).toContain('Previous run: 2026-10-10T08:00:00Z (ok)');
+  });
+
+  it('blocks discovery memory writes and retains normal routine memory access', async () => {
+    const { store, runtime, memory, runs } = setup(async (input, id, rt) => {
+      const tool = input.tools.find(tool => tool.name.startsWith('memory__recall_'))!;
+      const name = tool.name.slice('memory__'.length).replace('recall_', 'remember_');
+      if (input.tools.some(tool => tool.name.startsWith('memory__remember_')))
+        await rt.handleInternalTool('memory', name, { content: 'Stable preference' }, id);
+      else await expect(rt.handleInternalTool('memory', name, { content: 'Hourly discovery: pending follow-ups' }, id)).rejects.toThrow('read-only');
+      return 'Done';
+    });
+    const remember = vi.spyOn(memory, 'remember');
+    const discovery = store.routines()[0];
+    await runtime.runRoutine(discovery.id, 'manual');
+    expect(remember).not.toHaveBeenCalled();
+    expect(runs[0].modelTier).toBe('default');
+    const other = store.createRoutine({ name: 'Durable meeting decisions', instructions: 'Save durable facts', agentId: discovery.agentId, schedule: { every: 'day' }, enabled: false });
+    await runtime.runRoutine(other.id, 'manual');
+    expect(remember).toHaveBeenCalledOnce();
+  });
+
+  it('prepares 1:1 recaps from primary sources without recycling local notes or generated agendas', async () => {
+    let checked = false;
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      expect(rt.contextFor(id)?.kind).toBe('prep');
+      expect(input.modelTier).toBe('default');
+      expect(input.tools.every(tool => tool.readOnly)).toBe(true);
+      expect(input.tools.some(tool => tool.name === 'slack__search')).toBe(true);
+      expect(input.prompt).not.toContain('Discuss career growth');
+      expect(input.prompt).not.toContain('An unverified previous suggestion');
+      expect(input.prompt).not.toContain('priorMeetingNotes');
+      expect(input.instructions).toContain('Notion is where the user keeps meeting notes');
+      expect(input.instructions).toContain('Previously discussed (dated recap with source links)');
+      expect(input.instructions).toContain('Never treat a previously generated agenda as evidence');
+      const recall = input.tools.find(tool => tool.name.startsWith('memory__recall_'))!;
+      await expect(rt.handleInternalTool('memory', recall.name.slice('memory__'.length).replace('recall_', 'remember_'), { content: 'Meeting report' }, id)).rejects.toThrow('read-only');
+      checked = true; return '# Previously discussed\nNo prior conversations could be verified.\n\n## Suggested agenda\nWhat would be useful to discuss?';
+    });
+    const meeting = calendarMeeting({ id: 'prep', summary: 'Alex / Sam', start: { dateTime: new Date(Date.now() + 3600000).toISOString() }, end: { dateTime: new Date(Date.now() + 5400000).toISOString() }, attendees: [{ self: true, email: 'alex@example.com' }, { email: 'sam@example.com' }] }, 'work')!;
+    meeting.notes = 'Discuss career growth';
+    meeting.agenda = 'An unverified previous suggestion';
+    meeting.previousAgenda = 'An unverified previous suggestion';
+    store.db.prepare('INSERT INTO one_on_one_meetings VALUES (?,?)').run(meeting.id, JSON.stringify(meeting));
+    runtime.oneOnOnes.configure('work', false);
+    await runtime.oneOnOnes.prepare(meeting.id);
+    expect(checked).toBe(true); expect(runs).toHaveLength(1);
+    expect(runtime.oneOnOnes.snapshot().meetings[0]).toMatchObject({ status: 'ready', notes: 'Discuss career growth' });
   });
 
   it('applies a routine change an agent proposed in chat', async () => {

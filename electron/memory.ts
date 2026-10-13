@@ -92,13 +92,14 @@ export class MemoryService {
     const rows = (await Promise.all(scopes.map(scope => this.results(query.trim(), scope)))).flat();
     return rows.filter((row, index) => rows.findIndex(other => other.id === row.id && other.scope === row.scope) === index);
   }
-  async recall(query: string, agentId?: string): Promise<string> {
+  async recall(query: string, agentId?: string, options?: { excludeDiscoveryReports?: boolean }): Promise<string> {
     await this.migrateLegacy();
     const scopes = ['shared', ...(agentId ? [`agent-${agentId}`] : [])];
-    const recalled = (await Promise.all(scopes.map(scope => this.results(query, scope)))).flat().map(row => `[${row.scope}] ${row.content}`);
+    const include = (row: Memory) => !options?.excludeDiscoveryReports || !/\bhourly discovery\b|\bdiscovery (?:run|report|findings)\b/i.test(row.content);
+    const recalled = (await Promise.all(scopes.map(scope => this.results(query, scope)))).flat().filter(include).map(row => `[${row.scope}] ${row.content}`);
     const hermesDataDir = this.store.getSetting('hermesMemoryDataDir');
     if (hermesDataDir) {
-      try { recalled.push(...(await this.results(query, 'hermes', hermesDataDir)).map(row => `[hermes] ${row.content}`)); }
+      try { recalled.push(...(await this.results(query, 'hermes', hermesDataDir)).filter(include).map(row => `[hermes] ${row.content}`)); }
       catch (error) { console.warn('Hermes memory recall failed:', error); }
     }
     return recalled.join('\n');

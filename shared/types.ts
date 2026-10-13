@@ -145,6 +145,7 @@ export type ThreadSummary = Thread & {
 };
 export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
+  oneOnOnes?: import('./one-on-ones.js').OneOnOneState;
   agents: Agent[];
   groups: Group[];
   threads: ThreadSummary[];
@@ -172,6 +173,11 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence'>>;
 
 export interface DesktopApi extends SkillsApi {
+  configureOneOnOnes(account: string, enabled: boolean): Promise<void>;
+  syncOneOnOnes(): Promise<void>;
+  prepareOneOnOne(id: string): Promise<void>;
+  updateOneOnOne(id: string, change: { agenda?: string; hidden?: boolean }, expectedAgenda?: string): Promise<void>;
+
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
   readDocumentImage(threadId: string, path: string, src: string): Promise<string>;

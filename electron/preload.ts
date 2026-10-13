@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  configureOneOnOnes: (account, enabled) => ipcRenderer.invoke('one-on-ones-configure', account, enabled),
+  syncOneOnOnes: () => ipcRenderer.invoke('one-on-ones-sync'),
+  prepareOneOnOne: id => ipcRenderer.invoke('one-on-ones-prepare', id),
+  updateOneOnOne: (id, change, expected) => ipcRenderer.invoke('one-on-ones-update', id, change, expected),
   setTypography: value => ipcRenderer.invoke('set-typography', value),
   setBrowserEnabled: enabled => ipcRenderer.invoke('browser-enabled', enabled),
   openBrowser: () => ipcRenderer.invoke('browser-open'),

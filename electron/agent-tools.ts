@@ -3,7 +3,7 @@ import type { Agent, Routine, RoutineChange, Task, TaskChange } from '../shared/
 import type { Tool } from './codex.js';
 import { validSchedule } from '../shared/routines.js';
 
-export type RunKind = 'chat' | 'task' | 'routine';
+export type RunKind = 'chat' | 'task' | 'routine' | 'prep';
 
 // Tasks and routines only see read-only connector tools. Browser grants are
 // separate and enforced by BrowserManager for attended chat/task responses.
@@ -92,8 +92,8 @@ export function cleanTaskProposalChange(value: unknown): TaskChange {
 
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',
-  description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires the source permalink the task came from.',
-  inputSchema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, sourceUrl: { type: 'string' }, label: { type: 'string' } }, required: ['title', 'sourceUrl'] },
+  description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires primary-source evidence of personal ownership and a new actionable request. An independent review checks relevance and all existing task statuses before saving; created=false means nothing was saved.',
+  inputSchema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, sourceUrl: { type: 'string' }, label: { type: 'string' }, ownershipEvidence: { type: 'string', description: 'Evidence identifying the user and their explicit personal obligation, not team ownership.' }, sourceEvidence: { type: 'string', description: 'Concise factual excerpt or paraphrase from the current primary source you read.' }, freshnessEvidence: { type: 'string', description: 'Dated new request or material change; explain any resurfacing after completion or dismissal.' } }, required: ['title', 'sourceUrl', 'ownershipEvidence', 'sourceEvidence', 'freshnessEvidence'] },
   readOnly: false
 };
 

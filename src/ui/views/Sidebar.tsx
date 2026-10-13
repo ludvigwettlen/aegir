@@ -107,6 +107,8 @@ export function Sidebar({
       {data.taskLists.map(list => <Item key={list.id} active={isList(`list:${list.id}`)}
         onClick={() => go({ view: 'tasks', list: `list:${list.id}` })}
         icon={<List size={16} />} label={list.name} count={tasksFor(`list:${list.id}`, data.tasks).length} />)}
+      <div className="ws-nav-label">MEETINGS</div>
+      <Item active={route.view === 'one-on-ones'} onClick={() => go({ view: 'one-on-ones' })} icon={<Users size={16} />} label="1:1 prep" />
       <div className="ws-nav-label">
         <span>GROUPS</span>
         <button aria-label="New group" onClick={onNewGroup}>

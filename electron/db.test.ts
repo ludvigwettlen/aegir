@@ -10,6 +10,29 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 const path = () => join(mkdtempSync(join(tmpdir(), 'aegir-')), 'test.sqlite');
 
 describe('store', () => {
+  it('upgrades saved discovery once while preserving connector instructions and custom settings', () => {
+    const file = path();
+    const store = new Store(file);
+    const routine = store.routines()[0];
+    const instructions = 'Search connected Slack and Notion for decisions, commitments, follow-ups and open questions since the last run.\nOnly use my verified Slack account; do not fall back.';
+    store.updateRoutine(routine.id, { instructions, enabled: false, schedule: { every: 'day', at: '09:00' } });
+    store.setSetting('personalDiscoveryV1', '');
+    store.setSetting('discoveryRoutineId', '');
+    const custom = store.createRoutine({ name: 'Custom research', instructions: 'My own workflow', agentId: routine.agentId, enabled: false, schedule: { every: 'day' } });
+    store.close();
+    const upgraded = new Store(file);
+    expect(upgraded.getSetting('discoveryRoutineId')).toBe(routine.id);
+    expect(upgraded.routine(routine.id)).toMatchObject({ enabled: false, agentId: routine.agentId, schedule: { every: 'day', at: '09:00' } });
+    expect(upgraded.routine(routine.id)?.instructions).toContain(instructions);
+    expect(upgraded.routine(routine.id)?.instructions).toContain('personally owned by the user');
+    expect(upgraded.routine(custom.id)?.instructions).toBe('My own workflow');
+    const migrated = upgraded.routine(routine.id)?.instructions;
+    upgraded.close();
+    const reopened = new Store(file);
+    expect(reopened.routine(routine.id)?.instructions).toBe(migrated);
+    reopened.close();
+  });
+
   it('persists custom lists and membership, validates names and supports moving with undo', () => {
     const file = path();
     const store = new Store(file);

@@ -1,3 +1,5 @@
+import { OneOnOnesView } from './views/OneOnOnesView';
+import { emptyOneOnOnes } from '../../shared/one-on-ones';
 import { defaultTypography } from '../../shared/typography';
 import { applyTypography } from './typography';
 import { X } from 'lucide-react';
@@ -99,6 +101,7 @@ export function App() {
             onDiscuss={() => discuss(routine.name)}
           />
         )}
+        {route.view === 'one-on-ones' && <OneOnOnesView state={data.oneOnOnes || emptyOneOnOnes} run={run} />}
         {route.view === 'memory' && (
           <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
             <MemoryView data={data} run={run} />

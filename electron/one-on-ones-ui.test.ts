@@ -1,0 +1,51 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows calendar setup, preparation, preserved agenda drafts and compact layouts', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
+  server.middlewares.use('/one-on-ones', (_req, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<div id="root"></div><script type="module" src="/src/ui/testing/one-on-ones.tsx"></script>'); });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.setDefaultTimeout(6000);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${server.resolvedUrls!.local[0]}one-on-ones`);
+    await page.getByRole('button', { name: '1:1 prep', exact: true }).click();
+    await page.getByRole('heading', { name: 'Show up with context' }).waitFor();
+    await page.screenshot({ path: '/tmp/aegir-one-on-ones-empty.png' });
+    await page.getByRole('textbox', { name: 'Calendar account', exact: true }).fill('work');
+    await page.getByRole('button', { name: 'Save calendar settings' }).click();
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('heading', { name: 'Sam Lee', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Prepare now', exact: true }).click();
+    await page.getByRole('heading', { name: 'Previously discussed', exact: true }).waitFor();
+    expect(await page.getByRole('textbox', { name: 'Your topics & meeting notes' }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Edit agenda', exact: true }).click();
+    const agenda = page.getByRole('textbox', { name: 'Edit agenda', exact: true });
+    await agenda.fill('# My agenda\nA useful conversation.');
+    await page.evaluate(() => { (window as any).fixture.fail = true; });
+    await page.getByRole('button', { name: 'Save agenda', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Save failed' }).waitFor();
+    await page.getByRole('button', { name: /A very long attendee name/ }).click();
+    await page.getByRole('alert').filter({ hasText: 'Notion could not be reached' }).waitFor();
+    await page.getByRole('button', { name: /Sam Lee/ }).click();
+    await page.getByRole('button', { name: 'Edit agenda', exact: true }).click();
+    expect(await agenda.inputValue()).toBe('# My agenda\nA useful conversation.');
+    await page.evaluate(() => { (window as any).fixture.fail = false; });
+    await page.getByRole('button', { name: 'Save agenda', exact: true }).click();
+    await page.getByRole('button', { name: 'Read agenda', exact: true }).click();
+    await page.getByRole('heading', { name: 'My agenda' }).waitFor();
+    await page.screenshot({ path: '/tmp/aegir-one-on-ones-full.png' });
+    await page.setViewportSize({ width: 1000, height: 720 });
+    await page.screenshot({ path: '/tmp/aegir-one-on-ones-compact.png' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Hide', exact: true }).click();
+    await page.getByRole('button', { name: 'Hidden meetings · 1' }).click();
+    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await page.getByRole('button', { name: 'Show upcoming' }).click();
+    await page.getByRole('button', { name: /Sam Lee/ }).focus(); await page.keyboard.press('j');
+    await page.getByRole('heading', { name: 'A very long attendee name to verify wrapping in the narrow layout' }).waitFor();
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 60000);

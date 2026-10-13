@@ -58,6 +58,7 @@ function migrateLegacyData() {
 }
 function snapshot(): Snapshot {
   return {
+    oneOnOnes: runtime?.oneOnOnes?.snapshot(),
     agents: store.list('agents'),
     groups: store.groups(),
     threads: store.threadSummaries(),
@@ -186,6 +187,13 @@ function registerIpc() {
     mkdirSync(destination);
     for (const file of files) { const path = join(destination, file.path); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, fileBytes(file)); }
   });
+  handle('one-on-ones-configure', (account: string, enabled: boolean) => {
+    runtime.oneOnOnes.configure(account, enabled);
+    if (enabled) void runtime.oneOnOnes.tick();
+  });
+  handle('one-on-ones-sync', () => runtime.oneOnOnes.sync());
+  handle('one-on-ones-prepare', (id: string) => runtime.oneOnOnes.prepare(id));
+  handle('one-on-ones-update', (id: string, change: { agenda?: string; hidden?: boolean }, expected?: string) => runtime.oneOnOnes.update(id, change, expected));
   handle('thread-messages', (threadId: string, before?: string) =>
     store.messagePage(threadId, before),
   );
@@ -460,7 +468,7 @@ if (app.requestSingleInstanceLock()) {
       if (shuttingDown || !store.isOpen) return;
       const context = approval.threadId ? runtime.contextFor(approval.threadId) : undefined;
       // Routines run unattended; anything that needs approval is declined and left in the run log.
-      if (context?.kind === 'routine') {
+      if (context?.kind === 'routine' || context?.kind === 'prep') {
         codex.resolveApproval(approval.id, false);
         return;
       }

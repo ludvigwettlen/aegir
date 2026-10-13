@@ -6,7 +6,7 @@ Interaction principle: prefer immediate, reversible actions with `Cmd+Z` undo ov
 
 ## Next
 
-- [ ] Explore an in-app calendar view where clicking a meeting opens meeting prep prepared by the agent teams for review.
+- [x] Add a calendar-first 1:1 prep section with upcoming meetings, automatic read-only agenda preparation, sources, editable notes and calendar refresh.
 - [ ] Add proper web search tools for agents.
 
 ## Security review follow-ups — 2026-10-01
