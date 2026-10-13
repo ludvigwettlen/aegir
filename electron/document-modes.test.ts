@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 
 // AEGIR_EDITOR_SMOKE=1 pnpm test electron/document-modes.test.ts
 it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place and centers visual lines across layouts', async () => {
-  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } }, appType: 'custom' });
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } }, appType: 'custom' });
   server.middlewares.use('/modes-test', (_req, response) => {
     response.setHeader('Content-Type', 'text/html');
     response.end('<div id="root"></div><script type="module" src="/src/ui/testing/document-modes.tsx"></script>');

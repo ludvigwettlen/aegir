@@ -433,16 +433,6 @@
 .ws-move-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; color: var(--ds-color-muted); font-size: calc(11px * var(--ds-text-scale, 1)); }
 
 
-.ws-task-repeat {
-  display: flex; flex-direction: column; gap: 5px; color: var(--ds-color-muted);
-  font-size: calc(11px * var(--ds-text-scale, 1));
-  label { display: flex; align-items: center; gap: 7px; }
-  select { min-width: 0; flex: 1; padding: 5px 8px; color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); border-radius: 6px; font: inherit;
-    &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
-    &:disabled { opacity: 0.65; }
-  }
-}
-
 /* Calendar-first 1:1 preparation. */
 .one-on-ones { display: grid; grid-template-columns: 310px minmax(0, 1fr); min-height: 0; }
 .one-on-one-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ds-color-line); background: var(--ds-color-glass); }
@@ -550,3 +540,17 @@
   display: flex; flex-direction: column; align-items: stretch; gap: 4px; max-height: 220px; overflow: auto; margin: 8px 0;
   button { justify-content: flex-start; height: auto; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 }
+
+/* Repeat shares the move picker's modal vocabulary without a persistent form field. */
+.ws-detail-head > .ws-detail-top { padding-top: 0; min-height: 28px;
+  > .ws-task-repeat-action { margin-left: auto; }
+}
+.ws-detail-plain > .ws-detail-head { padding: var(--ds-space-5); gap: var(--ds-space-3); }
+.ws-repeat-options { display: flex; flex-direction: column; gap: var(--ds-space-1); margin: var(--ds-space-4) 0;
+  > .ds-button { width: 100%; min-height: 40px; justify-content: flex-start; padding: var(--ds-space-2) var(--ds-space-3);
+    > span { flex: 1; text-align: left; }
+    small { font-size: calc(11px * var(--ds-text-scale, 1)); color: var(--ds-color-muted); }
+    &[aria-pressed="true"] { background: var(--ds-color-lime-soft); color: var(--ds-color-ink); }
+  }
+}
+.ws-repeat-help { border-top: 1px solid var(--ds-color-line); padding-top: var(--ds-space-3); color: var(--ds-color-muted); font-size: calc(12px * var(--ds-text-scale, 1)); }

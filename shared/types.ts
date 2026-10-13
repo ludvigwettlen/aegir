@@ -186,7 +186,7 @@ export interface DesktopApi extends SkillsApi {
   prepareOneOnOne(id: string): Promise<void>;
   updateOneOnOne(id: string, change: { agenda?: string; hidden?: boolean }, expectedAgenda?: string): Promise<void>;
 
-  listDocuments(threadId: string): Promise<string[]>;
+  listDocuments(threadId: string): Promise<import('./documents').WorkspaceDocumentEntry[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
   readDocumentImage(threadId: string, path: string, src: string): Promise<string>;
   importDocumentImage(threadId: string, path: string, name: string, bytes: Uint8Array): Promise<string>;

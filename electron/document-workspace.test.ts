@@ -1,0 +1,107 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens task documents directly and preserves edits, conversation drafts and reading positions across switches', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } }, appType: 'custom' });
+  server.middlewares.use('/workspace-test', (_request, response) => {
+    response.setHeader('Content-Type', 'text/html');
+    response.end('<div id="root"></div><script type="module" src="/src/ui/testing/window-header.tsx"></script>');
+  });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.setDefaultTimeout(7000);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    const url = `${server.resolvedUrls!.local[0]}workspace-test`;
+    await page.goto(`${url}?files=5`);
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    const preview = page.getByLabel('Task documents', { exact: true });
+    await preview.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).waitFor();
+    expect(await preview.getByRole('button', { name: /^Open / }).count()).toBe(3);
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true });
+    await composer.fill('Keep this unsent reply');
+    await preview.getByRole('button', { name: 'View all · 5 documents' }).click();
+    const search = page.getByRole('textbox', { name: 'Search documents' });
+    await search.fill('missing');
+    await page.getByText('No matching documents.', { exact: true }).waitFor();
+    await search.fill('option-4');
+    await search.press('ArrowDown'); await page.keyboard.press('Enter');
+    const prose = page.getByRole('textbox', { name: 'Document', exact: true });
+    await expect.poll(() => prose.innerText()).toContain('Option 4');
+    expect(await page.locator('.ws-task-list').isVisible()).toBe(false);
+    expect(await page.locator('.ws-sidebar').isVisible()).toBe(false);
+    expect(await composer.isVisible()).toBe(false);
+    expect(await page.getByRole('button', { name: 'Outline and notes', exact: true }).getAttribute('aria-expanded')).toBe('false');
+    await prose.press('F6');
+    await expect.poll(() => composer.evaluate(element => element === document.activeElement)).toBe(true);
+    expect(await composer.inputValue()).toBe('Keep this unsent reply');
+    await composer.press('F6');
+    expect(await prose.evaluate(element => element === document.activeElement)).toBe(true);
+    await prose.press('ControlOrMeta+End'); await prose.press('Enter'); await prose.pressSequentially('A saved edit');
+    // Saving fails during a switch: both document and local text must stay available.
+    await page.evaluate(() => { (window as any).fixtureActions.failSave = true; });
+    await page.getByRole('button', { name: 'Switch document', exact: true }).click();
+    await page.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).click();
+    await page.getByText('Save the current document before opening another.', { exact: false }).waitFor();
+    expect(await page.getByRole('dialog').count()).toBe(1);
+    await page.getByRole('button', { name: 'Close document picker', exact: true }).click();
+    expect(await prose.innerText()).toContain('A saved edit');
+    await page.evaluate(() => { (window as any).fixtureActions.failSave = false; });
+    await page.getByRole('button', { name: 'Switch document', exact: true }).click();
+    await page.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).click();
+    await expect.poll(() => prose.innerText()).toContain('PM level boundaries');
+    expect(await page.evaluate(() => (window as any).fixtureActions.files[4].content)).toContain('A saved edit');
+    // A reading position belongs to the document, independently of its chat layout.
+    await page.setViewportSize({ width: 900, height: 650 });
+    await page.evaluate(() => {
+      const editor = (document.querySelector('.ws-document-prose') as any).editor;
+      editor.commands.setTextSelection(80);
+      document.querySelector('.ws-document-scroll')!.scrollTop = 240;
+    });
+    const scrollTop = await page.locator('.ws-document-scroll').evaluate(element => element.scrollTop);
+    await page.getByRole('button', { name: 'Switch document', exact: true }).click();
+    await page.getByRole('button', { name: 'Open research/option-4.md', exact: true }).click();
+    await expect.poll(() => prose.innerText()).toContain('A saved edit');
+    await page.getByRole('button', { name: 'Switch document', exact: true }).click();
+    await page.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).click();
+    await expect.poll(() => page.locator('.ws-document-scroll').evaluate(element => element.scrollTop)).toBe(scrollTop);
+    expect(await page.evaluate(() => (document.querySelector('.ws-document-prose') as any).editor.state.selection.from)).toBe(80);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    expect(await composer.isVisible()).toBe(false);
+    await page.getByRole('button', { name: 'Back to list', exact: true }).click();
+    expect(await composer.inputValue()).toBe('Keep this unsent reply');
+    expect(await page.locator('[data-keyboard-current]').count()).toBe(1);
+    await preview.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).click();
+    expect(await composer.isVisible()).toBe(false);
+    await prose.press('ControlOrMeta+End'); await prose.pressSequentially(' Escape keeps this edit');
+    await page.evaluate(() => { (window as any).fixtureActions.failSave = true; });
+    await prose.press('Escape');
+    await page.getByRole('alert').filter({ hasText: 'Could not save document' }).waitFor();
+    expect(await prose.innerText()).toContain('Escape keeps this edit');
+    await page.evaluate(() => { (window as any).fixtureActions.failSave = false; });
+    await prose.press('Escape');
+    await preview.waitFor();
+    expect(await page.evaluate(() => (window as any).fixtureActions.files[0].content)).toContain('Escape keeps this edit');
+    await page.getByRole('button', { name: 'General', exact: true }).click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByRole('button', { name: 'Open research/option-1.md', exact: true }).click();
+    await expect.poll(() => prose.innerText()).toContain('Option 1');
+    await prose.press('F6');
+    await composer.press('Escape');
+    await prose.waitFor({ state: 'hidden' });
+    expect(await page.locator('.ws-thread-list').isVisible()).toBe(true);
+    // Empty and failed document lists are explicit, recoverable states.
+    await page.goto(`${url}?files=0`);
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByText('No Markdown files in this workspace yet.', { exact: true }).waitFor();
+    await page.goto(`${url}?files=2&failList`);
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Documents unavailable' }).waitFor();
+    await page.evaluate(() => { (window as any).fixtureActions.failList = false; });
+    await page.getByRole('button', { name: 'Refresh documents', exact: true }).click();
+    await page.getByRole('button', { name: 'Open research/option-1.md', exact: true }).waitFor();
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 120000);

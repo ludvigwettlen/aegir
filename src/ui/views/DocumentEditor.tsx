@@ -5,7 +5,7 @@ import { Markdown } from '@tiptap/markdown';
 import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
-import { AlignVerticalJustifyCenter, Copy, ImagePlus, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, ArrowLeft, Copy, ImagePlus, Maximize2, Minimize2, MoreHorizontal, PanelLeft, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
@@ -15,6 +15,7 @@ import { DocumentComment, DocumentCommentParagraph } from '../document-comments'
 import { DocumentComments } from './DocumentComments';
 import { DocumentCommands } from './DocumentCommands';
 import { Button } from '../design-system/primitives';
+import { useDocumentPosition } from '../hooks/useDocumentPosition';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { DocumentTypography } from '../document-typography';
 import { DocumentCompanion } from './DocumentCompanion';
@@ -27,9 +28,10 @@ const errorText = (error: unknown) => String(error).replace(/^Error: (Error invo
 
 export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   document: WorkspaceDocument; threadId: string; onClose: () => void; headerActions?: ReactNode;
+  workspaceHeader?: { title: ReactNode; actions: ReactNode; backLabel: string; busy?: boolean };
   onSelection: (selection: DocumentReference | null) => void;
   onOpenDocument: (path: string) => void;
-}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions }, ref) {
+}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions, workspaceHeader }, ref) {
   const storageKey = `aegir-document:${threadId}:${initial.path}`;
   const [recovered] = useState<Draft | null>(() => {
     try { const draft = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof draft?.content === 'string' && typeof draft?.revision === 'string' ? draft : null; } catch { return null; }
@@ -61,11 +63,25 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const [showReload, setShowReload] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [typewriterMode, setTypewriterMode] = useState(false);
-  const [showCompanion, setShowCompanion] = useState(true);
+  const [showCompanion, setShowCompanion] = useState(() => {
+    if (!workspaceHeader) return true;
+    try { return localStorage.getItem('aegir-document-outline') === 'true'; } catch { return false; }
+  });
+  const menu = useRef<HTMLDetailsElement>(null);
+  const setCompanion = (value: boolean) => {
+    setShowCompanion(value);
+    if (workspaceHeader) { try { localStorage.setItem('aegir-document-outline', String(value)); } catch { /* Optional layout preference. */ } }
+  };
+  useEffect(() => {
+    const outside = (event: PointerEvent) => { if (menu.current?.open && !menu.current.contains(event.target as Node)) menu.current.open = false; };
+    window.document.addEventListener('pointerdown', outside);
+    return () => window.document.removeEventListener('pointerdown', outside);
+  }, []);
   const companionId = useId();
   const companionToggle = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    if (workspaceHeader) return;
     const viewport = scroll.current?.parentElement;
     if (!viewport) return;
     const fit = () => { if (viewport.clientWidth < 760) setShowCompanion(false); };
@@ -127,6 +143,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     },
   });
   useTypewriter(editor, scroll, typewriterMode && !unsupported);
+  useDocumentPosition(editor, scroll, storageKey, !!workspaceHeader);
   useEffect(() => { editor?.setEditable(!unsupported, false); }, [editor, unsupported]);
   useEffect(() => {
     let active = true;
@@ -173,23 +190,41 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
       onSelection(null); setError(''); setDiskChanged(false); setShowReload(false); setStatus('Saved');
     } catch (cause) { setError(errorText(cause)); }
   };
+  const close = () => { if (!workspaceHeader?.busy) void save().then(ok => { if (ok) onClose(); }); };
+  const insertImage = () => { if (editor) { const { from, to } = editor.state.selection; setImageRange({ from, to }); } };
   return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
-    <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
+    {workspaceHeader ? <header className="ws-document-head ws-document-workspace-head" role="banner" aria-label="Window header">
+      <Button variant="ghost" size="sm" data-close-document disabled={workspaceHeader.busy} onClick={close}><ArrowLeft size={15} aria-hidden="true" />{workspaceHeader.backLabel}</Button>
+      <div className="ws-document-title">{workspaceHeader.title}</div>
+      <span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span>
+      {workspaceHeader.actions}
+      <div ref={companionToggle} className="ws-document-modes"><Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setCompanion(!showCompanion)}><PanelLeft size={15} aria-hidden="true" /></Button></div>
+      <details ref={menu} className="ws-document-more" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }}
+        onKeyDownCapture={event => { if (event.key === 'Escape' && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+        <summary aria-label="Document actions" title="Document actions"><MoreHorizontal size={17} aria-hidden="true" /></summary>
+        <div className="ws-document-menu">
+          <Button variant="ghost" size="sm" aria-label="Copy document" onClick={() => { void copy(); if (menu.current) menu.current.open = false; }}><Copy size={14} />Copy document</Button>
+          <Button variant="ghost" size="sm" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={() => { insertImage(); if (menu.current) menu.current.open = false; }}><ImagePlus size={15} />Insert image</Button>
+          <Button variant="ghost" size="sm" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} onClick={() => setTypewriterMode(value => !value)}><AlignVerticalJustifyCenter size={15} />Typewriter mode</Button>
+        </div>
+      </details>
+    </header> : <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
       <div ref={companionToggle} className="ws-document-modes" role="group" aria-label="Writing modes">
         <Button variant="ghost" size="sm" aria-label="Insert image" title="Insert image" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor) { const { from, to } = editor.state.selection; setImageRange({ from, to }); } }}><ImagePlus size={15} aria-hidden="true" /></Button>
         <Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setShowCompanion(value => !value)}><PanelLeft size={15} aria-hidden="true" /></Button>
         <Button variant="ghost" size="sm" data-document-focus aria-label="Focus mode" aria-pressed={focusMode} title={focusMode ? 'Exit focus mode (Escape)' : 'Focus mode — fill the window'} onClick={() => { setFocusMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}>{focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</Button>
         <Button variant="ghost" size="sm" aria-label="Typewriter mode" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} title="Typewriter mode — keep the current line centered" onClick={() => { setTypewriterMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
       </div>
-      <button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
+      <button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>}
+
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
     {imageError && <div className="ws-document-alert" role="alert"><span>{imageError}</span><button className="ws-btn" onClick={() => setImageError('')}>Dismiss</button></div>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
     <div className="ws-document-viewport" data-companion-open={showCompanion}>
       <DocumentCompanion editor={editor} scrollRef={scroll} storageKey={`${storageKey}:scratchpad`} open={showCompanion} id={companionId}
-        onClose={() => { setShowCompanion(false); companionToggle.current?.querySelector<HTMLButtonElement>('[data-companion-toggle]')?.focus(); }}
-        onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setShowCompanion(false); }} />
+        onClose={() => { setCompanion(false); companionToggle.current?.querySelector<HTMLButtonElement>('[data-companion-toggle]')?.focus(); }}
+        onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setCompanion(false); }} />
       <div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div>
     </div>
     <DocumentCommands editor={editor} onImage={setImageRange} />

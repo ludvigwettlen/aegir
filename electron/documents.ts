@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { WorkspaceDocument } from '../shared/documents.js';
+import type { WorkspaceDocument, WorkspaceDocumentEntry } from '../shared/documents.js';
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const revision = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -57,8 +57,8 @@ export function saveDocument(root: string, reference: string, expected: string, 
   return { path: current.path, content, revision: revision(content) };
 }
 
-export function listDocuments(root: string): string[] {
-  const files: string[] = [];
+export function listDocuments(root: string): WorkspaceDocumentEntry[] {
+  const files: WorkspaceDocumentEntry[] = [];
   let scanned = 0;
   const walk = (dir: string, depth: number) => {
     if (depth > 5 || scanned > 2000 || files.length >= 200) return;
@@ -67,9 +67,14 @@ export function listDocuments(root: string): string[] {
       if (entry.name.startsWith('.') || ['node_modules', 'skills', 'Cache', 'logs'].includes(entry.name) || entry.isSymbolicLink()) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { try { walk(path, depth + 1); } catch { /* inaccessible subdirectory */ } }
-      else if (entry.isFile() && /\.(md|markdown)$/i.test(entry.name)) files.push(relative(root, path));
+      else if (entry.isFile() && /\.(md|markdown)$/i.test(entry.name)) {
+        try {
+          const stat = lstatSync(path);
+          if (stat.isFile()) files.push({ path: relative(root, path), modifiedAt: stat.mtime.toISOString() });
+        } catch { /* The agent may rename a file while we list the workspace. */ }
+      }
     }
   };
   walk(root, 0);
-  return files.sort((a, b) => a.localeCompare(b));
+  return files.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt) || a.path.localeCompare(b.path));
 }

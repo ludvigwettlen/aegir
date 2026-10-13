@@ -1,11 +1,12 @@
 import { SlackDraftCard } from './SlackDraftCard';
 import { EmailDraftCard } from './EmailDraftCard';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { DocumentFileLabel, DocumentPicker } from './DocumentFiles';
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
-import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
+import { withDocumentReference, type DocumentReference, documentTitle, type WorkspaceDocument, type WorkspaceDocumentEntry } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, ChevronRight, FileText, FolderSearch, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
+import { ArrowDownRight, ChevronDown, FileText, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
@@ -42,95 +43,83 @@ export function ThreadView({
   const { messages, hasOlder, loading, loadOlder } = useThreadMessages(thread.id, run);
   const [document, setDocument] = useState<WorkspaceDocument | null>(null);
   const [selection, setSelection] = useState<DocumentReference | null>(null);
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<WorkspaceDocumentEntry[]>([]);
   const [showFiles, setShowFiles] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [opening, setOpening] = useState(false);
-  const [revealing, setRevealing] = useState(false);
-  const fileAccess = useRef<HTMLDivElement>(null);
+  const [fileError, setFileError] = useState('');
+  const refreshSequence = useRef(0);
   const [chatWidth, setChatWidth] = useState(36);
-  const [mobilePane, setMobilePane] = useState<'chat' | 'document'>('document');
+  const [showChat, setShowChat] = useState(() => { try { return localStorage.getItem('aegir-document-chat') === 'true'; } catch { return false; } });
+  const toggleChat = () => setShowChat(value => { try { localStorage.setItem('aegir-document-chat', String(!value)); } catch { /* Layout preferences are optional. */ } return !value; });
   const documentEditor = useRef<DocumentEditorHandle>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const active = useRef(true);
   const openingRef = useRef(false);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
-  useEffect(() => {
-    if (!showFiles) return;
-    const outside = (event: Event) => {
-      if (event.target instanceof Node && !fileAccess.current?.contains(event.target)) setShowFiles(false);
-    };
-    const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      setShowFiles(false);
-      fileAccess.current?.querySelector<HTMLButtonElement>('[data-document-files]')?.focus();
-    };
-    window.document.addEventListener('pointerdown', outside, true);
-    window.document.addEventListener('focusin', outside);
-    window.addEventListener('keydown', escape, true);
-    return () => {
-      window.document.removeEventListener('pointerdown', outside, true);
-      window.document.removeEventListener('focusin', outside);
-      window.removeEventListener('keydown', escape, true);
-    };
-  }, [showFiles]);
-  const openDocument = (path: string) => {
+  const refreshFiles = async () => {
+    const sequence = ++refreshSequence.current;
+    setLoadingFiles(true);
+    try {
+      const items = await api.listDocuments(thread.id);
+      if (active.current && sequence === refreshSequence.current) { setFiles(items); setFileError(''); }
+    } catch (cause) {
+      if (active.current && sequence === refreshSequence.current) setFileError(String(cause).replace(/^Error: /, ''));
+    } finally { if (active.current && sequence === refreshSequence.current) setLoadingFiles(false); }
+  };
+  const openDocument = async (path: string) => {
     if (openingRef.current) return;
-    opener.current = window.document.activeElement as HTMLElement;
-    openingRef.current = true; setOpening(true);
-    void run(async () => {
-      try {
-        if (documentEditor.current && !await documentEditor.current.save()) return;
-        const file = await api.readDocument(thread.id, path);
-        if (!active.current) return;
-        setDocument(file); setSelection(null); setShowFiles(false); setMobilePane('document');
-        requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]')?.focus());
-      } finally { openingRef.current = false; if (active.current) setOpening(false); }
-    });
+    if (!document) opener.current = window.document.activeElement as HTMLElement;
+    openingRef.current = true; setOpening(true); setFileError('');
+    try {
+      if (documentEditor.current && !await documentEditor.current.save()) {
+        setFileError('Save the current document before opening another. Your edits are kept in the editor.');
+        return;
+      }
+      const file = await api.readDocument(thread.id, path);
+      if (!active.current) return;
+      setDocument(file); setSelection(null); setShowFiles(false);
+      requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]')?.focus());
+    } catch (cause) { if (active.current) setFileError(String(cause).replace(/^Error: /, '')); }
+    finally { openingRef.current = false; if (active.current) setOpening(false); }
   };
   const closeDocument = () => {
-    setDocument(null); setSelection(null);
+    if (openingRef.current) return;
+    setDocument(null); setSelection(null); void refreshFiles();
     requestAnimationFrame(() => {
       if (opener.current?.isConnected && opener.current.getClientRects().length) opener.current.focus();
       else workspace.current?.querySelector<HTMLElement>('[data-document-files]')?.focus();
     });
   };
-  const toggleFiles = () => {
-    if (showFiles) { setShowFiles(false); return; }
-    setShowFiles(true); setLoadingFiles(true);
-    void run(async () => {
-      try { const items = await api.listDocuments(thread.id); if (active.current) setFiles(items); }
-      finally { if (active.current) setLoadingFiles(false); }
-    });
-  };
+  const toggleFiles = () => { setShowFiles(true); void refreshFiles(); };
   const busy =
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
-  const filePicker = <div ref={fileAccess} className="ws-document-access">
-    <Button variant="ghost" size="sm" data-document-files aria-expanded={showFiles} onClick={toggleFiles}><FileText size={14} aria-hidden="true" />{opening ? 'Opening…' : 'Files'}</Button>
-    {showFiles && <div className="ws-document-files" aria-label="Workspace files">
-      <strong>Markdown files</strong>
-      {loadingFiles ? <p>Loading files…</p> : files.length ? files.map(path => <div key={path} className="ws-document-file-row">
-        <button className="ws-btn ghost ws-document-file-open" disabled={opening} onClick={() => openDocument(path)}><FileText size={14} aria-hidden="true" /><span>{path}</span></button>
-        <button className="ws-icon-btn" aria-label={`Show ${path} in Finder`} title="Show in Finder" disabled={revealing} onClick={() => void run(async () => {
-          setRevealing(true);
-          try { await api.showDocumentInFinder(thread.id, path); if (active.current) setShowFiles(false); }
-          finally { if (active.current) setRevealing(false); }
-        })}><FolderSearch size={15} aria-hidden="true" /></button>
-      </div>) : <p>No Markdown files in this workspace yet.</p>}
-    </div>}
-  </div>;
+  useEffect(() => {
+    if (!busy) void refreshFiles();
+    const refresh = () => { if (!busy) void refreshFiles(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [thread.id, busy]);
+  const filePicker = <Button variant="ghost" size="sm" data-document-files aria-haspopup="dialog" onClick={toggleFiles}><FileText size={14} aria-hidden="true" />Files</Button>;
+  const documentTitleControl = document && files.length > 1
+    ? <Button variant="ghost" size="sm" className="ws-document-switcher" data-document-files aria-label="Switch document" aria-haspopup="dialog" title={document?.path} onClick={toggleFiles}><span>{documentTitle(document!.path)}</span><ChevronDown size={14} aria-hidden="true" /></Button>
+    : <strong title={document?.path}>{document ? documentTitle(document.path) : ''}</strong>;
   return (
-    <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open' : ''}`} data-mobile-pane={mobilePane}>
-      {document ? <header className="ws-editing-head" role="banner" aria-label="Window header">
-        <div className="ws-editing-context"><span title={group.title}>{group.kind === 'private' ? group.title : `# ${group.title}`}</span><ChevronRight size={13} aria-hidden="true" /><h2 title={thread.title}>{thread.title}</h2></div>
-        <div className="ws-document-tabs"><button className="ws-btn" aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>Conversation</button><button className="ws-btn" aria-pressed={mobilePane === 'document'} onClick={() => setMobilePane('document')}>Document</button></div>
-      </header> : <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div></div>}
+    <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open ws-document-first' : ''}`} data-chat-open={showChat}>
+      {!document && <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div>
+        {compact && !!files.length && <div className="ws-document-preview" aria-label="Task documents">
+          {files.slice(0, 3).map(file => <Button key={file.path} variant="ghost" className="ws-document-file-open" aria-label={`Open ${file.path}`} disabled={opening} onClick={() => void openDocument(file.path)}><DocumentFileLabel file={file} /></Button>)}
+          {files.length > 3 && <Button variant="ghost" size="sm" onClick={toggleFiles}>View all · {files.length} documents</Button>}
+        </div>}
+        {loadingFiles && !files.length && <p className="ws-document-list-status" role="status">Loading documents…</p>}
+      </div>}
+      {fileError && !showFiles && <div className="ws-document-list-status" role="alert">{fileError}<Button variant="ghost" size="sm" onClick={toggleFiles}>View files</Button></div>}
       <div className="ws-thread-panes">
     <section
       style={document ? { flex: `0 0 ${chatWidth}%` } : undefined}
+      hidden={!!document && !showChat}
       className={`ws-thread ${compact ? 'compact' : ''}`}
       data-keyboard-pane="detail"
       tabIndex={-1}
@@ -170,7 +159,7 @@ export function ThreadView({
         reference={selection}
         onClearReference={() => setSelection(null)}
         onSend={async (text) => {
-          if (documentEditor.current && !await documentEditor.current.save()) { setMobilePane('document'); return false; }
+          if (documentEditor.current && !await documentEditor.current.save()) return false;
           await api.sendMessage(thread.id, withDocumentReference(text, selection));
           setSelection(null);
           return true;
@@ -179,14 +168,19 @@ export function ThreadView({
       />
     </section>
       {document && <>
-        <div className="ws-document-divider" role="separator" tabIndex={0} aria-label="Resize conversation" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={55} aria-valuenow={chatWidth}
+        <div hidden={!showChat} className="ws-document-divider" role="separator" tabIndex={0} aria-label="Resize conversation" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={55} aria-valuenow={chatWidth}
           onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
           onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setChatWidth(Math.max(25, Math.min(55, (event.clientX - rect.left) / rect.width * 100))); } }}
           onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)}
-          onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowRight' ? 2 : -2)))); } }} />
-        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument} headerActions={filePicker} />
+          onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowLeft' ? -2 : 2)))); } }} />
+        <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument}
+          workspaceHeader={{ title: documentTitleControl, backLabel: 'Back to list', busy: opening,
+            actions: <Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button> }} />
       </>}
       </div>
+      {showFiles && <DocumentPicker files={files} loading={loadingFiles} error={fileError} opening={opening} threadId={thread.id} currentPath={document?.path}
+        onRetry={() => void refreshFiles()} onOpen={path => void openDocument(path)} onClose={() => setShowFiles(false)}
+        onReturnFocus={() => (workspace.current?.querySelector<HTMLElement>('[data-document-files]') || workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]'))?.focus()} />}
     </div>
   );
 }
@@ -441,7 +435,7 @@ export function Composer({
         return;
       }
     }
-    if (event.key === 'Escape' && !event.currentTarget.closest('.ws-tasks')) {
+    if (event.key === 'Escape' && !event.currentTarget.closest('.ws-tasks, .document-open')) {
       const list = event.currentTarget.closest('.ws-group')?.querySelector<HTMLElement>('[data-keyboard-pane="list"]');
       if (list) {
         event.preventDefault();

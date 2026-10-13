@@ -24,8 +24,9 @@ Object.assign(window, { proposalFixture: {
 const thread = { id: 'thread', title: 'Improve follow-up proposals', kind: 'chat' } as Thread;
 const group = { id: 'group', title: 'Team', kind: 'group', agentIds: [] } as unknown as Group;
 const message: Message = { id: 'card', threadId: thread.id, agentId: null, role: 'system', content: 'Require source-backed ownership. Only propose concrete, open and distinct personal actions.', status: 'complete', createdAt: new Date().toISOString(), meta: { type: 'skill-change', skillId: 'skill', skillName: 'follow-up-extraction', proposalId: 'proposal' } };
-const mockApi: Pick<DesktopApi, 'onEvent' | 'threadMessages' | 'skillDetail' | 'skillRevisionFiles' | 'resolveSkillProposal'> = {
+const mockApi: Pick<DesktopApi, 'onEvent' | 'listDocuments' | 'threadMessages' | 'skillDetail' | 'skillRevisionFiles' | 'resolveSkillProposal'> = {
   onEvent: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  listDocuments: async () => [],
   threadMessages: async () => ({ messages: [message], before: null }),
   skillDetail: async () => { if (delay) await new Promise(resolve => setTimeout(resolve, 800)); if (fail) throw new Error('Could not load proposal'); return structuredClone(detail); },
   skillRevisionFiles: async () => before,

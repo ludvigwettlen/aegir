@@ -272,3 +272,68 @@
   .ws-comment-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
   .ws-comment-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 }
+
+/* Document-first workspace. The same editor and conversation stay mounted when panels change. */
+.ws-shell:has(.ws-document-first) {
+  padding-top: 56px;
+  .ws-sidebar { display: none; }
+}
+.ws-document-first {
+  .ws-thread { order: 0; min-width: 280px; }
+  .ws-document { order: 2; }
+  .ws-document-divider { order: 1; }
+  [hidden] { display: none !important; }
+  .ws-thread.compact .ws-messages > :last-child { padding: var(--ds-space-5); }
+}
+.ws-document-workspace-head {
+  position: fixed; inset: 0 0 auto; height: 56px; z-index: 12;
+  gap: var(--ds-space-3); padding: 0 var(--ds-space-5) 0 104px;
+  background: var(--ds-color-surface); -webkit-app-region: drag;
+  > button, .ws-document-title, .ws-document-modes, .ws-document-more { -webkit-app-region: no-drag; }
+  > [role="status"] { margin-left: auto; }
+  [data-document-chat][aria-pressed="true"] { background: var(--ds-color-lime-soft); }
+}
+.ws-document-title { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; max-width: 42vw;
+  strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.ws-document-switcher.ds-button { min-width: 0; max-width: 100%;
+  span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; color: var(--ds-color-ink); }
+  svg { flex: none; }
+}
+.ws-document-more { position: relative; flex: none;
+  summary { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--ds-radius-control); cursor: pointer; list-style: none;
+    &::-webkit-details-marker { display: none; }
+    &:hover { background: var(--ds-color-lime-soft); }
+  }
+}
+.ws-document-menu { position: absolute; right: 0; top: calc(100% + var(--ds-space-2)); display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 180px; padding: var(--ds-space-2); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); box-shadow: 0 8px 24px color-mix(in srgb, var(--ds-color-ink) 12%, transparent);
+  .ds-button { justify-content: flex-start; }
+  [aria-pressed="true"] { background: var(--ds-color-lime-soft); }
+}
+.ws-document-preview { align-self: stretch; min-width: 0; padding: 0 var(--ds-space-5) var(--ds-space-4); display: flex; flex-direction: column; gap: var(--ds-space-1);
+  > .ds-button { width: 100%; justify-content: flex-start; }
+}
+.ws-document-file-open.ds-button { display: flex; gap: var(--ds-space-2); min-width: 0; height: auto; padding: var(--ds-space-2); text-align: left; white-space: normal;
+  svg { flex: none; }
+  .ws-document-file-name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  strong { padding: 0; font-size: calc(12px * var(--ds-text-scale, 1)); font-weight: 600; overflow-wrap: anywhere; }
+  small { font-size: calc(11px * var(--ds-text-scale, 1)); color: var(--ds-color-muted); overflow-wrap: anywhere; }
+  time { flex: none; font-size: calc(11px * var(--ds-text-scale, 1)); color: var(--ds-color-muted); font-weight: 400; }
+}
+.ws-document-list-status { flex: none; margin: 0; padding: var(--ds-space-2) var(--ds-space-5); font-size: calc(12px * var(--ds-text-scale, 1)); color: var(--ds-color-muted); }
+.ws-document-picker { width: min(520px, calc(100vw - 40px)); }
+.ws-document-picker-options { margin-top: var(--ds-space-3); max-height: min(420px, 50vh); overflow: auto;
+  [aria-current="page"] { background: var(--ds-color-lime-soft); }
+}
+.ws-conversation-head:has(> .ws-detail-head) {
+  max-height: 58%; overflow: auto; flex: none;
+  > .ws-conversation-actions { margin: var(--ds-space-5) var(--ds-space-5) var(--ds-space-2); }
+  > .ws-detail-head { padding: 0 var(--ds-space-5) var(--ds-space-4); gap: var(--ds-space-3); }
+}
+@media (max-width: 1000px) {
+  .ws-document-first {
+    .ws-thread { flex: 0 0 320px !important; }
+    .ws-document-divider { display: none; }
+  }
+  .ws-document-workspace-head { gap: var(--ds-space-2); }
+}

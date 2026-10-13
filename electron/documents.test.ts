@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents';
@@ -11,7 +11,7 @@ afterEach(() => dirs.splice(0).forEach(path => rmSync(path, { recursive: true, f
 describe('workspace documents', () => {
   it('lists nested Markdown and saves edits without changing other files', () => {
     const root = directory(); mkdirSync(join(root, 'docs')); writeFileSync(join(root, 'docs/prd.md'), '# Vision\n'); writeFileSync(join(root, 'data.txt'), 'keep');
-    expect(listDocuments(root)).toEqual(['docs/prd.md']);
+    expect(listDocuments(root)).toEqual([{ path: 'docs/prd.md', modifiedAt: expect.any(String) }]);
     expect(documentLocation(root, 'docs/prd.md')).toBe(realpathSync(join(root, 'docs/prd.md')));
     expect(() => documentLocation(root, 'missing.md')).toThrow();
     mkdirSync(join(root, 'directory.md'));
@@ -21,6 +21,17 @@ describe('workspace documents', () => {
     expect(readDocument(root, 'docs/prd.md')).toEqual(saved);
     expect(saved.revision).not.toBe(original.revision);
     expect(readFileSync(join(root, 'data.txt'), 'utf8')).toBe('keep');
+  });
+  it('orders documents by modification time, with paths breaking ties', () => {
+    const root = directory();
+    for (const name of ['a.md', 'b.md', 'c.md', 'd.md']) {
+      writeFileSync(join(root, name), name);
+      const date = new Date(name === 'd.md' ? '2026-10-13T10:00:00Z' : '2026-10-12T10:00:00Z');
+      utimesSync(join(root, name), date, date);
+    }
+    const files = listDocuments(root);
+    expect(files.map(file => file.path)).toEqual(['d.md', 'a.md', 'b.md', 'c.md']);
+    expect(files[0].modifiedAt).toBe('2026-10-13T10:00:00.000Z');
   });
   it('rejects stale saves after an agent writes to the file', () => {
     const root = directory(); writeFileSync(join(root, 'prd.md'), 'original');

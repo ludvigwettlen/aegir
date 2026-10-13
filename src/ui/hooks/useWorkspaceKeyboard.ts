@@ -31,6 +31,27 @@ export function useWorkspaceKeyboard(
         return;
       }
       if (documentPane && !event.isComposing) {
+        if (documentWorkspace?.classList.contains('ws-document-first')) {
+          const inEditor = !!keyTarget?.closest('[data-keyboard-pane="document"]');
+          const focusChat = () => {
+            const toggle = documentWorkspace.querySelector<HTMLButtonElement>('[data-document-chat]');
+            if (toggle?.getAttribute('aria-pressed') !== 'true') toggle?.click();
+            requestAnimationFrame(() => documentWorkspace.querySelector<HTMLElement>('textarea[aria-label="Message"]')?.focus());
+          };
+          if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
+            event.preventDefault(); documentWorkspace.querySelector<HTMLButtonElement>('[data-close-document]')?.click();
+          } else if (event.key === 'F6') {
+            event.preventDefault();
+            if (inEditor) focusChat();
+            else documentPane.querySelector<HTMLElement>('.ws-document-prose')?.focus();
+          } else if (event.metaKey && event.key.toLowerCase() === 'n') {
+            event.preventDefault(); setNotice('Return to the list before starting a new task or conversation');
+          } else if (!isTyping(event) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+            if (inEditor && ['h', 'ArrowLeft'].includes(event.key)) { event.preventDefault(); focusChat(); }
+            if (keyTarget?.closest('.ws-thread') && ['l', 'ArrowRight'].includes(event.key)) { event.preventDefault(); documentPane.focus(); }
+          }
+          return;
+        }
         const focusMode = documentPane.classList.contains('ws-document-focus');
         if (event.key === 'Escape' && !document.querySelector('.ws-picker, .ws-document-insert')) {
           event.preventDefault();

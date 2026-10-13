@@ -63,7 +63,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and i
     await page.mouse.move(0, 0); await userCopy.focus();
     expect(await userCopy.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
     const notes = page.getByRole('textbox', { name: 'Task notes' });
-    expect(await notes.evaluate(element => Math.abs(element.getBoundingClientRect().width - (element.closest('.ws-task-detail')!.getBoundingClientRect().width - 37)) < 2)).toBe(true);
+    expect(await notes.evaluate(element => Math.abs(element.getBoundingClientRect().width - (element.closest('.ws-task-detail')!.getBoundingClientRect().width - 41)) < 2)).toBe(true);
     await page.screenshot({ path: '/tmp/aegir-chat-controls.png' });
     const composer = page.getByRole('textbox', { name: 'Message', exact: true });
     await composer.fill('/');

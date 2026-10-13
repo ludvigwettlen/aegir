@@ -19,6 +19,7 @@ Object.assign(window, { fixture });
 window.aegir = {
   snapshot: async () => data,
   onEvent: () => () => {},
+  listDocuments: async () => [],
   threadMessages: async () => ({ messages: [{ id: 'message', threadId: 'task-thread', role: 'user', content: 'Existing conversation', status: 'complete', createdAt: now }, { id: 'reply', threadId: 'task-thread', role: 'agent', agentId: 'lead', content: 'I will compare the options and prepare a short brief.', status: 'complete', createdAt: now }], before: null }),
   skillLibrary: async () => {
     if (fixture.skillDelay) await new Promise(resolve => setTimeout(resolve, fixture.skillDelay));

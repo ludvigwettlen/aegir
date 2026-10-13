@@ -1,7 +1,12 @@
 import { unwrapComments } from './document-comments';
 
 export type WorkspaceDocument = { path: string; content: string; revision: string };
+export type WorkspaceDocumentEntry = { path: string; modifiedAt: string };
 export type DocumentReference = { path: string; text: string };
+
+export function documentTitle(path: string): string {
+  return (path.split('/').pop() || path).replace(/\.(md|markdown)$/i, '').replace(/[-_]+/g, ' ');
+}
 
 // GFM requires a header. This inert marker preserves Aegir's header-off choice
 // without adding a blank row or changing cell content in other Markdown readers.

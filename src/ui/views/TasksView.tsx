@@ -8,7 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { ExternalLink, Plus, Repeat2, Square, Users, X } from 'lucide-react';
-import type { Snapshot, Task, TaskRecurrence } from '../../../shared/types';
+import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { customListId, taskRecurrenceLabels, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
 import {
@@ -23,6 +23,7 @@ import {
 } from './common';
 import { ThreadView } from './ThreadView';
 import { Button } from '../design-system/primitives';
+import { TaskRepeat } from './TaskRepeat';
 import { MoveTaskDialog } from './MoveTaskDialog';
 import type { TaskListAction } from './TaskListDialog';
 import { useTaskDetailWidth } from '../hooks/useTaskDetailWidth';
@@ -159,7 +160,7 @@ export function TasksView({
     run(() => api.updateTask(task.id, change));
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"]')) return;
+      if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"], .ws-document-first')) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest('[role="separator"]')) return;
       if (event.key === 'Escape' && openId) {
@@ -630,14 +631,15 @@ function TaskDetail({
   </Button> : null;
   const header = (
     <header className="ws-detail-head">
-      {((!group && task.sourceUrl) || task.status === 'running') && <div className="ws-detail-top">
+      <div className="ws-detail-top">
+        <TaskRepeat key={task.id} task={task} />
         {!group && task.sourceUrl && <span className="ws-crumb">From a source</span>}
         {task.status === 'running' && (
           <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
             <Square size={12} /> Stop
           </button>
         )}
-      </div>}
+      </div>
       <input
         className="ws-task-title-input"
         aria-label="Task title"
@@ -677,7 +679,6 @@ function TaskDetail({
           </span>
         ))}
       </div>}
-      <TaskRepeat key={task.id} task={task} />
       <label className="ws-field ws-task-notes">
         <span>Notes</span>
         <textarea
@@ -747,29 +748,4 @@ function TaskDetail({
       )}
     </aside>
   );
-}
-
-function TaskRepeat({ task }: { task: Task }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const archived = task.status === 'done' || task.status === 'dismissed' || !!task.nextOccurrenceId;
-  return <div className="ws-task-repeat">
-    <label>
-      <Repeat2 size={13} aria-hidden="true" /> Repeat
-      <select aria-label="Repeat task" value={task.recurrence ?? ''} disabled={saving || archived}
-        onChange={async event => {
-          const recurrence = (event.target.value || null) as TaskRecurrence | null;
-          setSaving(true); setError('');
-          try { await api.updateTask(task.id, { recurrence }); }
-          catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-          finally { setSaving(false); }
-        }}>
-        <option value="">Does not repeat</option>
-        {Object.entries(taskRecurrenceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
-    </label>
-    {saving && <span role="status">Saving…</span>}
-    {task.recurrence && <span>{archived ? 'Change future repeats on the next occurrence.' : 'Completing creates the next task. Missed dates are skipped.'}</span>}
-    {error && <span className="ws-field-error" role="alert">{error}</span>}
-  </div>;
 }

@@ -21,7 +21,8 @@ const messages: Message[] = [
 const markdown = '# PM level boundaries\n\nA proposal for clearer scope and accountability across the product career framework.\n\n## Diagnosis\n\nThe current framework distinguishes working within a roadmap, setting product-area direction and shaping cross-area direction. Make those scope transitions clear before deciding whether the bar itself needs to change.\n\n## Proposed anchors\n\n| Level | Core accountability | Strategy responsibility |\n| --- | --- | --- |\n| L2 — Mid | Own a meaningful problem and its outcome within an agreed direction. | Independently frame the problem and choose the approach. |\n| L3 — Senior | Own a product area’s direction and outcomes over time. | Decide which problems deserve investment and in what sequence. |\n| L4 — Staff | Lead a consequential cross-area product mandate. | Resolve competing priorities and establish a coherent direction. |\n\n## Review questions\n\n- Is each boundary observable in everyday work?\n- Can a PM explain the scope they own?\n- Are the decision rights clear?';
 let saved = { path: 'pm-level-boundaries-proposal.md', content: markdown, revision: '1' };
 const listeners = new Set<(event: AppEvent) => void>();
-const actions = { copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false };
+const files = Array.from({ length: Math.max(0, Number(new URLSearchParams(location.search).get('files') || 1)) }, (_, index) => ({ path: index ? `research/option-${index}.md` : saved.path, content: index ? `# Option ${index}\n\nA separate document for comparison.` : markdown, revision: '1', modifiedAt: new Date(Date.now() - index * 3600000).toISOString() }));
+const actions = { failRead: false, failSave: false, failList: new URLSearchParams(location.search).has('failList'), files, copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false };
 Object.assign(window, { fixtureActions: actions });
 const fixture: Partial<DesktopApi> = {
   snapshot: async () => snapshot,
@@ -29,9 +30,11 @@ const fixture: Partial<DesktopApi> = {
   threadMessages: async () => ({ messages, before: null }),
   copyChatTranscript: async id => { if (actions.failCopy) throw new Error('Clipboard unavailable'); actions.copied.push(id); },
   showDocumentInFinder: async (threadId, path) => { actions.revealed.push({ threadId, path }); },
-  listDocuments: async () => [saved.path],
-  readDocument: async () => saved,
-  saveDocument: async (_threadId, _path, _revision, content) => { saved = { ...saved, content, revision: String(Number(saved.revision) + 1) }; return saved; },
+  listDocuments: async () => { if (actions.failList) throw new Error('Documents unavailable'); return files.map(({path, modifiedAt}) => ({path, modifiedAt})); },
+  readDocument: async (_thread, path) => { if (actions.failRead) throw new Error('Could not open document'); const file = files.find(file => file.path === path); if (!file) throw new Error('File missing'); return {...file}; },
+  saveDocument: async (_threadId, path, revision, content) => { if (actions.failSave) throw new Error('Could not save document'); const file = files.find(file => file.path === path)!; if (file.revision !== revision) throw new Error('File changed on disk'); Object.assign(file, { content, revision: String(Number(file.revision) + 1) }); return {...file}; },
+  skillLibrary: async () => ({ skills: [], bindings: [], proposals: [] } as any),
+  updateTask: async (_id, change) => { Object.assign(task, change); listeners.forEach(listener => listener({ type: 'snapshot', value: structuredClone(snapshot) })); },
 };
 window.aegir = fixture as DesktopApi;
 const { App } = await import('../App');
