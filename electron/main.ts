@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, DesktopApi, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
+import { importDocumentImage, readDocumentImage } from './document-images.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
@@ -152,6 +153,8 @@ function registerIpc() {
   handle('browser-stop', () => browser.stop());
   handle('document-list', (id: string) => listDocuments(documentRoot(id)));
   handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
+  handle('document-image-read', (id: string, path: string, src: string) => readDocumentImage(documentRoot(id), path, src));
+  handle('document-image-import', (id: string, path: string, name: string, bytes: Uint8Array) => importDocumentImage(documentRoot(id), path, name, bytes));
   handle('document-show-in-finder', (id: string, path: string) => shell.showItemInFolder(documentLocation(documentRoot(id), path)));
   handle('document-save', (id: string, path: string, expected: string, content: string) => saveDocument(documentRoot(id), path, expected, content));
   handle('skill-library', () => runtime.skills.library());

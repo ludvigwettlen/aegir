@@ -2,10 +2,12 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/react';
 import type { Node } from '@tiptap/pm/model';
 import { Button } from '../design-system/primitives';
+import type { ImageRange } from '../document-images';
 
 const commands = [
   { id: 'table', label: 'Table', detail: '3 columns, with a header row' },
   { id: 'link', label: 'Link', detail: 'Add text and a destination' },
+  { id: 'image', label: 'Image', detail: 'Choose a file or add an image URL' },
   { id: 'bullet', label: 'Bullet list', detail: 'An unordered list' },
   { id: 'ordered', label: 'Numbered list', detail: 'A sequence of steps' },
   { id: 'task', label: 'Checklist', detail: 'Items you can check off' },
@@ -16,7 +18,7 @@ const commands = [
 type Trigger = { from: number; to: number; query: string; left: number; top: number };
 type LinkDraft = { from: number; to: number; doc: Node; text: string; href: string };
 
-export function DocumentCommands({ editor }: { editor: Editor | null }) {
+export function DocumentCommands({ editor, onImage }: { editor: Editor | null; onImage: (range: ImageRange) => void }) {
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [active, setActive] = useState(0);
   const [link, setLink] = useState<LinkDraft | null>(null);
@@ -65,6 +67,10 @@ export function DocumentCommands({ editor }: { editor: Editor | null }) {
   };
   const choose = (command: typeof commands[number]) => {
     if (!editor?.isEditable || !trigger) return;
+    if (command.id === 'image') {
+      dismissed.current = `${trigger.from}:${trigger.query}`;
+      onImage({ from: trigger.from, to: trigger.to }); setTrigger(null); return;
+    }
     if (command.id === 'link') { openLink(trigger.from, trigger.to, ''); return; }
     const chain = editor.chain().focus().deleteRange({ from: trigger.from, to: trigger.to });
     if (command.id === 'table') chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();

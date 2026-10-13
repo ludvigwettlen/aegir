@@ -5,8 +5,7 @@ import { Markdown } from '@tiptap/markdown';
 import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
-import Image from '@tiptap/extension-image';
-import { AlignVerticalJustifyCenter, Copy, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, Copy, ImagePlus, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
@@ -19,6 +18,8 @@ import { Button } from '../design-system/primitives';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { DocumentTypography } from '../document-typography';
 import { DocumentCompanion } from './DocumentCompanion';
+import { DocumentImage, type ImageRange } from '../document-images';
+import { DocumentImageInsert } from './DocumentImageInsert';
 
 export type DocumentEditorHandle = { save: () => Promise<boolean> };
 type Draft = { content: string; revision: string };
@@ -40,6 +41,9 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const pending = useRef<Promise<boolean> | null>(null);
   const [status, setStatus] = useState(recovered ? 'Recovered local edits' : 'Saved');
   const [error, setError] = useState('');
+  const [imageError, setImageError] = useState('');
+  const [imageRange, setImageRange] = useState<ImageRange | null>(null);
+  const importImage = async (file: File) => api.importDocumentImage(threadId, initial.path, file.name, new Uint8Array(await file.arrayBuffer()));
   const [copyStatus, setCopyStatus] = useState('');
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
@@ -97,7 +101,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const saveRef = useRef(save); saveRef.current = save;
   useImperativeHandle(ref, () => ({ save: () => saveRef.current() }));
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, DocumentTypography, DocumentComment, DocumentCommentParagraph, TaskList, TaskItem.configure({ nested: true }), Image,
+    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, DocumentTypography, DocumentComment, DocumentCommentParagraph, TaskList, TaskItem.configure({ nested: true }),
+      DocumentImage.configure({ loadImage: src => api.readDocumentImage(threadId, initial.path, src), importImage, onError: setImageError }),
       DocumentLinkSource.configure({ openLink: href => {
         const path = markdownPath(href);
         if (path) onOpenDocument(path.startsWith('/') ? path : [...initial.path.split('/').slice(0, -1), path].join('/'));
@@ -171,12 +176,14 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
     <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
       <div ref={companionToggle} className="ws-document-modes" role="group" aria-label="Writing modes">
+        <Button variant="ghost" size="sm" aria-label="Insert image" title="Insert image" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor) { const { from, to } = editor.state.selection; setImageRange({ from, to }); } }}><ImagePlus size={15} aria-hidden="true" /></Button>
         <Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setShowCompanion(value => !value)}><PanelLeft size={15} aria-hidden="true" /></Button>
         <Button variant="ghost" size="sm" data-document-focus aria-label="Focus mode" aria-pressed={focusMode} title={focusMode ? 'Exit focus mode (Escape)' : 'Focus mode — fill the window'} onClick={() => { setFocusMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}>{focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</Button>
         <Button variant="ghost" size="sm" aria-label="Typewriter mode" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} title="Typewriter mode — keep the current line centered" onClick={() => { setTypewriterMode(value => !value); editor?.commands.focus(undefined, { scrollIntoView: false }); }}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
       </div>
       <button className="ws-btn ghost" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={14} />Copy</button><span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span><button className="ws-icon-btn" data-close-document aria-label="Close document" onClick={() => void save().then(ok => { if (ok) onClose(); })}><X size={15} /></button></header>
     {unsupported && <p className="ws-document-alert">This document contains embedded HTML, metadata, or footnotes. It is read only to preserve that content.</p>}
+    {imageError && <div className="ws-document-alert" role="alert"><span>{imageError}</span><button className="ws-btn" onClick={() => setImageError('')}>Dismiss</button></div>}
     {(error || diskChanged) && <div className="ws-document-alert" role="alert"><span>{error || 'The file changed on disk. Your edits are kept here.'}</span><button className="ws-btn" onClick={() => void save()}>Retry save</button><button className="ws-btn" onClick={() => setShowReload(true)}>Reload file</button></div>}
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
     <div className="ws-document-viewport" data-companion-open={showCompanion}>
@@ -185,7 +192,8 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
         onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setShowCompanion(false); }} />
       <div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div>
     </div>
-    <DocumentCommands editor={editor} />
+    <DocumentCommands editor={editor} onImage={setImageRange} />
+    {editor && imageRange && <DocumentImageInsert editor={editor} range={imageRange} importImage={importImage} onClose={() => { setImageRange(null); editor.commands.focus(); }} />}
     <DocumentComments editor={editor} />
   </section>;
 });

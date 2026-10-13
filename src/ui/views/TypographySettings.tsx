@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { defaultTypography, fontChoices, type FontId, type Typography } from '../../../shared/typography';
+import { defaultTypography, fontChoices, fontSizeChoices, type FontId, type Typography } from '../../../shared/typography';
 import { Button, Card } from '../design-system/primitives';
 import { api } from './common';
 
@@ -14,15 +14,15 @@ export function TypographySettings({ value = defaultTypography }: { value?: Typo
     setBusy(true); setError(''); setMessage('');
     try {
       await api.setTypography(next);
-      setMessage('Fonts saved');
+      setMessage('Font settings saved');
     } catch (cause) {
       setError(String(cause).replace(/^Error: (Error invoking remote method '[^']+': )?(Error: )?/, ''));
     } finally { saving.current = false; setBusy(false); }
   };
   return <Card className="content-panel settings-panel typography-settings" variant="outline" padding="none" as="section">
     <div className="panel-heading">
-      <div><h2>Fonts</h2><p>Choose a font for the app and another for Markdown documents.</p></div>
-      <Button variant="outline" size="sm" disabled={busy || (value.system === defaultTypography.system && value.editor === defaultTypography.editor)}
+      <div><h2>Fonts</h2><p>Choose fonts and comfortable text sizes for your workspace.</p></div>
+      <Button variant="outline" size="sm" disabled={busy || (Object.keys(defaultTypography) as (keyof Typography)[]).every(key => value[key] === defaultTypography[key])}
         onClick={() => void save(defaultTypography)}>Reset to default</Button>
     </div>
     <div className="typography-body">
@@ -35,10 +35,26 @@ export function TypographySettings({ value = defaultTypography }: { value?: Typo
           </select>
         </label>)}
       </div>
+      <div className="typography-controls typography-size-controls">
+        {([
+          ['systemScale', 'App text size', '%'],
+          ['editorSize', 'Markdown text size', ' px'],
+          ['scratchpadSize', 'Scratchpad text size', ' px'],
+        ] as const).map(([key, label, unit]) => <label key={key} className="ws-field">
+          <span>{label}</span>
+          <select aria-label={label} value={value[key]} disabled={busy}
+            onChange={event => void save({ ...value, [key]: Number(event.target.value) })}>
+            {fontSizeChoices[key].map(size => <option key={size} value={size}>{size}{unit}{size === defaultTypography[key] ? ' (default)' : ''}</option>)}
+          </select>
+        </label>)}
+      </div>
       <div className="typography-preview" aria-label="System font preview">
         <h3>Make room for your next idea</h3>
         <p>Review the launch plan, capture a quick thought, or hand a task to the team.</p>
         <div><span className="ws-status review">Ready for review</span><span>Today · 14:30</span></div>
+      </div>
+      <div className="typography-preview" aria-label="Scratchpad text preview">
+        <div className="ws-scratchpad-preview"><p>A thought to come back to.</p><ul><li><strong>Collect ideas</strong></li><li>Make room for a little <em>exploration</em>.</li></ul></div>
       </div>
       <div className="typography-preview" aria-label="Markdown editor font preview">
         <div className="ws-document-prose">

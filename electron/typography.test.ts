@@ -13,11 +13,12 @@ it('keeps independent system/editor choices across reopening and rejects unknown
   let store = new Store(path);
   try {
     expect(readTypography(store.getSetting('typography'))).toEqual(defaultTypography);
-    const selection = { system: 'dm-sans', editor: 'lora' };
+    const selection = { system: 'dm-sans', editor: 'lora', systemScale: 120, editorSize: 20, scratchpadSize: 16 };
     store.setSetting('typography', JSON.stringify(validateTypography(selection)));
     store.close();
     store = new Store(path);
     expect(readTypography(store.getSetting('typography'))).toEqual(selection);
+    expect(() => validateTypography({ ...selection, editorSize: 100 })).toThrow('text size');
     expect(() => store.setSetting('typography', JSON.stringify(validateTypography({ system: 'missing', editor: 'lora' })))).toThrow();
     expect(readTypography(store.getSetting('typography'))).toEqual(selection);
     expect(readTypography('{corrupt')).toEqual(defaultTypography);

@@ -1,4 +1,5 @@
-import { defaultTypography, fontFamily } from '../../shared/typography';
+import { defaultTypography } from '../../shared/typography';
+import { applyTypography } from './typography';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import type { Snapshot } from '../../shared/types';
@@ -37,12 +38,10 @@ export function App() {
       }
     });
   }, []);
-  const systemFont = data?.typography?.system ?? defaultTypography.system;
-  const editorFont = data?.typography?.editor ?? defaultTypography.editor;
+  const typography = data?.typography ?? defaultTypography;
   useLayoutEffect(() => {
-    document.documentElement.style.setProperty('--ds-font-system', fontFamily(systemFont));
-    document.documentElement.style.setProperty('--ds-font-editor', fontFamily(editorFont));
-  }, [systemFont, editorFont]);
+    applyTypography(typography);
+  }, [typography]);
   const run: Run = useCallback(async (action) => {
     setError('');
     try {

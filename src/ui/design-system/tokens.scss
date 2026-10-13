@@ -1,5 +1,14 @@
 /* Lime Glass semantic tokens. Sections adopt these incrementally. */
 :root {
+  --ds-system-text-scale: 1;
+  --ds-editor-text-scale: 1;
+  --ds-scratchpad-text-scale: 1;
+  --ds-text-scale: var(--ds-system-text-scale);
+  // Fragments' text roles scale with the app, without changing control geometry.
+  @each $role, $size, $line in (caption, 12px, 16px), (ui-compact, 12px, 16px), (ui-standard, 14px, 20px), (body-compact, 14px, 20px), (body-relaxed, 16px, 24px) {
+    --fui-type-#{$role}-size: calc(#{$size} * var(--ds-system-text-scale));
+    --fui-type-#{$role}-line: calc(#{$line} * var(--ds-system-text-scale));
+  }
   --ds-font-system: 'Inter Variable', Inter, system-ui, sans-serif;
   --ds-font-editor: 'Inter Variable', Inter, system-ui, sans-serif;
   --ds-font-body: var(--ds-font-system);

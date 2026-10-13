@@ -33,7 +33,7 @@
   &__mark { width: clamp(180px, 27vmin, 300px); overflow: visible; }
   &__name {
     font-family: var(--ds-font-heading);
-    font-size: 24px;
+    font-size: calc(24px * var(--ds-text-scale, 1));
     font-weight: 500;
     letter-spacing: -.04em;
     animation: splash-label 2600ms both;

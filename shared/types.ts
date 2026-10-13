@@ -174,6 +174,8 @@ export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'labe
 export interface DesktopApi extends SkillsApi {
   listDocuments(threadId: string): Promise<string[]>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
+  readDocumentImage(threadId: string, path: string, src: string): Promise<string>;
+  importDocumentImage(threadId: string, path: string, name: string, bytes: Uint8Array): Promise<string>;
   showDocumentInFinder(threadId: string, path: string): Promise<void>;
   saveDocument(threadId: string, path: string, expected: string, content: string): Promise<import('./documents').WorkspaceDocument>;
   snapshot(): Promise<Snapshot>;

@@ -164,6 +164,9 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('edits tables with edge contro
     await page.screenshot({ path: '/tmp/aegir-table-wide.png' });
     // Reload through the real component, including unsupported/read-only transitions.
     await page.waitForFunction(() => (window as any).saved().content === (window as any).editor.getMarkdown());
+    // Undo can match saved content while an autosave is still queued. Wait for
+    // its completion before simulating an external edit and revision change.
+    await expect.poll(() => page.locator('.ws-document-head > [role="status"]').innerText()).toBe('Saved');
     await page.evaluate(() => { (window as any).changeDisk((window as any).initial + '\n\n<div>Unsupported HTML</div>'); window.dispatchEvent(new Event('focus')); });
     await page.waitForFunction(() => !(window as any).editor.isEditable);
     expect(await table.locator('.ws-table-add-row').isVisible()).toBe(false);

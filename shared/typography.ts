@@ -11,8 +11,13 @@ export const fontChoices = [
 ] as const;
 
 export type FontId = typeof fontChoices[number]['id'];
-export type Typography = { system: FontId; editor: FontId };
-export const defaultTypography: Typography = { system: 'inter', editor: 'inter' };
+export const fontSizeChoices = {
+  systemScale: [90, 100, 110, 120, 130],
+  editorSize: [12, 13, 14, 15, 16, 18, 20, 22, 24],
+  scratchpadSize: [11, 12, 13, 14, 15, 16, 18, 20],
+};
+export type Typography = { system: FontId; editor: FontId; systemScale: number; editorSize: number; scratchpadSize: number };
+export const defaultTypography: Typography = { system: 'inter', editor: 'inter', systemScale: 100, editorSize: 14, scratchpadSize: 13 };
 export const fontFamily = (id: FontId) => fontChoices.find(font => font.id === id)!.family;
 
 export function validateTypography(value: unknown): Typography {
@@ -20,7 +25,15 @@ export function validateTypography(value: unknown): Typography {
   const { system, editor } = value as Record<string, unknown>;
   if (!fontChoices.some(font => font.id === system) || !fontChoices.some(font => font.id === editor))
     throw new Error('Choose a font from the available options');
-  return { system, editor } as Typography;
+  const sizes = {} as Pick<Typography, keyof typeof fontSizeChoices>;
+  for (const key of Object.keys(fontSizeChoices) as (keyof typeof fontSizeChoices)[]) {
+    // Older settings contain only font families. Keep those choices on upgrade.
+    const raw = (value as Record<string, unknown>)[key];
+    const size = raw === undefined ? defaultTypography[key] : raw;
+    if (typeof size !== 'number' || !fontSizeChoices[key].includes(size)) throw new Error('Choose a text size from the available options');
+    sizes[key] = size;
+  }
+  return { system: system as FontId, editor: editor as FontId, ...sizes };
 }
 
 export function readTypography(saved?: string): Typography {

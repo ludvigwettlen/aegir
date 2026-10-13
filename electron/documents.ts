@@ -7,8 +7,8 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const revision = (text: string) => createHash('sha256').update(text).digest('hex');
 
 /** Resolve within the agent's working directory; never follow file or directory symlinks. */
-function resolveDocument(root: string, reference: string): string {
-  if (typeof reference !== 'string' || !/\.(md|markdown)$/i.test(reference) || reference.includes('\0')) throw new Error('Choose a Markdown file');
+export function workspaceFile(root: string, reference: string): string {
+  if (typeof reference !== 'string' || !reference || reference.includes('\0')) throw new Error('Choose a workspace file');
   root = realpathSync(root);
   const path = resolve(root, reference);
   const local = relative(root, path);
@@ -19,6 +19,11 @@ function resolveDocument(root: string, reference: string): string {
     if (lstatSync(current).isSymbolicLink()) throw new Error('Symbolic links cannot be edited in the document workspace');
   }
   return path;
+}
+
+function resolveDocument(root: string, reference: string): string {
+  if (typeof reference !== 'string' || !/\.(md|markdown)$/i.test(reference)) throw new Error('Choose a Markdown file');
+  return workspaceFile(root, reference);
 }
 
 export function readDocument(root: string, reference: string): WorkspaceDocument {
