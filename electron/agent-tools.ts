@@ -92,7 +92,7 @@ export function cleanTaskProposalChange(value: unknown): TaskChange {
 
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',
-  description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires primary-source evidence of personal ownership and a new actionable request. An independent review checks relevance and all existing task statuses before saving; created=false means nothing was saved.',
+  description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires primary-source evidence of personal ownership and a new actionable request. Never suggest routine Slack reply/read/acknowledgement reminders; Slack already handles unread conversations. A substantive obligation originating in Slack must be titled for its actual outcome, not replying to a person. An independent review checks relevance and all existing task statuses before saving; created=false means nothing was saved.',
   inputSchema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, sourceUrl: { type: 'string' }, label: { type: 'string' }, ownershipEvidence: { type: 'string', description: 'Evidence identifying the user and their explicit personal obligation, not team ownership.' }, sourceEvidence: { type: 'string', description: 'Concise factual excerpt or paraphrase from the current primary source you read.' }, freshnessEvidence: { type: 'string', description: 'Dated new request or material change; explain any resurfacing after completion or dismissal.' } }, required: ['title', 'sourceUrl', 'ownershipEvidence', 'sourceEvidence', 'freshnessEvidence'] },
   readOnly: false
 };

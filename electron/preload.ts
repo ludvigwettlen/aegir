@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  configureGmail: (account, email, enabled) => ipcRenderer.invoke('gmail-configure', account, email, enabled),
+  syncGmail: () => ipcRenderer.invoke('gmail-sync'),
+  updateEmailDraft: (id, revision, fields) => ipcRenderer.invoke('gmail-draft-update', id, revision, fields),
+  sendEmailDraft: (id, revision) => ipcRenderer.invoke('gmail-draft-send', id, revision),
   configureOneOnOnes: (account, enabled) => ipcRenderer.invoke('one-on-ones-configure', account, enabled),
   syncOneOnOnes: () => ipcRenderer.invoke('one-on-ones-sync'),
   prepareOneOnOne: id => ipcRenderer.invoke('one-on-ones-prepare', id),

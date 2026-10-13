@@ -14,6 +14,10 @@ export function chatTranscript(store: Store, threadId: string, proposals: Pick<S
     const speaker = message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : agents.get(message.agentId || '') || 'Agent';
     const date = new Date(message.createdAt).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const parts = [`**${speaker}** · ${date}`, message.content];
+    if (message.meta?.type === 'email-draft') {
+      const mail = message.meta;
+      parts.push(`Email · ${mail.state}\nFrom: ${mail.email}\nTo: ${mail.to}\nCc: ${mail.cc}\nBcc: ${mail.bcc}\nSubject: ${mail.subject}\n\n${mail.body}`);
+    }
     if (message.meta?.type === 'skill-change')
       parts.push(`Skill revision: ${message.meta.skillName} · ${proposalStates.get(message.meta.proposalId) || 'status unavailable'}`);
     if (message.meta?.type === 'routine-change') {

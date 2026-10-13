@@ -1,3 +1,4 @@
+import { GmailSettings } from './GmailSettings';
 import { TypographySettings } from './TypographySettings';
 import { ExternalLink, Plus, ShieldCheck, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useState } from 'react';
@@ -40,6 +41,7 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
       <div className="settings-grid settings-controls">
         <div className="settings-main">
           <TypographySettings value={data.typography} />
+          <GmailSettings state={data.gmail} />
           <Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">
             <div className="panel-heading">
               <div>

@@ -37,7 +37,7 @@ export type RoutineChange = {
   schedule?: RoutineSchedule;
   enabled?: boolean;
 };
-export type MessageMeta = {
+export type MessageMeta = import('./gmail.js').EmailDraft | {
   type: 'routine-change';
   routineId: string;
   change: RoutineChange;
@@ -145,6 +145,7 @@ export type ThreadSummary = Thread & {
 };
 export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
+  gmail?: import('./gmail.js').GmailState;
   oneOnOnes?: import('./one-on-ones.js').OneOnOneState;
   agents: Agent[];
   groups: Group[];
@@ -173,6 +174,10 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence'>>;
 
 export interface DesktopApi extends SkillsApi {
+  configureGmail(account: string, email: string, enabled: boolean): Promise<void>;
+  syncGmail(): Promise<void>;
+  updateEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<import('./gmail.js').EmailDraft>;
+  sendEmailDraft(id: string, revision: number): Promise<void>;
   configureOneOnOnes(account: string, enabled: boolean): Promise<void>;
   syncOneOnOnes(): Promise<void>;
   prepareOneOnOne(id: string): Promise<void>;

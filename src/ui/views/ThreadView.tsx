@@ -1,3 +1,4 @@
+import { EmailDraftCard } from './EmailDraftCard';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
@@ -190,6 +191,7 @@ export function ThreadView({
 }
 
 function MessageRow({ message, data, run, onOpenDocument }: { message: Message; data: Snapshot; run: Run; onOpenDocument: (path: string) => void }) {
+  if (message.meta?.type === 'email-draft') return <EmailDraftCard id={message.id} draft={message.meta} />;
   if (message.meta?.type === 'skill-change')
     return <SkillChangeCard meta={message.meta} reason={message.content} />;
   if (message.meta?.type === 'routine-change')

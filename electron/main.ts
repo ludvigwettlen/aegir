@@ -59,6 +59,7 @@ function migrateLegacyData() {
 function snapshot(): Snapshot {
   return {
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
+    gmail: runtime?.gmail?.snapshot(),
     agents: store.list('agents'),
     groups: store.groups(),
     threads: store.threadSummaries(),
@@ -91,12 +92,12 @@ function refresh() {
   if (shuttingDown || !store?.isOpen) return;
   emit({ type: 'snapshot', value: snapshot() });
 }
-function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal: AbortSignal }): Promise<boolean> {
-  if (options?.signal.aborted) return Promise.resolve(false);
+function approvalForExternal(detail: string, threadId: string | undefined, options?: { title: string; signal?: AbortSignal; method?: string }): Promise<boolean> {
+  if (options?.signal?.aborted) return Promise.resolve(false);
   const id = randomUUID();
   approvals.set(id, {
     id,
-    method: options ? 'browser-control' : 'external-write',
+    method: options?.method || (options ? 'browser-control' : 'external-write'),
     title: options?.title || 'External write',
     detail,
     agentId: null,
@@ -121,10 +122,10 @@ function approvalForExternal(detail: string, threadId: string | undefined, optio
       refresh();
     };
     externalApprovalResolvers.set(id, approved => {
-      options?.signal.removeEventListener('abort', cancel);
+      options?.signal?.removeEventListener('abort', cancel);
       resolve(approved);
     });
-    options?.signal.addEventListener('abort', cancel, { once: true });
+    options?.signal?.addEventListener('abort', cancel, { once: true });
     refresh();
   });
 }
@@ -141,6 +142,10 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('gmail-configure', (account: string, email: string, enabled: boolean) => runtime.gmail.configure(account, email, enabled));
+  handle('gmail-sync', () => runtime.gmail.sync());
+  handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));
+  handle('gmail-draft-send', (id: string, revision: number) => runtime.gmail.send(id, revision, (detail, threadId) => approvalForExternal(detail, threadId, { title: 'Send email', method: 'email-send' })));
   handle('set-typography', (value: unknown) => {
     store.setSetting('typography', JSON.stringify(validateTypography(value)));
     refresh();

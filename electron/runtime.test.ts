@@ -524,15 +524,15 @@ describe('runtime', () => {
 
   it('logs a routine run and records suggested tasks once', async () => {
     const { store, runtime } = setup(async (input, id, rt) => {
-      if (!input.tools.length) return JSON.stringify({ approve: true, reason: 'Explicit new request to the user' });
-      for (let i = 0; i < 2; i++) await rt.handleInternalTool('tasks', 'suggest', { title: 'Reply to Anna', sourceUrl: 'https://slack.test/1', ownershipEvidence: 'Anna asks the user for approval', sourceEvidence: 'Please approve the final draft', freshnessEvidence: 'New request today' }, id);
+      if (!input.tools.length) return JSON.stringify({ approve: true, slackReplyOnly: false, reason: 'Explicit new request to the user' });
+      for (let i = 0; i < 2; i++) await rt.handleInternalTool('tasks', 'suggest', { title: 'Approve the final draft', sourceUrl: 'https://slack.test/1', ownershipEvidence: 'Anna asks the user for approval', sourceEvidence: 'Please approve the final draft', freshnessEvidence: 'New request today' }, id);
       return 'Suggested one task';
     });
     const routine = store.routines()[0];
     await runtime.runRoutine(routine.id, 'manual');
     const run = store.routineRuns()[0];
     expect(run).toMatchObject({ status: 'ok', summary: '1 task suggested', trigger: 'manual' });
-    expect(store.list('tasks').filter(x => x.status === 'proposed').map(x => x.title)).toEqual(['Reply to Anna']);
+    expect(store.list('tasks').filter(x => x.status === 'proposed').map(x => x.title)).toEqual(['Approve the final draft']);
     const kinds = store.runEvents(run.id).map(x => x.kind);
     expect(kinds[0]).toBe('run'); expect(kinds.at(-1)).toBe('run'); expect(kinds).toContain('agent');
     expect(store.routine(routine.id)!.lastRunAt).toBe(run.startedAt);
@@ -545,7 +545,7 @@ describe('runtime', () => {
         const data = JSON.parse(input.prompt);
         expect(data.existingTasks).toEqual([expect.objectContaining({ title: 'Follow up on Telecom lost-deal fit', status, notes: 'Same intended outcome', sourceUrl: 'https://notion.test/meeting' })]);
         expect(input.modelTier).toBe('default');
-        return JSON.stringify({ approve: false, reason: 'Same intended outcome already handled' });
+        return JSON.stringify({ approve: false, slackReplyOnly: false, reason: 'Same intended outcome already handled' });
       }
       receipt = await rt.handleInternalTool('tasks', 'suggest', {
         title: 'Follow up on lost Telecom deal', sourceUrl: 'https://notion.test/other-link',
@@ -566,7 +566,7 @@ describe('runtime', () => {
       if (!input.tools.length) {
         if (failure === 'failed review') throw new Error('Review unavailable');
         if (failure === 'changed history') store.createTask({ title: 'Concurrent task' });
-        return failure === 'invalid review' ? 'Looks fine' : '{"approve":true,"reason":"Personal request"}';
+        return failure === 'invalid review' ? 'Looks fine' : '{"approve":true,"slackReplyOnly":false,"reason":"Personal request"}';
       }
       receipt = await rt.handleInternalTool('tasks', 'suggest', {
         title: 'Approve launch', sourceUrl: 'https://notion.test/launch',
@@ -587,7 +587,7 @@ describe('runtime', () => {
         expect(data.userContext).toBe('The user is Alex');
         expect(data.existingTasks).toHaveLength(1);
         expect(data.candidate.title).toBe('Approve launch budget');
-        return '{"approve":true,"reason":"Distinct new personal request"}';
+        return '{"approve":true,"slackReplyOnly":false,"reason":"Distinct new personal request"}';
       }
       const result = await rt.handleInternalTool('tasks', 'suggest', {
         title: 'Approve launch budget', sourceUrl: 'https://notion.test/meeting',
@@ -747,5 +747,53 @@ describe('runtime shutdown', () => {
     const { store, runtime } = setup(async () => { runtime.stop(); store.close(); return '{}'; });
     store.createGroup('Second team', [store.groups()[0].leadAgentId]);
     await expect(runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work')).resolves.toBeUndefined();
+  });
+});
+
+describe('Gmail tool exposure', () => {
+  it('makes Gmail reads and the inline draft editor available in chat with read-only filesystem permissions', async () => {
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      expect(input.sandbox).toBe('read-only');
+      expect(input.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['gmail__search', 'gmail__read_thread', 'gmail__draft', 'gmail__update_draft']));
+      expect(input.instructions).toContain('You cannot send mail directly');
+      await rt.handleInternalTool('gmail', 'draft', { to: 'peer@example.com', subject: 'Hello', body: 'Hi' }, id);
+      return 'Draft opened';
+    });
+    store.setSetting('gmailAccount', 'gmail_work'); store.setSetting('gmailEmail', 'me@example.com');
+    const call = vi.spyOn(runtime.gmail, 'call').mockResolvedValue({ sent: false });
+    const thread = store.createThread(store.groups()[0].id, 'Email'); await runtime.sendMessage(thread.id, 'Draft an email');
+    expect(call).toHaveBeenCalledWith('draft', expect.any(Object), thread.id);
+    expect(runs).toHaveLength(1);
+    await expect(runtime.handleInternalTool('gmail', 'search', { query: 'in:inbox' }, 'inactive')).rejects.toThrow('No active Gmail');
+  });
+  it('keeps unattended Gmail access read-only and refuses local draft mutation', async () => {
+    const { store, runtime } = setup(async (input, id, rt) => {
+      expect(input.tools.filter(tool => tool.name.startsWith('gmail__')).map(tool => tool.name)).toEqual(['gmail__search', 'gmail__read_thread']);
+      await expect(rt.handleInternalTool('gmail', 'update_draft', {}, id)).rejects.toThrow('attended');
+      return 'Nothing new';
+    });
+    store.setSetting('gmailAccount', 'gmail_work'); store.setSetting('gmailEmail', 'me@example.com');
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+  });
+});
+
+describe('Slack reply proposal suppression', () => {
+  it.each(['Respond to Malcolm in Slack', "Resolve Malcolm's question about where the doc is"])('does not save conversation triage: %s', async title => {
+    let receipt: unknown;
+    const { store, runtime } = setup(async (input, id, rt) => {
+      if (!input.tools.length) {
+        expect(input.instructions).toContain('Do not propose Slack notification-triage tasks');
+        // Even a contradictory approval cannot bypass the explicit triage verdict.
+        return JSON.stringify({ approve: true, slackReplyOnly: true, reason: 'Only a routine Slack answer is needed.' });
+      }
+      expect(input.instructions).toContain('Do not propose Slack notification-triage tasks');
+      receipt = await rt.handleInternalTool('tasks', 'suggest', { title, sourceUrl: 'https://work.slack.com/archives/C123/p123',
+        ownershipEvidence: 'Malcolm addressed the user', sourceEvidence: 'Where is the document? Please reply.', freshnessEvidence: 'Unanswered question today' }, id);
+      return 'Nothing new';
+    });
+    await runtime.runRoutine(store.routines()[0].id, 'manual');
+    expect(receipt).toMatchObject({ created: false });
+    expect(store.list('tasks')).toHaveLength(0);
+    expect(store.runEvents(store.routineRuns()[0].id).some(event => event.text.includes('Routine Slack reply reminders belong in Slack'))).toBe(true);
   });
 });
