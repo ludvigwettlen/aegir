@@ -69,7 +69,7 @@ export function slackThreadFromUrl(url: string | null | undefined): { channelId:
   return { channelId: match[1], threadTs: root && slackTs.test(root) ? root : `${match[2]}.${match[3]}` };
 }
 
-// Malcolm's rule, 7 Oct 2026: a Slack reply always continues in the thread it answers. A draft that names no thread
+// Mia's rule, 7 Oct 2026: a Slack reply always continues in the thread it answers. A draft that names no thread
 // takes the first thread known for its channel: an earlier draft here, a thread the agent read, the task's source.
 export function withThread(draft: MessageDraft, known: Array<{ channelId: string; threadTs?: string } | null | undefined>): MessageDraft {
   if (draft.channel !== 'slack' || !draft.slack || draft.slack.threadTs) return draft;
@@ -205,7 +205,7 @@ export function checkPlan(draft: MessageDraft): Check | null {
     if (slack.channelId.startsWith('U'))
       return { calls: [profile(() => slack.channelId)], read: ([result]) => named(result === undefined ? null : profileName(result), "Slack didn't say who this is") };
     // Asks for this one conversation by its id (the bridge answers an id with Slack's conversations.info). Scanning
-    // a list missed it: Slack hands conversations out a page at a time, and Malcolm is in 1,739 of them (7 Oct 2026).
+    // a list missed it: Slack hands conversations out a page at a time, and Mia is in 1,739 of them (7 Oct 2026).
     const list: GatedCall = {
       tool: `${SLACK}slack_search_channels`,
       input: () => ({ query: slack.channelId, channel_types: slack.channelId.startsWith('D') ? 'im' : 'public_channel,private_channel,mpim', limit: 5 }),

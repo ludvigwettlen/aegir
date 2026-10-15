@@ -592,7 +592,7 @@ describe('draft cards', () => {
     expect(state(cards[3])).toMatchObject({ state: 'pending', text: 'Hej Petra, kort.' });
   });
 
-  // Malcolm, 7 Oct 2026: the reply to Tove went to the group DM instead of his thread, because each revision
+  // Mia, 7 Oct 2026: the reply to Tove went to the group DM instead of his thread, because each revision
   // dropped thread_ts. A Slack reply now always continues in the thread.
   it('keeps a Slack reply in its thread across revisions, and takes the thread from the task\'s Slack link', async () => {
     const group = { channel: 'slack', label: 'Group DM: Tove + Christoffer', text: 'Svar', slack: { channel_id: 'C07EXAMPL02' } };
@@ -642,7 +642,7 @@ describe('draft cards', () => {
 describe('sending draft cards', () => {
   const johan = { channel: 'slack', label: 'DM to Johan Lund', text: 'Hej Johan!', slack: { channel_id: 'U06TESTUSR1' } };
   const created = '{"draft":{"draft_id":"draft00b7d9728c5a1a45","thread_id":"draft00c3124c75effa45","to":[{"email":"petra@nordvik.example","name":""}],"subject":"Mötet","body":"<div>Hej</div>"}}';
-  const petra = { channel: 'email', label: 'Reply to Petra', text: 'Hej Petra!', email: { to: ['petra@nordvik.example'], subject: 'Mötet', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', type: 'new', account: 'malcolm@example.com' } };
+  const petra = { channel: 'email', label: 'Reply to Petra', text: 'Hej Petra!', email: { to: ['petra@nordvik.example'], subject: 'Mötet', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', type: 'new', account: 'mia@example.com' } };
   const until = async (check: () => boolean, ms = 3000) => {
     const end = Date.now() + ms;
     while (!check()) { if (Date.now() > end) throw new Error('Timed out waiting'); await new Promise((done) => setTimeout(done, 5)); }
@@ -756,8 +756,8 @@ describe('sending draft cards', () => {
   it('sends email only while Superhuman still has the recipients the card shows', async () => {
     let update = created;
     const { store, runtime, calls, card } = sending((tool) => (tool.endsWith('send_draft')
-      ? { success: true, sent_at: '2026-10-06T07:12:00Z', open_url: 'https://mail.superhuman.com/malcolm@example.com/thread/t1' }
-      : update), draftOnce(petra, (input) => input.onToolResult?.('mcp__claude_ai_Superhuman_Mail__create_or_update_draft', { type: 'new', acting_email: 'malcolm@example.com' }, created)));
+      ? { success: true, sent_at: '2026-10-06T07:12:00Z', open_url: 'https://mail.superhuman.com/mia@example.com/thread/t1' }
+      : update), draftOnce(petra, (input) => input.onToolResult?.('mcp__claude_ai_Superhuman_Mail__create_or_update_draft', { type: 'new', acting_email: 'mia@example.com' }, created)));
     const thread = store.createThread(store.groups()[0].id, 'Reply to Petra');
     await runtime.sendMessage(thread.id, 'Draft the reply');
     const id = firstCard(store, thread.id);
@@ -772,9 +772,9 @@ describe('sending draft cards', () => {
     update = created.replace('petra@nordvik.example', 'someone@else.com');
     await runtime.sendDraft(id, 'Hej Petra, igen!');
     await until(() => card(id).state === 'sent');
-    expect(calls.filter(([tool]) => tool.endsWith('create_or_update_draft')).at(-1)?.[1]).toEqual({ type: 'new', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', body: '<div>Hej Petra, igen!</div>', acting_email: 'malcolm@example.com' });
-    expect(calls.at(-1)).toEqual(['mcp__claude_ai_Superhuman_Mail__send_draft', { draft_id: 'draft00b7d9728c5a1a45', acting_email: 'malcolm@example.com' }]);
-    expect(card(id)).toMatchObject({ sentBy: 'legolas', link: 'https://mail.superhuman.com/malcolm@example.com/thread/t1' });
+    expect(calls.filter(([tool]) => tool.endsWith('create_or_update_draft')).at(-1)?.[1]).toEqual({ type: 'new', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', body: '<div>Hej Petra, igen!</div>', acting_email: 'mia@example.com' });
+    expect(calls.at(-1)).toEqual(['mcp__claude_ai_Superhuman_Mail__send_draft', { draft_id: 'draft00b7d9728c5a1a45', acting_email: 'mia@example.com' }]);
+    expect(card(id)).toMatchObject({ sentBy: 'legolas', link: 'https://mail.superhuman.com/mia@example.com/thread/t1' });
   });
 
   it('settles sends Legolas quit in the middle of, without resending', async () => {

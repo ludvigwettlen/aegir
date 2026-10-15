@@ -6,7 +6,7 @@ import {
 
 // Answers as the connectors gave them on 5 Oct (Superhuman) and from the Slack bridge's source.
 const created = `{"draft":{"draft_id":"draft00b7d9728c5a1a45","thread_id":"draft00c3124c75effa45","to":[{"email":"petra@nordvik.example","name":""}],"cc":[{"email":"johan@example.com","name":"Johan Lund"}],"subject":"Mötet vi pratade om","body":"<div>Hej Petra!</div>"}}`;
-const sentEmail = `{"success":true,"message_id":"draft00b7d9728c5a1a45","thread_id":"1a0773deea46a0fa","sent_at":"2026-10-06T07:12:00Z","undo_token":"x","undo_expires_at":"2026-10-06T07:13:00Z","open_url":"https://mail.superhuman.com/malcolm@example.com/thread/1a0773deea46a0fa"}`;
+const sentEmail = `{"success":true,"message_id":"draft00b7d9728c5a1a45","thread_id":"1a0773deea46a0fa","sent_at":"2026-10-06T07:12:00Z","undo_token":"x","undo_expires_at":"2026-10-06T07:13:00Z","open_url":"https://mail.superhuman.com/mia@example.com/thread/1a0773deea46a0fa"}`;
 
 describe('sending draft cards', () => {
   const run = (calls: { input: (results: unknown[]) => Record<string, unknown> }[], results: unknown[] = []) => calls.map((call, index) => call.input(results.slice(0, index)));
@@ -18,7 +18,7 @@ describe('sending draft cards', () => {
     expect(slackThreadFromUrl(null)).toBeNull();
   });
 
-  // Malcolm, 7 Oct 2026: a reply always continues in the thread; a revision that forgets thread_ts keeps it.
+  // Mia, 7 Oct 2026: a reply always continues in the thread; a revision that forgets thread_ts keeps it.
   it('puts a Slack reply in the thread known for its channel, and never overrides one the agent chose', () => {
     const draft = draftFromTool({ channel: 'slack', label: 'Group DM', text: 'Svar', slack: { channel_id: 'C07EXAMPL02' } });
     expect(withThread(draft, [{ channelId: 'D04EXAMPL01', threadTs: '1.000001' }, null, { channelId: 'C07EXAMPL02', threadTs: '1791328703.276349' }]).slack?.threadTs).toBe('1791328703.276349');
@@ -32,11 +32,11 @@ describe('sending draft cards', () => {
 
   it('learns Superhuman drafts and Slack names from what the connectors returned, and confirms cards with them', () => {
     const known = nothingKnown();
-    learnFromToolResult(`${SUPERHUMAN}create_or_update_draft`, { type: 'reply_all', acting_email: 'malcolm@example.com' }, created, known);
+    learnFromToolResult(`${SUPERHUMAN}create_or_update_draft`, { type: 'reply_all', acting_email: 'mia@example.com' }, created, known);
     learnFromToolResult(`${SLACK}slack_search_users`, {}, '{"users":[{"id":"U06TESTUSR1","real_name":"Johan Lund"}]}', known);
     learnFromToolResult(`${SLACK}slack_search_channels`, {}, '{"channels":[{"id":"D04EXAMPL01","name":"U06TESTUSR1","is_im":true},{"id":"C01EXAMPL03","name":"mgmt"}]}', known);
     const mail = draftFromTool({ ...email, email: { ...email.email, to: ['someone@else.com'] } }, known);
-    expect(mail.email).toMatchObject({ to: ['petra@nordvik.example'], cc: ['johan@example.com'], type: 'reply_all', account: 'malcolm@example.com', confirmed: true });
+    expect(mail.email).toMatchObject({ to: ['petra@nordvik.example'], cc: ['johan@example.com'], type: 'reply_all', account: 'mia@example.com', confirmed: true });
     expect(needsCheck(mail)).toBe(false);
     expect(canSend(mail)).toBe(true);
     expect(draftFromTool(slack, known).slack?.name).toBe('Johan Lund');
@@ -70,7 +70,7 @@ describe('sending draft cards', () => {
 
   it('checks an email card against the draft in Superhuman', () => {
     const plan = checkPlan(draftFromTool({ ...email, email: { ...email.email, type: 'new' } }))!;
-    expect(run(plan.calls)).toEqual([{ draft_id: 'draft00b7d9728c5a1a45', acting_email: 'malcolm@example.com' }]);
+    expect(run(plan.calls)).toEqual([{ draft_id: 'draft00b7d9728c5a1a45', acting_email: 'mia@example.com' }]);
     expect(plan.read([readToolResponse(created)]).email).toMatchObject({ to: ['petra@nordvik.example'], confirmed: true, type: 'new' });
     expect(plan.read([{ text: 'not found' }])).toMatchObject({ error: "Superhuman didn't return this draft, so Legolas can't confirm who it goes to" });
   });
@@ -86,18 +86,18 @@ describe('sending draft cards', () => {
 
   it('sends email as a body-only update that must still go where the card says, then the send', () => {
     const known = nothingKnown();
-    learnFromToolResult(`${SUPERHUMAN}create_or_update_draft`, { type: 'new', acting_email: 'malcolm@example.com' }, created, known);
+    learnFromToolResult(`${SUPERHUMAN}create_or_update_draft`, { type: 'new', acting_email: 'mia@example.com' }, created, known);
     const card = { ...draftFromTool(email, known), text: 'Hej Petra!\n\nTack <3 & hej' };
     const plan = sendPlan(card, async () => true);
     expect(plan.calls.map((call) => call.tool)).toEqual([`${SUPERHUMAN}create_or_update_draft`, `${SUPERHUMAN}send_draft`]);
-    expect(plan.calls[0].input([])).toEqual({ type: 'new', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', body: '<div>Hej Petra!</div><div><br></div><div>Tack &lt;3 &amp; hej</div>', acting_email: 'malcolm@example.com' });
+    expect(plan.calls[0].input([])).toEqual({ type: 'new', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', body: '<div>Hej Petra!</div><div><br></div><div>Tack &lt;3 &amp; hej</div>', acting_email: 'mia@example.com' });
     expect(plan.calls[0].commit).toBeUndefined();
     expect(plan.calls[1].commit).toBeDefined();
     expect(plan.calls[0].check?.(readToolResponse(created))).toBeNull();
     const moved = readToolResponse(created.replace('petra@nordvik.example', 'someone@else.com'));
     expect(plan.calls[0].check?.(moved)).toBe('The draft in Superhuman goes to different people now');
     expect(plan.live?.([moved])?.to).toEqual(['someone@else.com']);
-    expect(plan.verdict(readToolResponse(sentEmail))).toEqual({ state: 'sent', link: 'https://mail.superhuman.com/malcolm@example.com/thread/1a0773deea46a0fa', sentAt: '2026-10-06T07:12:00Z' });
+    expect(plan.verdict(readToolResponse(sentEmail))).toEqual({ state: 'sent', link: 'https://mail.superhuman.com/mia@example.com/thread/1a0773deea46a0fa', sentAt: '2026-10-06T07:12:00Z' });
   });
 
   it('reads send answers: failed only when the tool said no, unknown when it said nothing clear', () => {
@@ -115,7 +115,7 @@ describe('sending draft cards', () => {
   });
 
   it('reads Slack profile answers', () => {
-    expect(profileName({ result: 'malcolm (malcolm)\nNorthwind\nCEO' })).toBe('malcolm');
+    expect(profileName({ result: 'mia (mia)\nNorthwind\nCEO' })).toBe('mia');
     // Slack answers "handle (Real Name)": the card shows the real name.
     expect(profileName({ result: 'people (Nora Palmer)\nNorthwind\nHead of People' })).toBe('Nora Palmer');
     expect(profileName({ result: 'lin' })).toBe('lin');
@@ -133,7 +133,7 @@ describe('sending draft cards', () => {
 });
 
 const slack = { channel: 'slack', label: 'DM to Johan Lund', text: '  Hej Johan!\r\nSnabb heads-up.  ', slack: { channel_id: 'U06TESTUSR1', thread_ts: '1759687412.123456' } };
-const email = { channel: 'email', label: 'Reply to Petra', text: 'Hej Petra!', email: { to: ['Petra@Nordvik.example'], cc: ['johan@example.com'], subject: 'Mötet vi pratade om', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', account: 'malcolm@example.com' } };
+const email = { channel: 'email', label: 'Reply to Petra', text: 'Hej Petra!', email: { to: ['Petra@Nordvik.example'], cc: ['johan@example.com'], subject: 'Mötet vi pratade om', draft_id: 'draft00b7d9728c5a1a45', thread_id: 'draft00c3124c75effa45', account: 'mia@example.com' } };
 
 describe('draft cards', () => {
   it('builds a Slack card from the tool call, text tidied and kept as the original', () => {
@@ -145,7 +145,7 @@ describe('draft cards', () => {
   it('builds an email card with lower-case addresses and the Superhuman draft to open', () => {
     expect(draftFromTool(email).email).toEqual({
       to: ['petra@nordvik.example'], cc: ['johan@example.com'], bcc: [], subject: 'Mötet vi pratade om',
-      draftId: 'draft00b7d9728c5a1a45', threadId: 'draft00c3124c75effa45', account: 'malcolm@example.com',
+      draftId: 'draft00b7d9728c5a1a45', threadId: 'draft00c3124c75effa45', account: 'mia@example.com',
     });
   });
   it.each([
@@ -157,7 +157,7 @@ describe('draft cards', () => {
     [{ ...email, email: { to: [] } }, 'at least one'],
     [{ ...email, email: { to: ['petra at nordvik'] } }, "isn't an email address"],
     [{ ...email, email: { to: 'petra@nordvik.example' } }, 'list of email addresses'],
-    [{ ...email, email: { ...email.email, account: 'malcolm' } }, 'account'],
+    [{ ...email, email: { ...email.email, account: 'mia' } }, 'account'],
     [{ ...slack, channel: 'teams' }, "'slack' or 'email'"],
   ])('refuses a malformed call (%#)', (args, message) => {
     expect(() => draftFromTool(args)).toThrow(message);

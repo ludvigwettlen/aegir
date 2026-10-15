@@ -28,7 +28,7 @@ describe('finding a task', () => {
   });
 
   it('needs every word to match, and reads #label as the label', () => {
-    const tasks = [task('deck', { title: 'Prep board deck' }), task('memo', { title: 'Board memo', label: 'investor' }), task('other', { title: 'Deck for Harborlight', label: 'board' })];
+    const tasks = [task('deck', { title: 'Prep board deck' }), task('memo', { title: 'Board memo', label: 'investor' }), task('other', { title: 'Deck for Harbourline', label: 'board' })];
     expect(ids('board deck', tasks)).toEqual(['deck', 'other']);
     expect(ids('#board', tasks)).toEqual(['other']);
     expect(ids('#inv memo', tasks)).toEqual(['memo']);

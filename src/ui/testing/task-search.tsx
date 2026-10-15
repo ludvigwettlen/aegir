@@ -26,7 +26,7 @@ const data = {
     task('signed', 'Close the Q3 renewal', { status: 'done', completedAt: ago(5), updatedAt: ago(5), label: 'gtm',
       notes: 'Signed on Friday. Fjordline asked for the DPA as well, sent by Noor the same day.' }),
     task('dropped', 'Fjordline dinner', { status: 'dismissed', updatedAt: ago(1) }),
-    task('offsite', 'Set up the Harborlight offsite', { label: 'ops', updatedAt: ago(4) }),
+    task('offsite', 'Set up the Harbourline offsite', { label: 'ops', updatedAt: ago(4) }),
   ],
   taskLinks: [], taskFiles: [], routines: [], routineRuns: [], connectors: [], approvals: [], legacyMemoryCount: 0, memoryInstructions: '',
   codexStatus: 'Connected', engine: 'Claude Code', memoryProvider: 'gbrain', brainDir: null,

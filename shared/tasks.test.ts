@@ -151,7 +151,7 @@ describe('priority bands', () => {
     expect(names(taskGroups('needs', tasks, status))).toEqual(['Ready for your review: review', 'Stopped: blocked', 'Suggested: suggested']);
     expect(names(taskGroups('team', tasks.slice(0, 2), status))).toEqual(['#gtm: review', 'No label: blocked']);
   });
-  // Malcolm, 7 and 12 Oct 2026: a date set on a task always wins, and a task without a date is never on Today.
+  // Mia, 7 and 12 Oct 2026: a date set on a task always wins, and a task without a date is never on Today.
   it('keeps Today to dated work, P1 or not, and puts a dated task there on its day', () => {
     const tasks: Task[] = [
       { ...base, id: 'review-p1', status: 'review', threadId: 't', priority: 1, prioritySource: 'agent' },
@@ -192,8 +192,8 @@ describe('priority bands', () => {
     expect(order).toEqual(['a', 'b', 'c', 'd']);
   });
   it('names where a task came from', () => {
-    expect(sourceKind('inbox:gmail-malcolm-1a0c3d33d742')).toBe('gmail');
-    expect(sourceKind('inbox:slack-mpdm-malcolm')).toBe('slack');
+    expect(sourceKind('inbox:gmail-mia-1a0c3d33d742')).toBe('gmail');
+    expect(sourceKind('inbox:slack-mpdm-mia')).toBe('slack');
     expect(sourceKind('inbox:calendar-53nfjhe')).toBe('calendar');
     expect(sourceKind('reminders:527AF46D')).toBe('reminders');
     expect(sourceKind(null)).toBeNull();

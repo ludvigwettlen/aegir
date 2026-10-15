@@ -39,8 +39,8 @@ describe('suggestion inbox', () => {
   it('imports once per source key, keeps young files, and quarantines bad ones', () => {
     const dir = mkdtempSync(join(tmpdir(), 'aegir-inbox-'));
     const store = fakeStore();
-    drop(dir, 'a.json', [{ title: 'Reply to Anna', sourceKey: 'gmail-malcolm-1a0c3d33', notes: 'Draft attached' }, { title: 'Prep Nordvik', sourceUrl: 'https://calendar.google.com/x' }]);
-    drop(dir, 'b.json', { title: 'Reply to Anna again', sourceKey: 'gmail-malcolm-1a0c3d33' });
+    drop(dir, 'a.json', [{ title: 'Reply to Anna', sourceKey: 'gmail-mia-1a0c3d33', notes: 'Draft attached' }, { title: 'Prep Nordvik', sourceUrl: 'https://calendar.google.com/x' }]);
+    drop(dir, 'b.json', { title: 'Reply to Anna again', sourceKey: 'gmail-mia-1a0c3d33' });
     drop(dir, 'c.json', '{ not json');
     const young = drop(dir, 'd.json', { title: 'Still being written' }, 0);
     drop(dir, 'e.md', '---\ntitle: "Prep for Greenfield, Tue 10:00"\nsourceKey: calendar-abc123def456\nlabel: Investor\ndueAt: 2026-10-06\n---\n#### Recommendation: enrich\n- Two partners have no brain page.\n');
@@ -48,7 +48,7 @@ describe('suggestion inbox', () => {
     expect(importInbox(store, dir)).toEqual({ created: 3, skipped: 1, rejected: 2, updated: 0, closed: 0 });
     expect(store.tasks[2]).toMatchObject({ title: 'Prep for Greenfield, Tue 10:00', label: 'investor', dueAt: '2026-10-06', notes: '#### Recommendation: enrich\n- Two partners have no brain page.', sourceKey: 'inbox:calendar-abc123def456' });
     expect(store.tasks.map((task) => [task.title, task.status])).toEqual([['Reply to Anna', 'proposed'], ['Prep Nordvik', 'proposed'], ['Prep for Greenfield, Tue 10:00', 'proposed']]);
-    expect(store.tasks[0].sourceKey).toBe('inbox:gmail-malcolm-1a0c3d33');
+    expect(store.tasks[0].sourceKey).toBe('inbox:gmail-mia-1a0c3d33');
     expect(existsSync(join(dir, 'processed', 'a.json'))).toBe(true);
     expect(readFileSync(join(dir, 'rejected', 'c.json.error.txt'), 'utf8')).toMatch(/JSON/);
     expect(existsSync(young)).toBe(true);

@@ -43,8 +43,8 @@ const messages: Message[] = [
     text: 'Hej Johan, mailet till Petra om Nordvik är skickat. Säg till om du vill lägga till något innan hon svarar.' }),
   draft('email', ago(9.8), { channel: 'email', label: 'Reply to Petra at Nordvik', state: 'pending',
     email: { to: ['petra.berg@example.com'], cc: ['johan.lund@example.com'], bcc: ['crm-log+nordvik-rollout-pilot-2026@example.com'], subject: 'Re: Nordvik rollout plan',
-      draftId: 'draft-7f3a', threadId: '18f2c3a4b5d6e7f8', account: 'malcolm@example.com' },
-    text: 'Hi Petra,\n\nThanks for the call today. Here is the rollout plan we agreed:\n\n1. Pilot with the Stockholm team from 14 October.\n2. Review it together on 28 October.\n3. Roll out to everyone in November if the pilot holds.\n\nBest,\nMalcolm' }),
+      draftId: 'draft-7f3a', threadId: '18f2c3a4b5d6e7f8', account: 'mia@example.com' },
+    text: 'Hi Petra,\n\nThanks for the call today. Here is the rollout plan we agreed:\n\n1. Pilot with the Stockholm team from 14 October.\n2. Review it together on 28 October.\n3. Roll out to everyone in November if the pilot holds.\n\nBest,\nMia' }),
   // Cards Legolas can send: the destination confirmed by Slack or Superhuman itself.
   line('send', 'user', 'Now the ones I can send from here.', ago(5)),
   line('sendable', 'agent', 'Four more below. Send them from the cards.', ago(4)),
@@ -54,8 +54,8 @@ const messages: Message[] = [
   draft('slack-unconfirmed', ago(3.7), { channel: 'slack', label: 'DM to Maja', state: 'pending', slack: { channelId: 'D0EXAMPL07', name: null },
     error: 'Slack has no DM with this id that you can see', text: 'Hej Maja, kort fråga om lanseringen.' }),
   draft('email-ready', ago(3.6), { channel: 'email', label: 'Note to Harborlight', state: 'pending',
-    email: { to: ['elin@example.com'], cc: [], bcc: [], subject: 'Northwind <> Harborlight', draftId: 'draft001f', threadId: 'draft0013', type: 'new', account: 'malcolm@example.com', confirmed: true },
-    text: 'Hi Elin,\n\nLong overdue from my side.\n\nMalcolm' }),
+    email: { to: ['elin@example.com'], cc: [], bcc: [], subject: 'Northwind <> Harborlight', draftId: 'draft001f', threadId: 'draft0013', type: 'new', account: 'mia@example.com', confirmed: true },
+    text: 'Hi Elin,\n\nLong overdue from my side.\n\nMia' }),
   draft('slack-unknown', ago(3.5), { channel: 'slack', label: '#mgmt', state: 'unknown', slack: { channelId: 'C05MGMT0001', name: 'mgmt' },
     error: 'Legolas closed while sending it.', text: 'Mgmt: piloten startar 14 oktober.' }),
 ];
@@ -84,7 +84,7 @@ const send = (id: string, text: string) => {
     setTimeout(() => {
       const card = messages.find((item) => item.id === id)?.meta as MessageDraft;
       if (fixture.failNext) { fixture.failNext = false; change(id, { state: 'failed', error: 'Superhuman said: draft not found' }, ['sending']); return; }
-      change(id, { state: 'sent', sentBy: 'legolas', sentAt: new Date().toISOString(), link: card.channel === 'slack' ? 'https://app.slack.com/client/D04EXAMPL01' : 'https://mail.superhuman.com/malcolm@example.com/thread/1a0773' }, ['sending']);
+      change(id, { state: 'sent', sentBy: 'legolas', sentAt: new Date().toISOString(), link: card.channel === 'slack' ? 'https://app.slack.com/client/D04EXAMPL01' : 'https://mail.superhuman.com/mia@example.com/thread/1a0773' }, ['sending']);
     }, 150);
   }, fixture.undoMs);
 };

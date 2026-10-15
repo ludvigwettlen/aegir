@@ -609,7 +609,7 @@ describe('conversation search', () => {
       expect(found.map((match) => [match.taskId, match.words])).toEqual([[memo.task.id, [0, 1]], [board.task.id, [0]]]);
       expect(found[0]).toMatchObject({ where: 'conversation', role: 'agent', draft: false, document: null });
       expect(found[0].snippet).toMatch(/Fjelltek signed the renewal/);
-      expect(search('asne kongs')[0]).toMatchObject({ taskId: memo.task.id, role: 'user', words: [0, 1] });
+      expect(search('asne fjell')[0]).toMatchObject({ taskId: memo.task.id, role: 'user', words: [0, 1] });
       expect(search('k')).toEqual([]);
       // A #word is a label, never looked up in conversations.
       expect(search('#board numbers')).toMatchObject([{ taskId: board.task.id, words: [1] }]);

@@ -102,7 +102,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds any task in ⌘K and the si
     // Commands named by what was typed come first, then the tasks, each under its heading. Esc closes.
     await page.keyboard.press('Meta+k');
     await field.fill('set');
-    await page.getByRole('option', { name: /Set up the Harborlight offsite/ }).waitFor();
+    await page.getByRole('option', { name: /Set up the Harbourline offsite/ }).waitFor();
     expect((await page.getByRole('option').first().textContent())).toMatch(/^Set (due date|label|priority)/);
     expect((await sections()).slice(0, 2)).toEqual(['Commands', 'Tasks']);
     await page.screenshot({ path: '/tmp/legolas-find-mixed.png' });

@@ -90,7 +90,7 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('keeps writing modes in place 
       expect(await page.getByRole('textbox', { name: 'Message' }).inputValue()).toBe('Keep my chat draft');
       await page.screenshot({ path: `/tmp/aegir-writing-${task ? 'task' : 'group'}-split.png` });
       await page.waitForFunction(() => (window as any).saved().content.includes('Last line'));
-      // Legolas leaves typed text as typed: "--" never becomes an em dash (Malcolm's writing rule bans them).
+      // Legolas leaves typed text as typed: "--" never becomes an em dash (Mia's writing rule bans them).
       const prose = page.getByRole('textbox', { name: 'Document', exact: true });
       await page.evaluate(() => { const editor = (window as any).editor; editor.commands.setContent('Existing -- text', { contentType: 'markdown' }); editor.commands.focus('end'); });
       await page.keyboard.type(' --');

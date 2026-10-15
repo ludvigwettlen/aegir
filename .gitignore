@@ -7,3 +7,6 @@ release/
 *.tsbuildinfo
 .DS_Store
 build/aegir-reminders
+
+# Local Claude Code settings and agent worktrees
+.claude/

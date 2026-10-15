@@ -24,7 +24,7 @@ const data = {
     task('cognition', 'Read the Cognition playbook piece', { label: 'read', dueAt: today, ...claude(3, 'Reading, no deadline') }),
     task('people', 'Map direct reports to level and stage', { label: 'people', dueAt: today }),
     task('board', 'Sign off the board pack', { label: 'board', dueAt: later, ...claude(1, 'Board meets next week') }),
-    task('harborlight', 'Customer advisory board with Harborlight', { dueAt: later, ...claude(1, 'Strategic account, date set') }),
+    task('harbourline', 'Customer advisory board with Harbourline', { dueAt: later, ...claude(1, 'Strategic account, date set') }),
     task('grok', 'Can I add my grok bots to Legolas?', { status: 'review', threadId: 'grok-thread', agentId: 'lead', ...claude(3, 'Your own tooling, no date') }),
     task('jobb', 'Prep for Jobbsprånget', { status: 'proposed', label: 'gtm', sourceKey: 'inbox:calendar-1', ...claude(1, 'Meeting tomorrow') }),
   ],

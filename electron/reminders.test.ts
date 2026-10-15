@@ -41,8 +41,8 @@ const empty = (): CaptureLedger => ({ imported: [], pending: [], waiting: {} });
 
 describe('mapping a reminder to a task', () => {
   it('keeps the user\'s words and takes the date from the reminder', () => {
-    expect(taskFromReminder(reminder('A', 'Call Rasmus about Harborlight fri', { due: '2026-10-09', created: '2026-10-05T07:00:00Z', notes: 'Pricing first' }), NOW)).toMatchObject({
-      title: 'Call Rasmus about Harborlight fri',
+    expect(taskFromReminder(reminder('A', 'Call Johan about the renewal fri', { due: '2026-10-09', created: '2026-10-05T07:00:00Z', notes: 'Pricing first' }), NOW)).toMatchObject({
+      title: 'Call Johan about the renewal fri',
       notes: 'Pricing first\n\nIt stays in Apple Reminders until the end of its day so the notification can fire.\n\nCaptured in Apple Reminders on 5 Oct 2026.',
       label: null,
       dueAt: '2026-10-09',
@@ -92,7 +92,7 @@ describe('syncing a Reminders list', () => {
 
   it('waits for a reminder to settle before taking it', async () => {
     const store = fakeStore();
-    const fresh = reminder('S', 'Call Rasmus', { modified: new Date(NOW.getTime() - 30_000).toISOString() });
+    const fresh = reminder('S', 'Call Johan', { modified: new Date(NOW.getTime() - 30_000).toISOString() });
     const source = fakeSource([fresh], store);
     const ledger = empty();
     expect(await syncReminders(store, source, 'Reminders', ledger, { now: NOW })).toMatchObject({ imported: 0, settling: 1 });

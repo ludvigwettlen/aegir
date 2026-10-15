@@ -41,7 +41,7 @@ describe('prioritizing', () => {
     } finally { store.close(); }
   });
 
-  it('shows Claude the whole list, which tasks to decide, and how Malcolm corrected it', () => {
+  it('shows Claude the whole list, which tasks to decide, and how the user corrected it', () => {
     const store = new Store(path());
     try {
       const corrected = store.createTask({ title: 'Prep Greenfield call with Dana Whitfield', label: 'investor', dueAt: '2026-10-07', sourceKey: 'inbox:calendar-1' });
@@ -51,9 +51,9 @@ describe('prioritizing', () => {
       const tasks = store.list('tasks');
       const { prompt, ids } = triagePrompt(tasks, new Set([fresh.id]), store.priorityOverrides(), wednesday);
       expect(prompt).toContain('Today: Wednesday 2026-10-07. This week ends Sunday 2026-10-11.');
-      expect(prompt).toContain('"Prep Greenfield call with Dana Whitfield" (#investor, due 2026-10-07, from calendar): you said P2 ("Prep can wait a day"); he moved it to P1.');
-      expect(prompt).toMatch(/priority now: P1 \(set by Malcolm on \d{4}-\d{2}-\d{2}\)/);
-      expect(prompt).toContain('P1 slots: Malcolm holds 1 P1 himself, so 2 of 3 are yours to fill.');
+      expect(prompt).toContain('"Prep Greenfield call with Dana Whitfield" (#investor, due 2026-10-07, from calendar): you said P2 ("Prep can wait a day"); they moved it to P1.');
+      expect(prompt).toMatch(/priority now: P1 \(set by the user on \d{4}-\d{2}-\d{2}\)/);
+      expect(prompt).toContain('P1 slots: the user holds 1 P1 themselves, so 2 of 3 are yours to fill.');
       expect(prompt).toContain('due: 2026-10-12 (in 5 days)');
       expect(prompt).toContain('phone capture (Reminders)');
       expect([...ids.values()].sort()).toEqual([corrected.id, fresh.id].sort());
@@ -77,7 +77,7 @@ describe('prioritizing', () => {
 
   it('puts the brain rubric in the instructions and falls back when it is missing', () => {
     const dir = mkdtempSync(join(tmpdir(), 'rubric-'));
-    writeFileSync(join(dir, 'priority-rubric.md'), '# Rubric\n\n## Learned from Malcolm\'s overrides\n- Investor prep is P1 the day before.\n');
+    writeFileSync(join(dir, 'priority-rubric.md'), '# Rubric\n\n## Learned from the user\'s overrides\n- Investor prep is P1 the day before.\n');
     expect(triageInstructions(readRubric(join(dir, 'priority-rubric.md')))).toContain('Investor prep is P1 the day before.');
     expect(readRubric(join(dir, 'missing.md'))).toBe(DEFAULT_RUBRIC);
     expect(learnedThrough('---\ntitle: x\nlearnedThrough: 2026-10-11T04:00:00Z\n---\n# Rubric')).toBe('2026-10-11T04:00:00Z');
@@ -197,7 +197,7 @@ describe('prioritizing', () => {
     expect(p1Expired(new Date(2026, 9, 12, 1, 30).toISOString(), monday)).toBe(false); // Monday 01:30, Sunday in UTC
   });
 
-  it('hands his P1s from earlier weeks back to Claude at the first run of a new week', async () => {
+  it('hands the user\'s P1s from earlier weeks back to Claude at the first run of a new week', async () => {
     const store = new Store(path());
     try {
       const old = store.createTask({ title: 'Last week commitment', priority: 1 });
@@ -237,19 +237,19 @@ describe('prioritizing', () => {
     } finally { store.close(); }
   });
 
-  it('keeps the P1 limit when the answer lands, counting P1s he set while it was thinking', async () => {
+  it('keeps the P1 limit when the answer lands, counting P1s the user set while it was thinking', async () => {
     const store = new Store(path());
     try {
       store.setSetting('priorityFullRunDay', '2026-10-07');
       store.setSetting('priorityWeek', weekStart(wednesday));
       const tasks = ['a', 'b', 'c'].map((title) => store.createTask({ title }));
-      const his = ['x', 'y'].map((title) => store.createTask({ title }));
+      const theirs = ['x', 'y'].map((title) => store.createTask({ title }));
       let release!: () => void;
       const fake = engine(async (input) => { await new Promise<void>((done) => { release = done; }); return everything(1)(input); });
       const triage = new TaskTriage({ store, engine: fake, cwd: '/tmp', rubricPath: () => null, onChange: () => {}, now: () => wednesday });
       const running = triage.run('new');
       await vi.waitFor(() => expect(fake.runs).toHaveLength(1));
-      for (const task of his) store.setPriority(task.id, 1, 'user');
+      for (const task of theirs) store.setPriority(task.id, 1, 'user');
       release();
       await running;
       const bands = tasks.map((task) => store.get('tasks', task.id)!);

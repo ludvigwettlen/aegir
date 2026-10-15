@@ -57,8 +57,8 @@ const messages: Message[] = [
     text: 'Hej Johan, mailet till Petra om Nordvik är på väg. Säg till om du vill lägga till något innan hon svarar.' }),
   draft('email', ago(11.8), { channel: 'email', label: 'Reply to Petra at Nordvik', state: 'pending',
     email: { to: ['petra.berg@example.com'], cc: ['johan.lund@example.com'], bcc: [], subject: 'Re: Nordvik rollout plan',
-      draftId: 'draft-7f3a', threadId: '18f2c3a4b5d6e7f8', account: 'malcolm@example.com', confirmed: true },
-    text: 'Hi Petra,\n\nThanks for the call today. Here is the plan we agreed:\n\n1. Pilot with the Stockholm team from 14 October.\n2. Review it together on 28 October.\n3. Roll out to everyone in November if the pilot holds.\n\nBest,\nMalcolm' }),
+      draftId: 'draft-7f3a', threadId: '18f2c3a4b5d6e7f8', account: 'mia@example.com', confirmed: true },
+    text: 'Hi Petra,\n\nThanks for the call today. Here is the plan we agreed:\n\n1. Pilot with the Stockholm team from 14 October.\n2. Review it together on 28 October.\n3. Roll out to everyone in November if the pilot holds.\n\nBest,\nMia' }),
 ];
 
 const listeners = new Set<(event: AppEvent) => void>();

@@ -48,7 +48,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
     expect(await slack.locator('code').innerText()).toBe('D04TESTDM01');
     expect(slackText).not.toContain('Edited');
     expect(await email.locator('dt').allTextContents()).toEqual(['To', 'Cc', 'Bcc', 'Subject', 'From']);
-    expect(await email.locator('dd').allTextContents()).toEqual(['petra.berg@example.com', 'johan.lund@example.com', 'crm-log+nordvik-rollout-pilot-2026@example.com', 'Re: Nordvik rollout plan', 'malcolm@example.com']);
+    expect(await email.locator('dd').allTextContents()).toEqual(['petra.berg@example.com', 'johan.lund@example.com', 'crm-log+nordvik-rollout-pilot-2026@example.com', 'Re: Nordvik rollout plan', 'mia@example.com']);
     expect(await email.textContent()).toContain("Claude's draft for: Reply to Petra at Nordvik");
     expect(await email.getByRole('button', { name: actions }).allInnerTexts()).toEqual(['Copy', 'I sent it', 'Discard', 'Open in Superhuman']);
     expect(await slack.getByRole('button', { name: actions }).allInnerTexts()).toEqual(['Copy', 'I sent it', 'Discard']);
@@ -125,7 +125,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
 
     // Leaving the task during the pause still saves the edit: Cmd+N moves to Today while the field has focus.
     const emailField = email.getByRole('textbox', { name: 'Draft text' });
-    const body = 'Hi Petra,\n\nShort version: we pilot with the Stockholm team from 14 October.\n\nBest,\nMalcolm';
+    const body = 'Hi Petra,\n\nShort version: we pilot with the Stockholm team from 14 October.\n\nBest,\nMia';
     await emailField.fill(body);
     await page.keyboard.press('Meta+N');
     await called('updateDraft', 'email', body);
@@ -137,7 +137,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, copies, marks sent and dis
     await copied(body);
     await email.getByRole('button', { name: 'Copied' }).waitFor();
     await email.getByRole('button', { name: 'Open in Superhuman' }).click();
-    await called('openExternal', 'https://mail.superhuman.com/malcolm@example.com/thread/18f2c3a4b5d6e7f8');
+    await called('openExternal', 'https://mail.superhuman.com/mia@example.com/thread/18f2c3a4b5d6e7f8');
     await email.getByRole('button', { name: 'Discard' }).click();
     await called('discardDraft', 'email');
     await email.getByText('Discarded draft').waitFor();
