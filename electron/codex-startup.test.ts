@@ -24,6 +24,18 @@ function server() {
 }
 
 describe('Codex startup', () => {
+  it('uses the setup-managed binary and shares concurrent initialization', async () => {
+    vi.stubEnv('CODEX_BINARY', '');
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(spawn).mockReturnValue(server() as unknown as ReturnType<typeof spawn>);
+    const provider = new CodexProvider(() => '/Aegir runtime/codex');
+    const first = provider.start();
+    expect(provider.start()).toBe(first);
+    await first;
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledWith('/Aegir runtime/codex', ['app-server', '--stdio'], expect.any(Object));
+    provider.close();
+  });
   it.each([
     '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
     '/Applications/ChatGPT.app/Contents/Resources/codex',

@@ -9,10 +9,10 @@ import { api, Avatar, type Run } from './common';
 import { AgentSkillsSummary } from './SkillBindings';
 import { PageHeader } from './PageHeader';
 
-export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run; onSkills: (id?: string) => void }) {
+export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot; run: Run; onSkills: (id?: string) => void; onSetup?: () => void }) {
   const [clientId, setClientId] = useState(data.mcpSettings.slackClientId);
   const [composioKey, setComposioKey] = useState('');
-  const [composioAccount, setComposioAccount] = useState(data.mcpSettings.composioSlackAccount || 'slack_style-winrow');
+  const [composioAccount, setComposioAccount] = useState(data.mcpSettings.composioSlackAccount || '');
   const [composioPending, setComposioPending] = useState(false);
   const composio = data.connectors.find(x => x.id === 'composio');
   const composioAction = (action: () => Promise<unknown>) => void run(async () => {
@@ -40,6 +40,11 @@ export function SettingsView({ data, run, onSkills }: { data: Snapshot; run: Run
       />
       <div className="settings-grid settings-controls">
         <div className="settings-main">
+          {onSetup && <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
+            <div className="panel-heading"><div><h2>Getting started</h2><p>Set up Codex, local memory, and your connected services.</p></div>
+              <Button variant="outline" size="sm" onClick={onSetup}>{data.onboarding?.completed ? 'Review setup' : 'Continue setup'}</Button>
+            </div>
+          </Card>}
           <TypographySettings value={data.typography} />
           <GmailSettings state={data.gmail} />
           <Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">

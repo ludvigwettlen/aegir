@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  checkSetup: () => ipcRenderer.invoke('setup-check'),
+  installSetupComponent: kind => ipcRenderer.invoke('setup-install', kind),
+  signInCodex: () => ipcRenderer.invoke('setup-codex-login'),
+  cancelCodexSignIn: () => ipcRenderer.invoke('setup-codex-cancel'),
+  saveSetup: (step, action) => ipcRenderer.invoke('setup-save', step, action),
   configureGmail: (account, email, enabled) => ipcRenderer.invoke('gmail-configure', account, email, enabled),
   syncGmail: () => ipcRenderer.invoke('gmail-sync'),
   updateEmailDraft: (id, revision, fields) => ipcRenderer.invoke('gmail-draft-update', id, revision, fields),

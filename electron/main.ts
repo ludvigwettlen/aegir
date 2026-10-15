@@ -29,6 +29,7 @@ import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
 import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
 import { chatTranscript } from './chat-transcript.js';
+import { initializeOnboarding, OnboardingService } from './onboarding.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -39,6 +40,7 @@ let connectors: ConnectorManager;
 let memory: MemoryService;
 let runtime: Runtime;
 let browser: BrowserManager;
+let onboarding: OnboardingService;
 let shuttingDown = false;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
@@ -58,6 +60,7 @@ function migrateLegacyData() {
 }
 function snapshot(): Snapshot {
   return {
+    onboarding: onboarding?.state(),
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
     gmail: runtime?.gmail?.snapshot(),
     agents: store.list('agents'),
@@ -142,6 +145,11 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('setup-check', () => onboarding.check());
+  handle('setup-install', kind => onboarding.installComponent(kind));
+  handle('setup-codex-login', () => onboarding.signIn());
+  handle('setup-codex-cancel', () => onboarding.cancelSignIn());
+  handle('setup-save', (step, action) => onboarding.save(step, action));
   handle('gmail-configure', (account: string, email: string, enabled: boolean) => runtime.gmail.configure(account, email, enabled));
   handle('gmail-sync', () => runtime.gmail.sync());
   handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));
@@ -459,9 +467,11 @@ if (app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(async () => {
     migrateLegacyData();
+    const existingWorkspace = existsSync(join(app.getPath('userData'), 'aegir.sqlite'));
     store = new Store();
+    initializeOnboarding(store, existingWorkspace);
     store.onMessage = (value) => emit({ type: 'message', value });
-    codex = new CodexProvider();
+    codex = new CodexProvider(() => store.getSetting('codexBinary'));
     connectors = new ConnectorManager(store);
     memory = new MemoryService(store);
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
@@ -472,6 +482,7 @@ if (app.requestSingleInstanceLock()) {
       outputRoot,
       routineCwd: app.getPath('userData'),
     }, browser);
+    onboarding = new OnboardingService(store, codex, memory, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url));
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
       if (shuttingDown || !store.isOpen) return;
@@ -567,11 +578,12 @@ if (app.requestSingleInstanceLock()) {
     externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
     runtime?.stop();
+    const setupClosed = onboarding?.close();
     const browserClosed = browser?.close();
     connectors?.close();
     codex?.close();
     store?.close();
-    if (event) void browserClosed?.finally(() => app.quit());
+    if (event) void Promise.allSettled([browserClosed, setupClosed]).finally(() => app.quit());
   });
   app.on('activate', () => window?.show());
 } else app.quit();

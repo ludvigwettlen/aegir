@@ -145,6 +145,7 @@ export type ThreadSummary = Thread & {
 };
 export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
+  onboarding?: import('./onboarding.js').OnboardingState;
   gmail?: import('./gmail.js').GmailState;
   oneOnOnes?: import('./one-on-ones.js').OneOnOneState;
   agents: Agent[];
@@ -174,6 +175,11 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence'>>;
 
 export interface DesktopApi extends SkillsApi {
+  checkSetup(): Promise<import('./onboarding.js').OnboardingState>;
+  installSetupComponent(kind: 'codex' | 'memory'): Promise<import('./onboarding.js').OnboardingState>;
+  signInCodex(): Promise<import('./onboarding.js').OnboardingState>;
+  cancelCodexSignIn(): Promise<import('./onboarding.js').OnboardingState>;
+  saveSetup(step: import('./onboarding.js').SetupStep, action: 'continue' | 'later' | 'finish'): Promise<import('./onboarding.js').OnboardingState>;
   configureGmail(account: string, email: string, enabled: boolean): Promise<void>;
   syncGmail(): Promise<void>;
   updateEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<import('./gmail.js').EmailDraft>;

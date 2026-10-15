@@ -618,6 +618,7 @@ ${memoryGuidance}`;
   }
   tick() {
     if (!this.available) return;
+    if (this.store.getSetting('setupAutomationPaused') === 'true') return;
     void this.oneOnOnes.tick();
     void this.gmail.tick();
     const now = new Date();

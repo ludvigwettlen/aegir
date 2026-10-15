@@ -19,6 +19,7 @@ import { Sidebar } from './views/Sidebar';
 import { TaskListDialog, type TaskListAction } from './views/TaskListDialog';
 import { TasksView } from './views/TasksView';
 import { SplashScreen } from './views/SplashScreen';
+import { OnboardingView } from './views/OnboardingView';
 
 export function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -29,6 +30,8 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [listAction, setListAction] = useState<TaskListAction | null>(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const onboardingVisible = setupOpen || data?.onboarding?.showOnLaunch === true;
   useEffect(() => {
     void api.snapshot().then(setData);
     return api.onEvent((event) => {
@@ -54,7 +57,7 @@ export function App() {
       );
     }
   }, []);
-  useWorkspaceKeyboard(run, setRoute, setNotice, !showSplash);
+  useWorkspaceKeyboard(run, setRoute, setNotice, !showSplash && !onboardingVisible);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 3500);
@@ -62,6 +65,7 @@ export function App() {
   }, [notice]);
   if (showSplash) return <SplashScreen onComplete={dismissSplash} />;
   if (!data) return <div className="loading">Loading Aegir…</div>;
+  if (onboardingVisible && data.onboarding) return <OnboardingView data={data} onClose={() => setSetupOpen(false)} onSettings={() => { setSetupOpen(false); setRoute({ view: 'settings' }); }} />;
   const group =
     route.view === 'group' ? data.groups.find((item) => item.id === route.groupId) : undefined;
   const routine =
@@ -110,7 +114,7 @@ export function App() {
         {route.view === 'skills' && <SkillsView key={route.agentId || 'all'} initialAgent={route.agentId} data={data} run={run} />}
         {route.view === 'settings' && (
           <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
-            <SettingsView data={data} run={run} onSkills={agentId => setRoute({ view: 'skills', agentId })} />
+            <SettingsView data={data} run={run} onSetup={() => setSetupOpen(true)} onSkills={agentId => setRoute({ view: 'skills', agentId })} />
           </main>
         )}
       </div>

@@ -2,6 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Approval } from '../shared/types.js';
 import { disabledHostSkills } from './skill-provider.js';
@@ -19,6 +21,8 @@ export interface ModelProvider {
 }
 
 export class CodexProvider extends EventEmitter implements ModelProvider {
+  constructor(private configuredBinary: () => string | undefined = () => undefined) { super(); }
+  private starting: Promise<void> | null = null;
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
   private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
@@ -30,14 +34,24 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
   private toolHandler: ToolHandler | null = null;
   status = 'Not started';
   setToolHandler(handler: ToolHandler) { this.toolHandler = handler; }
-  private executable() {
+  executable() {
     const bundled = [
       '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
       '/Applications/ChatGPT.app/Contents/Resources/codex',
+      join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+      '/Applications/Codex.app/Contents/Resources/codex',
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      join(homedir(), '.local/bin/codex'),
     ];
-    return process.env.CODEX_BINARY || bundled.find(path => existsSync(path)) || 'codex';
+    return process.env.CODEX_BINARY || this.configuredBinary() || bundled.find(path => existsSync(path)) || 'codex';
   }
-  async start() {
+  start(): Promise<void> {
+    if (this.starting) return this.starting;
+    this.starting = this.launch().finally(() => { this.starting = null; });
+    return this.starting;
+  }
+  private async launch() {
     if (this.child) return;
     const executable = this.executable();
     const launchError = (error: Error) => new Error(`Could not start Codex (${executable}): ${error.message}. Check the Codex installation or CODEX_BINARY setting.`);
@@ -60,17 +74,38 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     child.on('error', error => stopped(launchError(error), 'Failed to start'));
     child.on('exit', () => stopped(new Error('Codex app-server stopped'), 'Stopped'));
     createInterface({ input: this.child.stdout }).on('line', line => { try { this.receive(JSON.parse(line) as RpcMessage); } catch { this.emit('log', `Invalid Codex event: ${line}`); } });
-    await this.request('initialize', { clientInfo: { name: 'aegir', title: 'Aegir', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+    try {
+      await this.request('initialize', { clientInfo: { name: 'aegir', title: 'Aegir', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+    } catch (error) { this.close(); throw error; }
     this.notify('initialized', {});
     this.status = 'Connected'; this.emit('status');
   }
   private send(value: unknown) { if (!this.child) throw new Error('Codex is not running'); this.child.stdin.write(`${JSON.stringify(value)}\n`); }
   private request(method: string, params: unknown): Promise<any> {
     const id = this.nextId++;
-    return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.send({ id, method, params }); });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Codex did not respond to ${method}. Please try again.`)); }, 30_000);
+      const done = (fn: (value: any) => void) => (value: any) => { clearTimeout(timer); fn(value); };
+      this.pending.set(id, { resolve: done(resolve), reject: done(reject) });
+      try { this.send({ id, method, params }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
+    });
   }
+  async readAccount(): Promise<{ account: { type: string; email?: string } | null; requiresOpenaiAuth: boolean }> {
+    await this.start();
+    return this.request('account/read', { refreshToken: false });
+  }
+  async login(): Promise<{ loginId: string; authUrl: string }> {
+    await this.start();
+    return this.request('account/login/start', { type: 'chatgpt' });
+  }
+  async cancelLogin(loginId: string) { await this.request('account/login/cancel', { loginId }); }
+  async checkModelAccess() { await this.resolveLightweightModel(); }
   private notify(method: string, params: unknown) { this.send({ method, params }); }
   private receive(message: RpcMessage) {
+    if (message.method === 'account/login/completed' || message.method === 'account/updated') {
+      this.lightweightModel = null;
+      this.emit('account-change', message.method === 'account/login/completed' ? message.params : undefined);
+    }
     if (message.id !== undefined && !message.method) {
       const p = this.pending.get(Number(message.id)); if (p) { this.pending.delete(Number(message.id)); message.error ? p.reject(new Error(message.error.message)) : p.resolve(message.result); }
       return;
@@ -152,5 +187,11 @@ export class CodexProvider extends EventEmitter implements ModelProvider {
     } catch (error) { this.turns.delete(id); throw error; }
   }
   async stop(threadId: string) { const turn = this.turns.get(threadId); if (turn?.turnId) await this.request('turn/interrupt', { threadId, turnId: turn.turnId }); }
-  close() { this.child?.kill(); this.child = null; }
+  close() {
+    this.child?.kill(); this.child = null; this.lightweightModel = null;
+    for (const [, pending] of this.pending) pending.reject(new Error('Codex stopped'));
+    this.pending.clear();
+    for (const [, turn] of this.turns) turn.resolve({ text: turn.text, status: 'failed' });
+    this.turns.clear();
+  }
 }
