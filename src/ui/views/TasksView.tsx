@@ -268,7 +268,9 @@ export function TasksView({
       style={{ '--ws-task-detail-width': `${detailWidth.width}px` } as CSSProperties}>
       {moveTask && <MoveTaskDialog key={`move-${moveTask.id}`} task={moveTask} lists={data.taskLists}
         onClose={() => setMoveTaskId(null)} onMoved={name => notify(`Moved to ${name} · ⌘Z to undo`)} />}
-      <section className="ws-task-list" aria-label={title}>
+      <div className="ws-task-list-clip" onFocusCapture={() => {
+        if (detailWidth.availableWidth - detailWidth.width < 280) detailWidth.resize(detailWidth.availableWidth - 281);
+      }}><section className="ws-task-list" aria-label={title}>
         <header className="ws-page-head">
           <div>
             <h1>{title}</h1>
@@ -339,7 +341,7 @@ export function TasksView({
           ))}
           {!order.length && <Empty list={list} />}
         </div>
-      </section>
+      </section></div>
       {open && <div className="ws-task-divider" role="separator" tabIndex={0}
         aria-label="Resize task details" aria-orientation="vertical" aria-controls="task-detail"
         aria-valuemin={detailWidth.min} aria-valuemax={detailWidth.max} aria-valuenow={detailWidth.width}
@@ -373,7 +375,9 @@ export function TasksView({
           event.preventDefault();
         }} />}
       {open && (
-        <TaskDetail
+        <div className="ws-task-detail-clip" onFocusCapture={event => {
+          if (detailWidth.width < 340 && !event.currentTarget.querySelector('.document-open')) detailWidth.resize(340);
+        }}><TaskDetail
           key={open.id}
           task={open}
           data={data}
@@ -383,7 +387,7 @@ export function TasksView({
             document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
           }
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
-        />
+        /></div>
       )}
     </div>
   );
@@ -427,6 +431,8 @@ function TaskRow({
   run: Run;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const completing = useRef(false);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
@@ -449,11 +455,32 @@ function TaskRow({
       data-keyboard-item
       data-keyboard-current={selected ? '' : undefined}
       data-task-row
+      data-feedback-context={`task-row:${task.id}`}
       aria-current={selected ? 'true' : undefined}
       onClick={onClick}
       onFocus={onFocus}
     >
-      <TaskGlyph task={task} />
+      <Button
+        type="button"
+        variant="ghost"
+        className="ws-task-complete"
+        aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} task: ${task.title}`}
+        title={task.status === 'done' ? 'Reopen task' : 'Complete task'}
+        disabled={saving}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+        }}
+        onClick={event => {
+          event.stopPropagation();
+          if (completing.current) return;
+          completing.current = true;
+          setSaving(true);
+          void run(() => api.updateTask(task.id, { status: task.status === 'done' ? 'ready' : 'done' }))
+            .finally(() => { completing.current = false; setSaving(false); });
+        }}
+      >
+        <TaskGlyph task={task} />
+      </Button>
       <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</span>
       {(task.sourceUrl || hasAttachedLink) && (
         <ExternalLink
@@ -702,7 +729,7 @@ function TaskDetail({
     </header>
   );
   return (
-    <aside id="task-detail" className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" tabIndex={-1}>
+    <aside id="task-detail" className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" data-feedback-context={`task-detail:${task.id}`} tabIndex={-1}>
       {thread && group ? (
         <ThreadView
           key={thread.id}

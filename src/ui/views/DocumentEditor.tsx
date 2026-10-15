@@ -5,7 +5,7 @@ import { Markdown } from '@tiptap/markdown';
 import { TableKit } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
-import { AlignVerticalJustifyCenter, ArrowLeft, Copy, ImagePlus, Maximize2, Minimize2, MoreHorizontal, PanelLeft, X } from 'lucide-react';
+import { AlignVerticalJustifyCenter, ArrowLeft, Copy, ImagePlus, Maximize2, Minimize2, PanelLeft, X } from 'lucide-react';
 import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type WorkspaceDocument } from '../../../shared/documents';
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
@@ -67,16 +67,10 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     if (!workspaceHeader) return true;
     try { return localStorage.getItem('aegir-document-outline') === 'true'; } catch { return false; }
   });
-  const menu = useRef<HTMLDetailsElement>(null);
   const setCompanion = (value: boolean) => {
     setShowCompanion(value);
     if (workspaceHeader) { try { localStorage.setItem('aegir-document-outline', String(value)); } catch { /* Optional layout preference. */ } }
   };
-  useEffect(() => {
-    const outside = (event: PointerEvent) => { if (menu.current?.open && !menu.current.contains(event.target as Node)) menu.current.open = false; };
-    window.document.addEventListener('pointerdown', outside);
-    return () => window.document.removeEventListener('pointerdown', outside);
-  }, []);
   const companionId = useId();
   const companionToggle = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -195,19 +189,15 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
     {workspaceHeader ? <header className="ws-document-head ws-document-workspace-head" role="banner" aria-label="Window header">
       <Button variant="ghost" size="sm" data-close-document disabled={workspaceHeader.busy} onClick={close}><ArrowLeft size={15} aria-hidden="true" />{workspaceHeader.backLabel}</Button>
+      {workspaceHeader.actions}
       <div className="ws-document-title">{workspaceHeader.title}</div>
       <span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span>
-      {workspaceHeader.actions}
       <div ref={companionToggle} className="ws-document-modes"><Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setCompanion(!showCompanion)}><PanelLeft size={15} aria-hidden="true" /></Button></div>
-      <details ref={menu} className="ws-document-more" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false; }}
-        onKeyDownCapture={event => { if (event.key === 'Escape' && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
-        <summary aria-label="Document actions" title="Document actions"><MoreHorizontal size={17} aria-hidden="true" /></summary>
-        <div className="ws-document-menu">
-          <Button variant="ghost" size="sm" aria-label="Copy document" onClick={() => { void copy(); if (menu.current) menu.current.open = false; }}><Copy size={14} />Copy document</Button>
-          <Button variant="ghost" size="sm" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={() => { insertImage(); if (menu.current) menu.current.open = false; }}><ImagePlus size={15} />Insert image</Button>
-          <Button variant="ghost" size="sm" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} onClick={() => setTypewriterMode(value => !value)}><AlignVerticalJustifyCenter size={15} />Typewriter mode</Button>
-        </div>
-      </details>
+      <div className="ws-document-modes" role="group" aria-label="Document actions">
+        <Button variant="ghost" size="sm" aria-label="Copy document" title="Copy all Markdown text" onClick={() => void copy()}><Copy size={15} aria-hidden="true" /></Button>
+        <Button variant="ghost" size="sm" aria-label="Insert image" title="Insert image" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={insertImage}><ImagePlus size={15} aria-hidden="true" /></Button>
+        <Button variant="ghost" size="sm" aria-label="Typewriter mode" title="Typewriter mode — keep the current line centered" aria-pressed={typewriterMode && !unsupported} disabled={unsupported} onClick={() => setTypewriterMode(value => !value)}><AlignVerticalJustifyCenter size={15} aria-hidden="true" /></Button>
+      </div>
     </header> : <header className="ws-document-head"><strong title={initial.path}>{initial.path}</strong>{headerActions}
       <div ref={companionToggle} className="ws-document-modes" role="group" aria-label="Writing modes">
         <Button variant="ghost" size="sm" aria-label="Insert image" title="Insert image" disabled={unsupported || !editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor) { const { from, to } = editor.state.selection; setImageRange({ from, to }); } }}><ImagePlus size={15} aria-hidden="true" /></Button>

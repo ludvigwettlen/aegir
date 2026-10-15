@@ -12,6 +12,7 @@ import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
 import { useThreadMessages } from '../hooks/useThreadMessages';
+import { usePaneWidth } from '../hooks/usePaneWidth';
 import { SkillChangeCard } from './SkillChangeCard';
 import { Button } from '../design-system/primitives';
 import { CopyChatButton } from './CopyChatButton';
@@ -49,7 +50,9 @@ export function ThreadView({
   const [opening, setOpening] = useState(false);
   const [fileError, setFileError] = useState('');
   const refreshSequence = useRef(0);
-  const [chatWidth, setChatWidth] = useState(36);
+  const chatWidth = usePaneWidth('aegir:document-chat-width', available => Math.round(available * 0.36), 29);
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
   const [showChat, setShowChat] = useState(() => { try { return localStorage.getItem('aegir-document-chat') === 'true'; } catch { return false; } });
   const toggleChat = () => setShowChat(value => { try { localStorage.setItem('aegir-document-chat', String(!value)); } catch { /* Layout preferences are optional. */ } return !value; });
   const documentEditor = useRef<DocumentEditorHandle>(null);
@@ -116,10 +119,17 @@ export function ThreadView({
         {loadingFiles && !files.length && <p className="ws-document-list-status" role="status">Loading documents…</p>}
       </div>}
       {fileError && !showFiles && <div className="ws-document-list-status" role="alert">{fileError}<Button variant="ghost" size="sm" onClick={toggleFiles}>View files</Button></div>}
-      <div className="ws-thread-panes">
+      <div ref={chatWidth.container} className={`ws-thread-panes${resizing ? ' resizing' : ''}`}
+        onFocusCapture={event => {
+          const editorPane = (event.target as Element).closest('.ws-document');
+          if (document && showChat && editorPane && editorPane.clientWidth < 360) {
+            chatWidth.resize(event.currentTarget.clientWidth - 365);
+          }
+        }}>
+    <div className="ws-chat-clip" hidden={!!document && !showChat}
+      style={document ? { flex: `0 0 ${chatWidth.width}px` } : undefined}
+      onFocusCapture={() => { if (document && chatWidth.width < 320) chatWidth.resize(320); }}>
     <section
-      style={document ? { flex: `0 0 ${chatWidth}%` } : undefined}
-      hidden={!!document && !showChat}
       className={`ws-thread ${compact ? 'compact' : ''}`}
       data-keyboard-pane="detail"
       tabIndex={-1}
@@ -166,13 +176,33 @@ export function ThreadView({
         }}
         onStop={() => run(() => api.stopThread(thread.id))}
       />
-    </section>
+    </section></div>
       {document && <>
-        <div hidden={!showChat} className="ws-document-divider" role="separator" tabIndex={0} aria-label="Resize conversation" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={55} aria-valuenow={chatWidth}
-          onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
-          onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setChatWidth(Math.max(25, Math.min(55, (event.clientX - rect.left) / rect.width * 100))); } }}
-          onPointerUp={event => event.currentTarget.releasePointerCapture(event.pointerId)}
-          onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setChatWidth(value => Math.max(25, Math.min(55, value + (event.key === 'ArrowLeft' ? -2 : 2)))); } }} />
+        <div hidden={!showChat} className="ws-document-divider" role="separator" tabIndex={0} aria-label="Resize conversation" aria-orientation="vertical"
+          aria-valuemin={chatWidth.min} aria-valuemax={chatWidth.max} aria-valuenow={chatWidth.width} aria-valuetext={`${chatWidth.width} pixels wide`}
+          title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+          onPointerDown={event => {
+            if (event.button !== 0) return;
+            event.preventDefault(); event.currentTarget.focus();
+            resizeStart.current = { x: event.clientX, width: chatWidth.width };
+            event.currentTarget.setPointerCapture(event.pointerId); setResizing(true);
+          }}
+          onPointerMove={event => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId) && resizeStart.current) chatWidth.resize(resizeStart.current.width + event.clientX - resizeStart.current.x);
+          }}
+          onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+          onLostPointerCapture={() => { resizeStart.current = null; setResizing(false); }}
+          onDoubleClick={chatWidth.reset}
+          onKeyDown={event => {
+            const step = event.shiftKey ? 50 : 10;
+            if (event.key === 'ArrowLeft') chatWidth.resize(chatWidth.width - step);
+            else if (event.key === 'ArrowRight') chatWidth.resize(chatWidth.width + step);
+            else if (event.key === 'Home') chatWidth.resize(chatWidth.min);
+            else if (event.key === 'End') chatWidth.resize(chatWidth.max);
+            else if (event.key === 'Enter') chatWidth.reset();
+            else return;
+            event.preventDefault(); event.stopPropagation();
+          }} />
         <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument}
           workspaceHeader={{ title: documentTitleControl, backLabel: 'Back to list', busy: opening,
             actions: <Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button> }} />

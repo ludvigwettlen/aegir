@@ -19,6 +19,7 @@ import { Sidebar } from './views/Sidebar';
 import { TaskListDialog, type TaskListAction } from './views/TaskListDialog';
 import { TasksView } from './views/TasksView';
 import { SplashScreen } from './views/SplashScreen';
+import { UiFeedback } from './views/UiFeedback';
 import { OnboardingView } from './views/OnboardingView';
 
 export function App() {
@@ -30,6 +31,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [listAction, setListAction] = useState<TaskListAction | null>(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [feedbackActive, setFeedbackActive] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const onboardingVisible = setupOpen || data?.onboarding?.showOnLaunch === true;
   useEffect(() => {
@@ -79,6 +81,7 @@ export function App() {
   return (
     <div className="ws-shell">
       <ShortcutHints route={route} />
+      <UiFeedback route={route} active={feedbackActive} onActiveChange={setFeedbackActive} />
       <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
       <div className="ws-main">
         {route.view === 'tasks' && (

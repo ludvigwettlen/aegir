@@ -29,6 +29,8 @@ import { createBrowserBackend } from './browser-backend.js';
 import { readPackage, fileBytes, parseSkill } from './skill-package.js';
 import type { SkillCreate, SkillFile, SkillSettings } from '../shared/skills.js';
 import { chatTranscript } from './chat-transcript.js';
+import { UiFeedbackStore } from './ui-feedback.js';
+import { feedbackBrief } from '../shared/ui-feedback.js';
 import { initializeOnboarding, OnboardingService } from './onboarding.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -150,6 +152,11 @@ function registerIpc() {
   handle('setup-codex-login', () => onboarding.signIn());
   handle('setup-codex-cancel', () => onboarding.cancelSignIn());
   handle('setup-save', (step, action) => onboarding.save(step, action));
+  const feedback = new UiFeedbackStore(join(app.getPath('userData'), 'ui-feedback.json'));
+  handle('ui-feedback-list', () => feedback.list());
+  handle('ui-feedback-add', input => feedback.add(input));
+  handle('ui-feedback-resolve', (id, resolved) => feedback.resolve(id, resolved));
+  handle('ui-feedback-copy', () => clipboard.writeText(feedbackBrief(feedback.list())));
   handle('gmail-configure', (account: string, email: string, enabled: boolean) => runtime.gmail.configure(account, email, enabled));
   handle('gmail-sync', () => runtime.gmail.sync());
   handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));

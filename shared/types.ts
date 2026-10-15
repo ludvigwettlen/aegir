@@ -180,6 +180,10 @@ export interface DesktopApi extends SkillsApi {
   signInCodex(): Promise<import('./onboarding.js').OnboardingState>;
   cancelCodexSignIn(): Promise<import('./onboarding.js').OnboardingState>;
   saveSetup(step: import('./onboarding.js').SetupStep, action: 'continue' | 'later' | 'finish'): Promise<import('./onboarding.js').OnboardingState>;
+  uiFeedback(): Promise<import('./ui-feedback').UiFeedbackState>;
+  addUiFeedback(input: import('./ui-feedback').UiFeedbackInput): Promise<import('./ui-feedback').UiFeedbackState>;
+  resolveUiFeedback(id: string, resolved: boolean): Promise<import('./ui-feedback').UiFeedbackState>;
+  copyUiFeedback(): Promise<void>;
   configureGmail(account: string, email: string, enabled: boolean): Promise<void>;
   syncGmail(): Promise<void>;
   updateEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<import('./gmail.js').EmailDraft>;

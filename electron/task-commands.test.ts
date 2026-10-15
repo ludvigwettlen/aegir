@@ -35,7 +35,8 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and i
     expect(await divider.evaluate(element => element === document.activeElement)).toBe(true);
     await page.screenshot({ path: '/tmp/aegir-task-resize-wide.png' });
     await page.setViewportSize({ width: 900, height: 900 });
-    await page.waitForFunction(() => document.querySelector('.ws-task-detail')!.getBoundingClientRect().width < 500);
+    await expect.poll(paneWidth).toBe(chosenWidth);
+    expect(await page.locator('.ws-task-list-clip').evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(24);
     expect(await page.locator('.ws-task-list').evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(280);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: '/tmp/aegir-task-resize-compact.png' });
