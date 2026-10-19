@@ -34,7 +34,7 @@ vi.mock('electron', async () => {
   }
   class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} }
   return {
-    app: fixture.app, BrowserWindow, Tray,
+    app: fixture.app, BrowserWindow, Tray, nativeTheme: Object.assign(new EventEmitter(), { prefersReducedTransparency: false }),
     ipcMain: { handle: vi.fn() }, powerMonitor: new EventEmitter(),
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
     nativeImage: { createFromDataURL: () => ({}) }, clipboard: {}, dialog: {}, shell: {},

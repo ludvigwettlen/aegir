@@ -1,4 +1,6 @@
-/* Lime Glass semantic tokens. Sections adopt these incrementally. */
+/* Adapted from Legolas; Aegir retains independent font and size preferences.
+   Semantic tokens: Apple's light system palette with lime as the accent (glass step 1, Oct 2026).
+   Components use these instead of literal colours, so the window glass (step 2) and a dark mode change this file. */
 :root {
   --ds-system-text-scale: 1;
   --ds-editor-text-scale: 1;
@@ -14,34 +16,102 @@
   --ds-font-body: var(--ds-font-system);
   --ds-font-heading: var(--ds-font-system);
   --fui-font-sans: var(--ds-font-body);
-  --ds-color-canvas: #fcfdf9;
+  --ds-font: var(--ds-font-body);
+  --ds-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  // Surfaces. The window frame shows around the floating panes; step 2 lets the desktop through instead.
+  --ds-color-window: #e8e8ed;
+  --ds-color-canvas: #f5f5f7;
   --ds-color-surface: #ffffff;
+  --ds-color-raised: #fafafc;
   --ds-color-glass: #ffffffd9;
-  --ds-color-ink: #1f2b1d;
-  --ds-color-muted: #596753;
-  --ds-color-line: #dfe7d8;
+  --ds-color-sidebar: #ffffff8c;
+  --ds-color-hover: #0000000a;
+  --ds-color-fill: #0000000d;
+
+  // Text and lines.
+  --ds-color-ink: #1d1d1f;
+  --ds-color-ink-2: #3a3a3c;
+  --ds-color-muted: #6e6e73;
+  --ds-color-faint: #8e8e93;
+  --ds-color-ring: #c7c7cc;
+  --ds-color-line: #e5e5ea;
+  --ds-color-line-strong: #d1d1d6;
+  --ds-hairline: 0 0 0 0.5px #0000001f;
+
+  // Accent.
   --ds-color-lime: #a9e929;
   --ds-color-lime-strong: #91d318;
-  --ds-color-lime-soft: #edf8d2;
-  --ds-color-lime-ink: #42622c;
+  --ds-color-lime-soft: #eef9d6;
+  --ds-color-lime-fill: #a9e92938;
+  --ds-color-lime-line: #c6e39a;
+  --ds-color-lime-ink: #3d7a0c;
   --ds-color-focus: color-mix(in srgb, var(--ds-color-lime-ink) 75%, var(--ds-color-surface));
-  --ds-color-nav-selected: color-mix(in srgb, var(--ds-color-lime-soft) 65%, var(--ds-color-surface));
+  --ds-color-nav-selected: #00000014;
+  --ds-color-link: #3d7a0c;
+  --ds-color-link-underline: #9cc46f;
+
+  // States. These carry meaning and stay coloured.
   --ds-color-lemon: #ffe95e;
   --ds-color-lemon-soft: #fff9db;
-  --ds-color-link: #366d36;
-  --ds-color-link-underline: #88ae72;
-  --ds-color-disabled-surface: #e8eee1;
-  --ds-color-disabled-ink: #74816d;
-  --ds-color-success: #4b8a4e;
-  --ds-color-danger: #b85b4d;
-  --ds-radius-control: 10px;
-  --ds-radius-bubble: 16px;
-  --ds-radius-panel: 18px;
-  --ds-blur-panel: 22px;
+  --ds-color-attention: #fff4cc;
+  --ds-color-attention-ink: #7a5600;
+  --ds-color-warning: #a8590b;
+  --ds-color-p1: #b93a10;
+  --ds-color-info: #3c4a8c;
+  --ds-color-success: #248a3d;
+  --ds-color-danger: #c9372c;
+  --ds-color-disabled-surface: #f2f2f7;
+  --ds-color-disabled-ink: #8e8e93;
+
+  // Shape.
   --ds-space-1: 4px;
   --ds-space-2: 8px;
   --ds-space-3: 12px;
   --ds-space-4: 16px;
   --ds-space-5: 20px;
   --ds-space-6: 24px;
+  --ds-radius-control: 8px;
+  --ds-radius-bubble: 16px;
+  --ds-radius-panel: 14px;
+  --ds-radius-pane: 18px;
+  --ds-radius-pill: 999px;
+  --ds-blur-panel: 30px;
+  --ds-shadow-pane: 0 0 0 0.5px #0000001a, 0 10px 34px #141e3c1a;
+  --ds-shadow-float: 0 0 0 0.5px #0000001f, 0 24px 70px #00000033;
+
+  // Glass (step 3), for what floats over content: ⌘K, popovers, pickers, notices, the message box.
+  // Blur and saturation carry what's behind; the inner edge catches the light.
+  --ds-glass: #fafafcb8;
+  --ds-glass-thin: #ffffffbf;
+  --ds-glass-blur: blur(40px) saturate(1.9);
+  --ds-glass-blur-thin: blur(20px) saturate(1.7);
+  --ds-glass-edge: inset 0 0 0 1px #ffffffb3, 0 0 0 0.5px #0000001f;
+}
+
+// macOS Reduce transparency: glass turns solid, as it does in Apple's own apps.
+@media (prefers-reduced-transparency: reduce) {
+  :root { --ds-glass: #fafafc; --ds-glass-thin: #ffffff; --ds-glass-blur: none; --ds-glass-blur-thin: none; }
+}
+
+// In a macOS glass window (electron/window-look.ts) the window itself is the frame, Apple's
+// material over the blurred desktop. The frame goes transparent and the sidebar pane is a light tint over it.
+html.ws-vibrant {
+  --ds-color-window: transparent;
+  --ds-color-sidebar: #ffffff1f; // a light lift over the glass; more turned it milky grey (12 Oct 2026)
+  background: transparent;
+  body { background: transparent !important; }
+  // CSS blur can't see the native material behind the page, so it would only cost frames.
+  .ws-sidebar, .ws-document-workspace-head { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+// The Fragments components read their own variables; point them at ours. Set again on the shell and the modal layer,
+// so a theme wrapper between :root and the app can't override them.
+:root, .ws-shell, .ws-modal-backdrop {
+  --fui-font-sans: var(--ds-font);
+  --fui-text-primary: var(--ds-color-ink);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html.ws-vibrant { --ds-color-window: #e8e8ed; --ds-color-sidebar: #ffffff; }
 }

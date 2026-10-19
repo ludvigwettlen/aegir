@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  windowVibrancy: process.argv.includes('--aegir-vibrancy'),
   searchTaskContent: query => ipcRenderer.invoke('search-task-content', query),
   checkSetup: () => ipcRenderer.invoke('setup-check'),
   installSetupComponent: kind => ipcRenderer.invoke('setup-install', kind),

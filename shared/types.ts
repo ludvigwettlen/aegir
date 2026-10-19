@@ -177,6 +177,7 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence' | 'priority'>>;
 
 export interface DesktopApi extends SkillsApi {
+  readonly windowVibrancy?: boolean;
   checkSetup(): Promise<import('./onboarding.js').OnboardingState>;
   installSetupComponent(kind: 'codex' | 'memory'): Promise<import('./onboarding.js').OnboardingState>;
   signInCodex(): Promise<import('./onboarding.js').OnboardingState>;

@@ -1,3 +1,4 @@
+import { windowLook } from './window-look.js';
 import { importAttachment, readAttachment } from './attachments.js';
 import { attachmentLimits } from '../shared/attachments.js';
 import { reviewRequest } from '../shared/review.js';
@@ -12,6 +13,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   powerMonitor,
   shell,
   Tray,
@@ -417,6 +419,8 @@ function registerIpc() {
   });
 }
 function createWindow() {
+  nativeTheme.themeSource = 'light';
+  const look = windowLook(process.platform, nativeTheme.prefersReducedTransparency);
   window = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -424,15 +428,26 @@ function createWindow() {
     minHeight: 620,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 20 },
-    backgroundColor: '#fcfdf9',
+    vibrancy: look.vibrancy,
+    visualEffectState: look.visualEffectState,
+    backgroundColor: look.backgroundColor,
     show: !app.getLoginItemSettings().wasOpenedAsHidden,
     webPreferences: {
+      additionalArguments: look.args,
       preload: join(here, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
     },
   });
+  const updateGlass = () => {
+    if (!window || window.isDestroyed()) return;
+    const next = windowLook(process.platform, nativeTheme.prefersReducedTransparency);
+    if (process.platform === 'darwin') window.setVibrancy(next.vibrancy ?? null);
+    window.setBackgroundColor(next.backgroundColor!);
+  };
+  nativeTheme.on('updated', updateGlass);
+  window.once('closed', () => nativeTheme.removeListener('updated', updateGlass));
   if (process.env.VITE_DEV_SERVER_URL) void window.loadURL(process.env.VITE_DEV_SERVER_URL);
   else void window.loadFile(join(here, '../dist/index.html'));
   window.webContents.on('console-message', (_event, level, message) => {

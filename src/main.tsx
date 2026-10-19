@@ -4,4 +4,5 @@ import { ThemeProvider } from '@usefragments/ui';
 import { App } from './ui/App';
 import './ui/styles';
 
+if (window.aegir?.windowVibrancy) document.documentElement.classList.add('ws-vibrant');
 createRoot(document.getElementById('root')!).render(<React.StrictMode><ThemeProvider defaultMode="light"><App /></ThemeProvider></React.StrictMode>);

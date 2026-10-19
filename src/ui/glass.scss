@@ -1,0 +1,50 @@
+/* Legolas Glass surfaces, adapted around Aegir's pane and document layout. */
+:root { background: var(--ds-color-window); }
+.ws-shell {
+  gap: 8px; padding: 8px; box-sizing: border-box;
+  background: var(--ds-color-window); -webkit-app-region: drag;
+  > :not(.ws-sidebar) { -webkit-app-region: no-drag; }
+}
+.ws-main { border-radius: var(--ds-radius-panel); background: var(--ds-color-surface); box-shadow: var(--ds-shadow-pane); overflow: hidden; }
+.ws-sidebar {
+  padding-top: 56px; border: 0; border-radius: var(--ds-radius-pane);
+  background: var(--ds-color-sidebar); box-shadow: var(--ds-glass-edge), var(--ds-shadow-pane);
+}
+.ws-sidebar-search {
+  background: var(--ds-glass-thin); border-radius: var(--ds-radius-control); box-shadow: var(--ds-hairline);
+  &:hover { background: var(--ds-color-glass); }
+}
+.ws-nav-item { color: var(--ds-color-ink-2);
+  &:hover { background: var(--ds-color-hover); }
+  &.active { background: var(--ds-color-nav-selected); color: var(--ds-color-ink); }
+}
+.ws-task-list, .ws-thread-list, .ws-run-list { background: var(--ds-color-surface); }
+.ws-task-detail { background: var(--ds-color-raised); }
+.ws-task-row { &:hover { background: var(--ds-color-hover); } &.selected { background: var(--ds-color-lime-soft); box-shadow: inset 0 0 0 1px var(--ds-color-lime-line); } }
+.ds-button { border-radius: var(--ds-radius-pill); }
+.ws-btn { border-radius: var(--ds-radius-pill); background: var(--ds-glass-thin); box-shadow: var(--ds-glass-edge);
+  &.ghost { background: transparent; box-shadow: none; }
+  &.primary { background: var(--ds-color-lime); }
+}
+.ws-palette, .ws-popover, .ws-modal .ws-popover, .ws-notice, .ws-hints-panel,
+.ws-document-companion, .ws-document-picker, .ws-picker {
+  border: 0; background: var(--ds-glass); backdrop-filter: var(--ds-glass-blur); -webkit-backdrop-filter: var(--ds-glass-blur);
+  box-shadow: var(--ds-glass-edge), var(--ds-shadow-float);
+}
+.ws-composer {
+  border-color: transparent; border-radius: 20px; background: var(--ds-glass-thin);
+  backdrop-filter: var(--ds-glass-blur-thin); -webkit-backdrop-filter: var(--ds-glass-blur-thin);
+  box-shadow: var(--ds-glass-edge), var(--ds-shadow-pane);
+  &:focus-within { border-color: var(--ds-color-lime-strong); box-shadow: 0 0 0 3px var(--ds-color-lime-soft); }
+}
+.ws-messages + .ws-composer-wrap { margin-top: -36px; z-index: 2; }
+.ws-messages:has(+ .ws-composer-wrap) > :last-child { padding-bottom: 44px !important; }
+.ws-document-workspace-head { background: var(--ds-color-window); border-bottom: 0; }
+.ws-shell:has(.ws-document-first) { padding-top: 56px; }
+.ws-shell:has(.ws-task-fullscreen):not(:has(.ws-document-first)) {
+  padding: 0;
+  .ws-main { border-radius: 0; box-shadow: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ws-sidebar { background: var(--ds-color-surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
