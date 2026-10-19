@@ -13,6 +13,7 @@ function contextFor(route: Route): Context {
     title: 'Document workspace', editing: true, dialog: false,
     hints: [['Esc', focusMode ? 'Exit focus mode' : 'Save and return to list'], ['F6', focusMode ? 'Focus document text' : 'Switch between document and conversation'], ['⌘S', 'Save document'], ['⌘Z / ⇧⌘Z', 'Undo / redo text edit'], ['⌘B / ⌘I', 'Bold / italic'], ['/', 'Insert formatting on an empty line'], ['⌘K', 'Insert link'], ['⇧⌘M', 'Comment on selected text'], ['Tab / ⇧Tab', 'Move between controls']],
   };
+  if (dialog?.classList.contains('ws-palette')) return { title: 'Command palette', editing: true, dialog: true, hints: [['↑ / ↓', 'Choose result'], ['Enter', 'Open task or run command'], ['Esc / ⌘K', 'Close palette']] };
   if (dialog) return { title: dialog.getAttribute('aria-label') || 'Dialog', editing: true, dialog: true,
     hints: [['Tab / ⇧Tab', 'Move between controls'], ['Esc', 'Cancel'], ...(dialog.classList.contains('ws-popover') ? [['Enter', 'Save or hand off'] as Hint, ['⇧Enter', 'New line in instructions'] as Hint] : [])] };
   if (editor) {
@@ -31,7 +32,7 @@ function contextFor(route: Route): Context {
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['N', 'Edit notes'], ['M', 'Move task to a list'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
+    ['1 / 2 / 3 · 0', 'Set priority / clear priority'], ['F', 'Toggle fullscreen task'], ['N', 'Edit notes'], ['M', 'Move task to a list'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
@@ -69,7 +70,7 @@ export function ShortcutHints({ route }: { route: Route }) {
     };
   }, [route]);
   if (!context) return null;
-  const global: Hint[] = context.dialog ? [] : [['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
+  const global: Hint[] = context.dialog ? [] : [...(context.title !== 'Document workspace' ? [['⌘K', 'Search tasks and commands'] as Hint] : []), ['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,
     ['G then I / T / U / W / N / C', 'Inbox / Today / Upcoming / Delegated / Needs you / Completed'] as Hint,
   ] : [])];

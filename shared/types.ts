@@ -37,7 +37,7 @@ export type RoutineChange = {
   schedule?: RoutineSchedule;
   enabled?: boolean;
 };
-export type MessageMeta = import('./slack-messages.js').SlackDraft | import('./gmail.js').EmailDraft | {
+export type MessageMeta = { type: 'attachments'; files: import('./attachments.js').Attachment[] } | import('./slack-messages.js').SlackDraft | import('./gmail.js').EmailDraft | {
   type: 'routine-change';
   routineId: string;
   change: RoutineChange;
@@ -66,6 +66,7 @@ export type Task = {
   notes: string;
   label: string | null;
   dueAt: string | null;
+  priority?: 1 | 2 | 3 | null;
   recurrence?: TaskRecurrence | null;
   recurrenceAnchor?: string | null;
   nextOccurrenceId?: string | null;
@@ -163,6 +164,7 @@ export type Snapshot = {
   codexStatus: string;
   launchAtLogin: boolean;
   typography: Typography;
+  browserReviewEnabled?: boolean;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
@@ -172,7 +174,7 @@ export type AppEvent =
   | { type: 'snapshot'; value: Snapshot }
   | { type: 'message'; value: Message }
   | { type: 'run-event'; value: RunEvent };
-export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence'>>;
+export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence' | 'priority'>>;
 
 export interface DesktopApi extends SkillsApi {
   checkSetup(): Promise<import('./onboarding.js').OnboardingState>;
@@ -202,6 +204,7 @@ export interface DesktopApi extends SkillsApi {
   importDocumentImage(threadId: string, path: string, name: string, bytes: Uint8Array): Promise<string>;
   showDocumentInFinder(threadId: string, path: string): Promise<void>;
   saveDocument(threadId: string, path: string, expected: string, content: string): Promise<import('./documents').WorkspaceDocument>;
+  searchTaskContent(query: string): Promise<ContentMatch[]>;
   snapshot(): Promise<Snapshot>;
   setTypography(value: Typography): Promise<void>;
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
@@ -211,7 +214,11 @@ export interface DesktopApi extends SkillsApi {
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Promise<void>;
   updateAgent(agent: Agent): Promise<void>;
   startThread(groupId: string, content: string): Promise<Thread>;
-  sendMessage(threadId: string, content: string): Promise<void>;
+  sendMessage(threadId: string, content: string, attachments?: string[]): Promise<void>;
+  importAttachment(threadId: string, name: string, bytes: Uint8Array): Promise<import('./attachments.js').Attachment>;
+  openAttachment(threadId: string, path: string): Promise<void>;
+  setBrowserReviewEnabled(enabled: boolean): Promise<void>;
+  reviewInBrowser(threadId: string, path: string): Promise<void>;
   stopThread(threadId: string): Promise<void>;
   closeThread(threadId: string): Promise<void>;
   createTaskList(name: string): Promise<TaskList>;
@@ -256,3 +263,8 @@ export interface DesktopApi extends SkillsApi {
   stopBrowser(): Promise<void>;
   openExternal(url: string): Promise<void>;
 }
+
+export type ContentMatch = {
+  taskId: string; words: number[]; snippet: string; where: 'conversation' | 'document';
+  role: Message['role'] | null; agentId: string | null; draft: boolean; messageId: string | null; document: string | null;
+};

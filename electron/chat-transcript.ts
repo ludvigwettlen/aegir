@@ -1,3 +1,4 @@
+import { attachmentContext } from '../shared/attachments.js';
 import type { SkillProposal } from '../shared/skills.js';
 import { describeSchedule } from '../shared/routines.js';
 import type { Store } from './db.js';
@@ -15,6 +16,7 @@ export function chatTranscript(store: Store, threadId: string, proposals: Pick<S
     const speaker = message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : agents.get(message.agentId || '') || 'Agent';
     const date = new Date(message.createdAt).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const parts = [`**${speaker}** · ${date}`, message.content];
+    if (message.meta?.type === 'attachments') parts.push(attachmentContext(message.meta.files).trim());
     if (message.meta?.type === 'slack-draft') {
       const slack = message.meta;
       parts.push(`Slack · ${slack.state}\nWorkspace: ${slack.workspace}\nFrom: ${slack.sender}\nTo: ${slack.destinationName}${slack.threadTs ? '\nReply in thread: ' + slack.threadPreview : ''}\n\n${slackMessageText(slack)}`);

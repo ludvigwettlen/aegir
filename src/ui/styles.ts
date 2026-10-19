@@ -26,3 +26,7 @@ import './document-workspace.scss';
 import './typography.scss';
 import './ui-feedback.scss';
 import './onboarding.scss';
+
+import './command-palette.scss';
+
+import './legolas-integration.scss';

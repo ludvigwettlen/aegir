@@ -1,3 +1,4 @@
+import { CommandPalette } from './views/CommandPalette';
 import { OneOnOnesView } from './views/OneOnOnesView';
 import { emptyOneOnOnes } from '../../shared/one-on-ones';
 import { defaultTypography } from '../../shared/typography';
@@ -81,6 +82,8 @@ export function App() {
   return (
     <div className="ws-shell">
       <ShortcutHints route={route} />
+      <CommandPalette data={data} route={route} go={setRoute} run={run} notify={setNotice}
+        onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
       <UiFeedback route={route} active={feedbackActive} onActiveChange={setFeedbackActive} />
       <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
       <div className="ws-main">

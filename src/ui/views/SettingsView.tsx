@@ -46,6 +46,11 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
             </div>
           </Card>}
           <TypographySettings value={data.typography} />
+          <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
+            <div className="panel-heading"><div><h2>Document review</h2><p>Use Aegir's built-in editor and passage comments by default. Enable Malcolm's human-review integration to also review task documents in your browser. Requires human-review installed and available to your agent.</p></div>
+              <Button variant="outline" size="sm" aria-pressed={!!data.browserReviewEnabled} disabled={browserPending} onClick={() => browserAction(() => api.setBrowserReviewEnabled(!data.browserReviewEnabled))}>{data.browserReviewEnabled ? 'Disable browser review' : 'Enable browser review'}</Button>
+            </div>
+          </Card>
           <GmailSettings state={data.gmail} />
           <Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">
             <div className="panel-heading">

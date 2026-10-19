@@ -1,9 +1,11 @@
+import { conversationQuery, snippetFor } from '../shared/task-search.js';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { app } from 'electron';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type {
+  ContentMatch,
   Agent,
   Group,
   Memory,
@@ -76,6 +78,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     `);
     this.migrate();
+    this.indexMessages();
     this.db.exec(`CREATE TABLE IF NOT EXISTS task_links(id TEXT PRIMARY KEY,taskId TEXT NOT NULL,url TEXT NOT NULL,createdAt TEXT NOT NULL,UNIQUE(taskId,url));
       CREATE INDEX IF NOT EXISTS task_links_task ON task_links(taskId);`);
     this.db.transaction(() => {
@@ -123,6 +126,67 @@ export class Store {
       .run(now());
     this.db.prepare("UPDATE messages SET status='failed' WHERE status='streaming'").run();
   }
+  private indexMessages() {
+    const body = (row: string) => `${row}.content || CASE WHEN json_valid(${row}.meta) AND json_extract(${row}.meta, '$.type') IN ('message-draft','slack-draft','email-draft') THEN ' ' || COALESCE(json_extract(${row}.meta, '$.text'), '') || ' ' || COALESCE(json_extract(${row}.meta, '$.body'), '') || ' ' || COALESCE(json_extract(${row}.meta, '$.subject'), '') ELSE '' END`;
+    this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
+      CREATE TRIGGER IF NOT EXISTS message_search_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO message_search(rowid, body) VALUES (new.rowid, ${body('new')}); END;
+      CREATE TRIGGER IF NOT EXISTS message_search_delete AFTER DELETE ON messages BEGIN
+        DELETE FROM message_search WHERE rowid = old.rowid; END;
+      CREATE TRIGGER IF NOT EXISTS message_search_update AFTER UPDATE ON messages BEGIN
+        DELETE FROM message_search WHERE rowid = old.rowid;
+        INSERT INTO message_search(rowid, body) VALUES (new.rowid, ${body('new')}); END;`);
+    if (this.getSetting('messageSearchVersion') === 'aegir-1') return;
+    this.db.transaction(() => {
+      this.db.exec(`DELETE FROM message_search; INSERT INTO message_search(rowid, body) SELECT rowid, ${body('messages')} FROM messages;`);
+      this.setSetting('messageSearchVersion', 'aegir-1');
+    })();
+  }
+  // Which of the searched words (see searchWords) each task's conversation holds, quoting the message that holds the
+  // most of them, the newest when even. A word with a # is a label and never looked up here. Chats outside tasks are
+  // left out.
+  searchTaskMessages(words: readonly string[], limit = 200): ContentMatch[] {
+    const lookup = this.db.prepare(`SELECT message_search.rowid AS rowid, th.taskId AS taskId, m.createdAt AS createdAt
+      FROM message_search
+      JOIN messages m ON m.rowid = message_search.rowid
+      JOIN threads th ON th.id = m.threadId AND th.kind = 'task'
+      JOIN tasks t ON t.id = th.taskId
+      WHERE t.status != 'dismissed' AND message_search MATCH ?`);
+    const messages = new Map<number, { taskId: string; createdAt: string; words: number[] }>();
+    words.forEach((word, index) => {
+      const query = word.startsWith('#') ? null : conversationQuery(word);
+      if (!query) return;
+      for (const row of lookup.all(query) as { rowid: number; taskId: string; createdAt: string }[]) {
+        const seen = messages.get(row.rowid);
+        if (seen) seen.words.push(index);
+        else messages.set(row.rowid, { taskId: row.taskId, createdAt: row.createdAt, words: [index] });
+      }
+    });
+    const tasks = new Map<string, { words: Set<number>; best: number }>();
+    for (const [rowid, message] of messages) {
+      const task = tasks.get(message.taskId);
+      if (!task) { tasks.set(message.taskId, { words: new Set(message.words), best: rowid }); continue; }
+      message.words.forEach((word) => task.words.add(word));
+      const best = messages.get(task.best)!;
+      const newer = message.createdAt > best.createdAt || (message.createdAt === best.createdAt && rowid > task.best);
+      if (message.words.length > best.words.length || (message.words.length === best.words.length && newer)) task.best = rowid;
+    }
+    const ranked = [...tasks].sort((a, b) => b[1].words.size - a[1].words.size).slice(0, limit);
+    const quote = this.db.prepare(`SELECT message_search.body AS body, m.id AS messageId, m.role AS role, m.agentId AS agentId,
+        CASE WHEN json_valid(m.meta) AND json_extract(m.meta, '$.type') IN ('message-draft','slack-draft','email-draft') THEN 1 ELSE 0 END AS draft
+      FROM message_search JOIN messages m ON m.rowid = message_search.rowid WHERE message_search.rowid = ?`);
+    return ranked.map(([taskId, task]) => {
+      const row = quote.get(task.best) as { body: string; messageId: string; role: Message['role']; agentId: string | null; draft: number };
+      const held = messages.get(task.best)!.words.map((index) => words[index]);
+      return {
+        taskId, words: [...task.words].sort((a, b) => a - b), where: 'conversation' as const, document: null,
+        messageId: row.messageId, role: row.role, agentId: row.agentId, draft: row.draft === 1,
+        // The index matched a word's start; the quote looks for the whole word, then its first part.
+        snippet: snippetFor(row.body, ...held, ...held.map((word) => word.split(/[^\p{L}\p{N}]+/u).find(Boolean) || word)) || row.body.slice(0, 80),
+      };
+    });
+  }
+
   private upgradeDiscovery() {
     if (this.getSetting('personalDiscoveryV1')) return;
     this.db.transaction(() => {
@@ -195,6 +259,7 @@ export class Store {
     add('messages', 'meta', 'TEXT');
     add('tasks', 'listId', 'TEXT');
     add('tasks', 'label', 'TEXT');
+    add('tasks', 'priority', 'INTEGER');
     add('tasks', 'dueAt', 'TEXT');
     add('tasks', 'threadId', 'TEXT');
     add('tasks', 'outputDir', 'TEXT');
@@ -583,6 +648,7 @@ export class Store {
       title,
       notes: input.notes?.trim() || '',
       label: input.label || null,
+      priority: null,
       dueAt,
       recurrence: input.recurrence ?? null,
       recurrenceAnchor: input.recurrence ? dueAt : null,
@@ -600,7 +666,7 @@ export class Store {
     };
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)',
+        'INSERT OR IGNORE INTO tasks(id,title,notes,label,priority,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@priority,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)',
       )
       .run(row);
     if (undoable) this.rememberTaskAction({ kind: 'created', taskId: row.id });
@@ -614,6 +680,7 @@ export class Store {
   ) {
     const row = this.get('tasks', id);
     if (!row) throw new Error('Task not found');
+    if ('priority' in change && change.priority !== null && ![1, 2, 3].includes(change.priority as number)) throw new Error('Choose P1, P2, P3 or no priority');
     if ('listId' in change) this.validateTaskList(change.listId as string | null);
     const next = { ...row, ...change, updatedAt: now() };
     validateTaskRecurrence(next.recurrence ?? null);
@@ -633,7 +700,7 @@ export class Store {
     this.db.transaction(() => {
       this.db
         .prepare(
-          'UPDATE tasks SET title=@title,notes=@notes,label=@label,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt,recurrence=@recurrence,recurrenceAnchor=@recurrenceAnchor WHERE id=@id',
+          'UPDATE tasks SET title=@title,notes=@notes,label=@label,priority=@priority,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt,recurrence=@recurrence,recurrenceAnchor=@recurrenceAnchor WHERE id=@id',
         )
         .run(next);
       if (generateOccurrence && next.status === 'done' && row.status !== 'done' && next.recurrence && !row.nextOccurrenceId) {
@@ -751,7 +818,7 @@ export class Store {
       label = 'task edit';
     } else if (action.kind === 'deleted') {
       this.db.transaction(() => {
-        this.db.prepare('INSERT INTO tasks(id,title,notes,label,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)').run(action.task);
+        this.db.prepare('INSERT INTO tasks(id,title,notes,label,priority,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@priority,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)').run(action.task);
         if (action.thread) {
           this.db.prepare('INSERT INTO threads(id,groupId,title,kind,taskId,status,createdAt,updatedAt) VALUES (@id,@groupId,@title,@kind,@taskId,@status,@createdAt,@updatedAt)').run(action.thread);
           for (const message of action.messages)

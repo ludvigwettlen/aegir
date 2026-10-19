@@ -1,0 +1,31 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, truncateSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, expect, it } from 'vitest';
+import { importAttachment, readAttachment } from './attachments';
+import { attachmentLimits } from '../shared/attachments';
+const roots: string[] = [];
+const root = () => { const dir = mkdtempSync(join(tmpdir(), 'aegir-attachments-')); roots.push(dir); return realpathSync(dir); };
+afterEach(() => roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
+it('copies arbitrary files with unique safe names and only reads this conversation’s attachments', () => {
+  const a = root(), b = root();
+  const bytes = new Uint8Array([0, 255, 30, 4]);
+  const one = importAttachment(a, '../../report.pdf', bytes);
+  const two = importAttachment(a, 'report.pdf', bytes);
+  expect(one.name).toBe('report.pdf'); expect(one.path).not.toBe(two.path);
+  expect(readFileSync(one.path)).toEqual(Buffer.from(bytes));
+  expect(readAttachment(a, one.path)).toEqual(one);
+  expect(() => readAttachment(b, one.path)).toThrow('outside');
+  const secret = join(a, 'private.md'); writeFileSync(secret, 'private');
+  expect(() => readAttachment(a, secret)).toThrow('from this conversation');
+});
+it('rejects oversized files, exhausted folders and symlink escapes', () => {
+  const a = root(), b = root();
+  expect(() => importAttachment(a, 'large.bin', new Uint8Array(attachmentLimits.file + 1))).toThrow('50 MB');
+  mkdirSync(join(a, 'attachments')); const large = join(a, 'attachments', 'existing.bin'); writeFileSync(large, ''); truncateSync(large, attachmentLimits.folder);
+  expect(() => importAttachment(a, 'new.txt', new Uint8Array([1]))).toThrow('200 MB');
+  symlinkSync(b, join(b, 'attachments'));
+  expect(() => importAttachment(b, 'escape.txt', new Uint8Array([1]))).toThrow('Symbolic');
+  rmSync(large); const file = importAttachment(a, 'normal.txt', new Uint8Array([1])); rmSync(file.path); symlinkSync(join(a, 'private.txt'), file.path); writeFileSync(join(a, 'private.txt'), 'secret');
+  expect(() => readAttachment(a, file.path)).toThrow('Symbolic');
+});

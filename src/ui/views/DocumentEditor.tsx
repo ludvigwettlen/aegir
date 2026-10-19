@@ -1,3 +1,4 @@
+import { DocumentReview } from './DocumentReview';
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -29,9 +30,10 @@ const errorText = (error: unknown) => String(error).replace(/^Error: (Error invo
 export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   document: WorkspaceDocument; threadId: string; onClose: () => void; headerActions?: ReactNode;
   workspaceHeader?: { title: ReactNode; actions: ReactNode; backLabel: string; busy?: boolean };
+  review?: { send: (text: string) => Promise<void>; busy: boolean };
   onSelection: (selection: DocumentReference | null) => void;
   onOpenDocument: (path: string) => void;
-}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions, workspaceHeader }, ref) {
+}>(function DocumentEditor({ document: initial, threadId, onClose, onSelection, onOpenDocument, headerActions, workspaceHeader, review }, ref) {
   const storageKey = `aegir-document:${threadId}:${initial.path}`;
   const [recovered] = useState<Draft | null>(() => {
     try { const draft = JSON.parse(localStorage.getItem(storageKey) || 'null'); return typeof draft?.content === 'string' && typeof draft?.revision === 'string' ? draft : null; } catch { return null; }
@@ -189,7 +191,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   return <section className={`ws-document${focusMode ? ' ws-document-focus' : ''}${typewriterMode && !unsupported ? ' ws-document-typewriter' : ''}`} data-keyboard-pane="document" tabIndex={-1} aria-label={`Editing ${initial.path}`}>
     {workspaceHeader ? <header className="ws-document-head ws-document-workspace-head" role="banner" aria-label="Window header">
       <Button variant="ghost" size="sm" data-close-document disabled={workspaceHeader.busy} onClick={close}><ArrowLeft size={15} aria-hidden="true" />{workspaceHeader.backLabel}</Button>
-      {workspaceHeader.actions}
+      {workspaceHeader.actions}{headerActions}
       <div className="ws-document-title">{workspaceHeader.title}</div>
       <span role="status">{copyStatus || (unsupported ? 'Read only' : status)}</span>
       <div ref={companionToggle} className="ws-document-modes"><Button variant="ghost" size="sm" data-companion-toggle aria-label="Outline and notes" aria-expanded={showCompanion} aria-controls={companionId} title="Show or hide outline and notes" onClick={() => setCompanion(!showCompanion)}><PanelLeft size={15} aria-hidden="true" /></Button></div>
@@ -213,6 +215,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
     {showReload && <div className="ws-document-alert"><span>Replace your local edits with the version on disk?</span><button className="ws-btn" onClick={() => void reload()}>Discard edits and reload</button><button className="ws-btn" onClick={() => setShowReload(false)}>Keep editing</button></div>}
     <div className="ws-document-viewport" data-companion-open={showCompanion}>
       <DocumentCompanion editor={editor} scrollRef={scroll} storageKey={`${storageKey}:scratchpad`} open={showCompanion} id={companionId}
+        review={review && <DocumentReview editor={editor} path={initial.path} storageKey={`${storageKey}:submitted-comments`} save={() => saveRef.current()} send={review.send} busy={review.busy} />}
         onClose={() => { setCompanion(false); companionToggle.current?.querySelector<HTMLButtonElement>('[data-companion-toggle]')?.focus(); }}
         onNavigate={() => { if ((scroll.current?.parentElement?.clientWidth ?? 0) < 760) setCompanion(false); }} />
       <div ref={scroll} className="ws-document-scroll"><EditorContent editor={editor} /></div>

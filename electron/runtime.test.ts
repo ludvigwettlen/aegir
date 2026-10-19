@@ -823,3 +823,15 @@ describe('Slack reply proposal suppression', () => {
     expect(store.runEvents(store.routineRuns()[0].id).some(event => event.text.includes('Routine Slack reply reminders belong in Slack'))).toBe(true);
   });
 });
+
+it('persists attachment metadata and gives both the current run and follow-ups their local paths', async () => {
+  const { store, runtime, runs } = setup();
+  const thread = store.createThread(store.groups()[0].id, 'Review an attachment');
+  const files = [{ name: 'budget.csv', path: '/workspace/attachments/budget.csv', size: 20 }];
+  await runtime.sendMessage(thread.id, 'Please review this', true, files);
+  const message = store.messagesForThread(thread.id).find(m => m.role === 'user');
+  expect(message).toMatchObject({ content: 'Please review this', meta: { type: 'attachments', files } });
+  expect(runs.at(-1)?.prompt).toContain(files[0].path);
+  await runtime.sendMessage(thread.id, 'Compare those numbers again');
+  expect(runs.at(-1)?.prompt).toContain(files[0].path);
+});

@@ -1,3 +1,5 @@
+import { takeTaskFocus } from '../task-focus';
+import { useCommands, type Command } from '../commands';
 import {
   useEffect,
   useLayoutEffect,
@@ -7,7 +9,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, Plus, Repeat2, Square, Users, X } from 'lucide-react';
+import { ExternalLink, Maximize2, Minimize2, Plus, Repeat2, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
 import { customListId, taskRecurrenceLabels, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
@@ -89,6 +91,7 @@ export function TasksView({
   const [popover, setPopover] = useState<Popover>(null);
   const [moveTaskId, setMoveTaskId] = useState<string | null>(null);
   const moveTask = data.tasks.find(task => task.id === moveTaskId);
+  const [fullscreen, setFullscreen] = useState(false);
   const [draft, setDraft] = useState('');
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
@@ -116,9 +119,17 @@ export function TasksView({
     }
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
+  useLayoutEffect(() => {
+    const requested = takeTaskFocus(list, order.map(task => task.id));
+    if (requested) {
+      setCursor(requested);
+      requestAnimationFrame(() => rows.current?.querySelector<HTMLElement>('[data-keyboard-current]')?.focus());
+    }
+  });
   const open = current;
   const openId = open?.id;
   const returnToList = () => {
+    setFullscreen(false);
     window.requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus(),
     );
@@ -126,6 +137,7 @@ export function TasksView({
   useEffect(() => {
     setPopover(null);
     setMoveTaskId(null);
+    setFullscreen(false);
   }, [list]);
   useEffect(() => {
     if (!editTarget || !openId) return;
@@ -202,7 +214,12 @@ export function TasksView({
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (target?.closest('.ws-sidebar, .ws-task-detail')) return;
+      if (target?.closest('.ws-sidebar')) return;
+      if (current && ['0', '1', '2', '3'].includes(event.key)) {
+        event.preventDefault(); void update(current, { priority: event.key === '0' ? null : Number(event.key) as 1 | 2 | 3 }); return;
+      }
+      if (current && event.key === 'f') { event.preventDefault(); setFullscreen(value => !value); return; }
+      if (target?.closest('.ws-task-detail')) return;
       const key = event.key;
       if (key === 'Escape') returnToList();
       else if (!current) return;
@@ -261,10 +278,35 @@ export function TasksView({
       }
     });
   };
+  useCommands('tasks', () => {
+    if (!current) return { commands: [] };
+    const task = current;
+    const commands: Command[] = [
+      { id: 'task.title', title: 'Edit task title', section: 'task', keys: '↵', run: () => setEditTarget('title') },
+      { id: 'task.notes', title: 'Edit task notes', section: 'task', keys: 'N', run: () => setEditTarget('notes') },
+      { id: 'task.complete', title: task.status === 'done' ? 'Reopen task' : 'Mark task done', section: 'task', keys: 'Space', run: () => void update(task, { status: task.status === 'done' ? 'ready' : 'done' }) },
+      { id: 'task.move', title: 'Move task to list…', section: 'task', keys: 'M', run: () => setMoveTaskId(task.id) },
+      { id: 'task.label', title: 'Set task label…', section: 'task', keys: 'B', run: () => setPopover({ kind: 'label', taskId: task.id }) },
+      { id: 'task.due', title: 'Set due date…', section: 'task', keys: 'D', run: () => setPopover({ kind: 'due', taskId: task.id }) },
+    ];
+    commands.push({ id: 'task.fullscreen', title: fullscreen ? 'Exit fullscreen task' : 'Fullscreen task', section: 'task', keys: 'F', run: () => setFullscreen(value => !value) });
+    for (const priority of [1, 2, 3] as const) commands.push({ id: `task.priority.${priority}`, title: `Set priority P${priority}`, section: 'task', keys: String(priority), run: () => void update(task, { priority }) });
+    if (task.priority) commands.push({ id: 'task.priority.clear', title: 'Clear task priority', section: 'task', keys: '0', run: () => void update(task, { priority: null }) });
+    if (task.label) commands.push({ id: 'task.unlabel', title: 'Remove task label', section: 'task', keys: '⇧ B', run: () => void update(task, { label: null }) });
+    if (task.dueAt) commands.push({ id: 'task.undate', title: 'Remove due date', section: 'task', keys: '⇧ D', run: () => void update(task, { dueAt: null }) });
+    if (task.status === 'proposed') commands.push(
+      { id: 'task.accept', title: 'Accept suggestion', section: 'task', keys: 'Y', run: () => void update(task, { status: 'ready' }) },
+      { id: 'task.dismiss', title: 'Dismiss suggestion', section: 'task', keys: '⌫', run: () => void update(task, { status: 'dismissed' }) },
+    );
+    else if (task.status !== 'running') commands.push({ id: 'task.delete', title: 'Delete task', section: 'task', keys: '⌫', run: () => void run(async () => { await api.deleteTask(task.id); notify('Task deleted · ⌘Z to undo'); }) });
+    if (task.threadId) commands.push({ id: 'task.ask', title: 'Reply to agent', section: 'task', keys: 'A', run: () => setEditTarget('chat') });
+    else if (task.status !== 'done' && task.status !== 'running') commands.push({ id: 'task.ask', title: 'Hand task to agent…', section: 'task', keys: 'A', run: () => setPopover({ kind: 'handoff', taskId: task.id }) });
+    return { context: `Task: ${task.title}`, commands };
+  });
   const count = order.length;
   const team = order.filter((task) => task.threadId).length;
   return (
-    <div ref={detailWidth.container} className={`ws-tasks${resizing ? ' resizing' : ''}`}
+    <div ref={detailWidth.container} className={`ws-tasks${resizing ? ' resizing' : ''}${fullscreen && open ? ' ws-task-fullscreen' : ''}`}
       style={{ '--ws-task-detail-width': `${detailWidth.width}px` } as CSSProperties}>
       {moveTask && <MoveTaskDialog key={`move-${moveTask.id}`} task={moveTask} lists={data.taskLists}
         onClose={() => setMoveTaskId(null)} onMoved={name => notify(`Moved to ${name} · ⌘Z to undo`)} />}
@@ -383,9 +425,9 @@ export function TasksView({
           data={data}
           run={run}
           onOpenThread={onOpenThread}
-          onReturnToList={() =>
-            document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus()
-          }
+          fullscreen={fullscreen}
+          onToggleFullscreen={() => setFullscreen(value => !value)}
+          onReturnToList={returnToList}
           onHandOff={() => setPopover({ kind: 'handoff', taskId: open.id })}
         /></div>
       )}
@@ -481,7 +523,7 @@ function TaskRow({
       >
         <TaskGlyph task={task} />
       </Button>
-      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</span>
+      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.priority && <span className="ws-priority" aria-label={`Priority ${task.priority}`}>P{task.priority} </span>}{task.title}</span>
       {(task.sourceUrl || hasAttachedLink) && (
         <ExternalLink
           size={12}
@@ -621,6 +663,7 @@ function TaskPopover({
 }
 
 function TaskDetail({
+  fullscreen, onToggleFullscreen,
   task,
   data,
   run,
@@ -628,6 +671,7 @@ function TaskDetail({
   onHandOff,
   onOpenThread,
 }: {
+  fullscreen: boolean; onToggleFullscreen: () => void;
   task: Task;
   data: Snapshot;
   run: Run;
@@ -659,6 +703,8 @@ function TaskDetail({
   const header = (
     <header className="ws-detail-head">
       <div className="ws-detail-top">
+        <Button variant="ghost" size="sm" aria-label={fullscreen ? 'Exit fullscreen task' : 'Fullscreen task'} aria-pressed={fullscreen} onClick={onToggleFullscreen}>{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button>
+        <label className="ws-priority-control">Priority <select aria-label="Task priority" value={task.priority ?? ''} onChange={event => void run(() => api.updateTask(task.id, { priority: event.target.value ? Number(event.target.value) as 1 | 2 | 3 : null }))}><option value="">None</option><option value="1">P1</option><option value="2">P2</option><option value="3">P3</option></select></label>
         <TaskRepeat key={task.id} task={task} />
         {!group && task.sourceUrl && <span className="ws-crumb">From a source</span>}
         {task.status === 'running' && (

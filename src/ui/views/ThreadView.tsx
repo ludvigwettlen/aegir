@@ -1,3 +1,4 @@
+import { attachmentLimits, type Attachment } from '../../../shared/attachments';
 import { SlackDraftCard } from './SlackDraftCard';
 import { EmailDraftCard } from './EmailDraftCard';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -6,7 +7,7 @@ import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, documentTitle, type WorkspaceDocument, type WorkspaceDocumentEntry } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, ChevronDown, FileText, MessageSquare, Repeat2, Send, Square, X } from 'lucide-react';
+import { ArrowDownRight, ChevronDown, FileText, MessageSquare, Paperclip, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
@@ -48,6 +49,7 @@ export function ThreadView({
   const [showFiles, setShowFiles] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [fileError, setFileError] = useState('');
   const refreshSequence = useRef(0);
   const chatWidth = usePaneWidth('aegir:document-chat-width', available => Math.round(available * 0.36), 29);
@@ -112,7 +114,7 @@ export function ThreadView({
   return (
     <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open ws-document-first' : ''}`} data-chat-open={showChat}>
       {!document && <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div>
-        {compact && !!files.length && <div className="ws-document-preview" aria-label="Task documents">
+        {!!files.length && <div className="ws-document-preview" aria-label="Task documents">
           {files.slice(0, 3).map(file => <Button key={file.path} variant="ghost" className="ws-document-file-open" aria-label={`Open ${file.path}`} disabled={opening} onClick={() => void openDocument(file.path)}><DocumentFileLabel file={file} /></Button>)}
           {files.length > 3 && <Button variant="ghost" size="sm" onClick={toggleFiles}>View all · {files.length} documents</Button>}
         </div>}
@@ -157,6 +159,10 @@ export function ThreadView({
           <span>Working…</span>
         </div>
       )}
+      {document && !!files.length && <nav className="ws-document-preview ws-conversation-files" aria-label="Conversation documents">
+        {files.slice(0, 6).map(file => <Button key={file.path} variant="ghost" size="sm" className="ws-document-file-open" disabled={opening} aria-current={file.path === document.path ? 'page' : undefined} onClick={() => void openDocument(file.path)}><DocumentFileLabel file={file} /></Button>)}
+        <Button variant="ghost" size="sm" onClick={toggleFiles}>View all documents</Button>
+      </nav>}
       <Composer
         key={`composer-${thread.id}`}
         data={data}
@@ -168,9 +174,10 @@ export function ThreadView({
         }
         reference={selection}
         onClearReference={() => setSelection(null)}
-        onSend={async (text) => {
+        threadId={thread.id}
+        onSend={async (text, attachments) => {
           if (documentEditor.current && !await documentEditor.current.save()) return false;
-          await api.sendMessage(thread.id, withDocumentReference(text, selection));
+          await api.sendMessage(thread.id, withDocumentReference(text, selection), attachments?.map(file => file.path));
           setSelection(null);
           return true;
         }}
@@ -204,6 +211,12 @@ export function ThreadView({
             event.preventDefault(); event.stopPropagation();
           }} />
         <DocumentEditor ref={documentEditor} key={document.path} document={document} threadId={thread.id} onClose={closeDocument} onSelection={setSelection} onOpenDocument={openDocument}
+          review={{ send: text => api.sendMessage(thread.id, text), busy }}
+          headerActions={data.browserReviewEnabled && thread.kind === 'task' && <Button variant="ghost" size="sm" disabled={busy || reviewing || opening} onClick={() => {
+            if (reviewing) return;
+            setReviewing(true); setFileError('');
+            void (async () => { try { if (documentEditor.current && !await documentEditor.current.save()) return; await api.reviewInBrowser(thread.id, document.path); } catch (cause) { setFileError(String(cause)); } finally { setReviewing(false); } })();
+          }}>{reviewing ? 'Starting review…' : 'Review in browser'}</Button>}
           workspaceHeader={{ title: documentTitleControl, backLabel: 'Back to list', busy: opening,
             actions: <Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button> }} />
       </>}
@@ -255,6 +268,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
             </span>
           )}
         </div>
+        {message.meta?.type === 'attachments' && <div className="ws-attachment-list" aria-label="Message attachments">{message.meta.files.map(file => <Button key={file.path} variant="ghost" size="sm" onClick={() => void run(() => api.openAttachment(message.threadId, file.path))}><Paperclip size={13} />{file.name} · {Math.ceil(file.size / 1024)} KB · Show in Finder</Button>)}</div>}
         <CopyMessageButton content={message.content} />
       </div>
     </article>
@@ -339,17 +353,23 @@ export function Composer({
   reference,
   onClearReference,
   kind = 'chat',
+  threadId,
 }: {
   data: Snapshot;
   group: Group;
   busy: boolean;
   placeholder: string;
-  onSend: (text: string) => Promise<void | boolean> | void;
+  threadId?: string;
+  onSend: (text: string, attachments?: Attachment[]) => Promise<void | boolean> | void;
   reference?: DocumentReference | null;
   onClearReference?: () => void;
   onStop?: () => void;
   kind?: 'chat' | 'task';
 }) {
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const uploadLock = useRef(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -414,11 +434,38 @@ export function Composer({
       input.current?.focus();
     });
   };
+  const attach = async (incoming: File[]) => {
+    if (!threadId || uploadLock.current || sendingRef.current || !incoming.length) return;
+    if (incoming.length + files.length > attachmentLimits.count) { setSendError('Attach up to ten files per message'); return; }
+    if (incoming.some(file => file.size > attachmentLimits.file)) { setSendError('Each attachment must be 50 MB or smaller'); return; }
+    uploadLock.current = true; setUploading(true); setSendError('');
+    try {
+      for (const file of incoming) {
+        const saved = await api.importAttachment(threadId, file.name, new Uint8Array(await file.arrayBuffer()));
+        setFiles(previous => [...previous, saved]);
+      }
+    } catch (cause) { setSendError(String(cause)); }
+    finally { uploadLock.current = false; setUploading(false); }
+  };
+  const attachRef = useRef(attach); attachRef.current = attach;
+  useEffect(() => {
+    if (!threadId) return;
+    const conversation = input.current?.closest('.ws-thread');
+    if (!conversation) return;
+    const over = (event: Event) => { if ((event as DragEvent).dataTransfer?.types.includes('Files')) event.preventDefault(); };
+    const drop = (event: Event) => {
+      const incoming = (event as DragEvent).dataTransfer?.files;
+      if (incoming?.length) { event.preventDefault(); void attachRef.current(Array.from(incoming)); }
+    };
+    conversation.addEventListener('dragover', over); conversation.addEventListener('drop', drop);
+    return () => { conversation.removeEventListener('dragover', over); conversation.removeEventListener('drop', drop); };
+  }, [threadId]);
   const submit = async () => {
+    const attached = files;
     const draft = value;
     const skills = selectedSkills;
     const text = withSkillCommands(draft, skills);
-    if (!text || busy || sendingRef.current || invalidSelection) return;
+    if ((!text && !attached.length) || busy || sendingRef.current || uploadLock.current || invalidSelection) return;
     sendingRef.current = true;
     setSending(true); setSendError('');
     setValue(''); setPicker(null); setSelectedSkills([]);
@@ -429,8 +476,9 @@ export function Composer({
       setSelectedSkills(next => [...skills, ...next.filter(skill => !skills.some(item => item.id === skill.id))]);
     };
     try {
-      const sent = await onSend(text);
+      const sent = await onSend(text, attached);
       if (sent === false) restoreDraft();
+      else setFiles(previous => previous.filter(file => !attached.some(sent => sent.path === file.path)));
     } catch (cause) {
       restoreDraft();
       setSendError(String(cause));
@@ -551,6 +599,8 @@ export function Composer({
         </div>}
         {invalidSelection && <p role="alert">A selected skill is unavailable for the current recipients. Remove it or change the @mention.</p>}
         {reference && <div className="ws-document-reference"><div><strong>{reference.path}</strong><blockquote>{reference.text}</blockquote></div><button className="ws-icon-btn" aria-label="Remove selected passage" onClick={onClearReference}><X size={13} /></button></div>}
+        {!!files.length && <div className="ws-attachment-list" aria-label="Pending attachments">{files.map(file => <span key={file.path}>{file.name}<button type="button" className="ws-icon-btn" disabled={sending || uploading} aria-label={`Remove attachment ${file.name}`} onClick={() => setFiles(previous => previous.filter(item => item.path !== file.path))}><X size={12} /></button></span>)}</div>}
+        {uploading && <p role="status">Copying attachments…</p>}
         {sendError && <p role="alert">{sendError}</p>}
         <textarea
           ref={input}
@@ -567,6 +617,7 @@ export function Composer({
           onKeyDown={onKeyDown}
         />
         <div className="ws-composer-bar">
+          {threadId && <><input type="file" multiple hidden ref={fileInput} onChange={event => { void attach(Array.from(event.target.files || [])); event.target.value = ''; }} /><Button variant="ghost" size="sm" aria-label="Attach files" disabled={sending || uploading} onClick={() => fileInput.current?.click()}><Paperclip size={14} /></Button></>}
           {busy && onStop && (
             <button className="ws-btn ghost" onClick={onStop}>
               <Square size={12} /> Stop
@@ -575,7 +626,7 @@ export function Composer({
           <button
             className="ws-send"
             aria-label="Send"
-            disabled={busy || sending || invalidSelection || (!value.trim() && !selectedSkills.length)}
+            disabled={busy || sending || uploading || invalidSelection || (!value.trim() && !selectedSkills.length && !files.length)}
             onClick={submit}
           >
             <Send size={15} />

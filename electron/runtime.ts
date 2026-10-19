@@ -1,3 +1,4 @@
+import { attachmentContext, type Attachment } from '../shared/attachments.js';
 import { SlackMessages, slackMessageInstructions } from './slack-messages.js';
 import { GmailService, gmailInstructions } from './gmail.js';
 import type { threadSummary } from './gmail-api.js';
@@ -112,10 +113,10 @@ export class Runtime {
     void this.sendMessage(thread.id, text).catch(() => {});
     return thread;
   }
-  async sendMessage(threadId: string, content: string, waitForCompletion = true) {
+  async sendMessage(threadId: string, content: string, waitForCompletion = true, attachments: Attachment[] = []) {
     if (!this.available) throw new Error('Runtime is stopped');
-    const text = content.trim();
-    if (!text) return;
+    const text = content.trim() + attachmentContext(attachments);
+    if (!text.trim()) return;
     const thread = this.thread(threadId);
     const group = this.group(thread.groupId);
     if (
@@ -127,7 +128,7 @@ export class Runtime {
     this.runningThreads.set(threadId, execution);
     // Persist before acknowledging so rejected sends leave the draft intact.
     try {
-      this.store.addMessage(threadId, null, 'user', text);
+      this.store.addMessage(threadId, null, 'user', attachments.length ? content.trim() || 'Attached files' : text, 'complete', attachments.length ? { type: 'attachments', files: attachments } : null);
       if (thread.taskId) this.store.updateTask(thread.taskId, { status: 'running' });
       this.refresh();
     } catch (error) {
@@ -292,7 +293,7 @@ export class Runtime {
           const proposal = proposals.get(x.meta.proposalId);
           return `System: Skill revision ${x.meta.skillName}, proposal ${x.meta.proposalId}, current state: ${proposal?.state || 'unavailable'}. Review changes in this conversation. Reason: ${x.content}`;
         }
-        return `${this.speaker(x, agents)}: ${x.content}`;
+        return `${this.speaker(x, agents)}: ${x.content}${x.meta?.type === 'attachments' ? attachmentContext(x.meta.files) : ''}`;
       }).join('\n');
       const recalled = await this.memory.recall(userText.slice(0, 160), agent.id);
       if (!this.available) return false;

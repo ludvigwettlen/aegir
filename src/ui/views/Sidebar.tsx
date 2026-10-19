@@ -1,5 +1,6 @@
+import { openCommandPalette } from '../commands';
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Search, Sun, Users } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
 import { Avatar, routineStatus, type Route } from './common';
@@ -61,6 +62,7 @@ export function Sidebar({
   const privates = data.groups.filter((group) => group.kind === 'private');
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
+      <Item active={false} onClick={() => openCommandPalette()} icon={<Search size={16} />} label="Search tasks and commands" />
       <div className="ws-nav-label">TASKS</div>
       <Item active={isList('inbox')} onClick={() => go({ view: 'tasks', list: 'inbox' })}
         icon={<Inbox size={16} />} label="Inbox" count={tasksFor('inbox', data.tasks).length} />

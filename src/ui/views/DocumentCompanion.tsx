@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Editor } from '@tiptap/react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { List, NotebookPen, X } from 'lucide-react';
@@ -14,7 +14,8 @@ function headingsIn(doc: ProseMirrorNode) {
   return headings;
 }
 
-export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onClose, onNavigate }: {
+export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onClose, onNavigate, review }: {
+  review?: ReactNode;
   editor: Editor | null; scrollRef: RefObject<HTMLDivElement | null>; storageKey: string;
   open: boolean; id: string; onClose: () => void; onNavigate: () => void;
 }) {
@@ -81,6 +82,7 @@ export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onC
     <header>
       <ToggleGroup size="sm" className="ws-companion-switch" aria-label="Document panel mode" value={mode} onValueChange={setMode} data-mode={mode}>
         <ToggleGroup.Item value="contents" aria-controls={`${panelId}-contents`}><List size={13} aria-hidden="true" />Contents</ToggleGroup.Item>
+        {review && <ToggleGroup.Item value="comments" aria-controls={`${panelId}-comments`}>Comments</ToggleGroup.Item>}
         <ToggleGroup.Item value="notes" aria-controls={`${panelId}-notes`}><NotebookPen size={13} aria-hidden="true" />Scratchpad</ToggleGroup.Item>
       </ToggleGroup>
       <button className="ws-icon-btn" data-close-companion aria-label="Hide outline and notes" title="Hide panel" onClick={onClose}><X size={13} aria-hidden="true" /></button>
@@ -92,6 +94,7 @@ export function DocumentCompanion({ editor, scrollRef, storageKey, open, id, onC
         </button>
       </li>)}</ol> : <p>Add headings to your document to build an outline.</p>}
     </nav>
+    {review && <div id={`${panelId}-comments`} hidden={mode !== 'comments'}>{review}</div>}
     <div id={`${panelId}-notes`} hidden={mode !== 'notes'} className="ws-document-scratchpad">
       <DocumentScratchpad key={storageKey} storageKey={storageKey} statusId={`${panelId}-status`} />
     </div>

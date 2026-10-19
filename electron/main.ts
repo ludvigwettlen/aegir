@@ -1,3 +1,8 @@
+import { importAttachment, readAttachment } from './attachments.js';
+import { attachmentLimits } from '../shared/attachments.js';
+import { reviewRequest } from '../shared/review.js';
+import { CONTENT_WORDS, searchWords, mergeContent } from '../shared/task-search.js';
+import { searchTaskDocuments } from './document-search.js';
 import { readTypography, validateTypography } from '../shared/typography.js';
 import {
   app,
@@ -81,6 +86,7 @@ function snapshot(): Snapshot {
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
     typography: readTypography(store.getSetting('typography')),
     browser: browser.state,
+    browserReviewEnabled: store.getSetting('browserReviewEnabled') === 'true',
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
       slackConfigured: connectors.slackConfigured(),
@@ -140,6 +146,14 @@ function registerIpc() {
     if (!thread) throw new Error('This conversation no longer exists');
     return (thread.taskId && store.get('tasks', thread.taskId)?.outputDir) || app.getPath('userData');
   };
+  const attachmentRoot = (id: string) => {
+    const thread = store.get('threads', id);
+    if (!thread) throw new Error('This conversation no longer exists');
+    const task = thread.taskId ? store.get('tasks', thread.taskId) : null;
+    const root = task?.outputDir || join(app.getPath('userData'), 'conversation-files', thread.id);
+    mkdirSync(root, { recursive: true });
+    return root;
+  };
   const handle = (channel: string, fn: (...args: any[]) => unknown) =>
     ipcMain.handle(channel, async (_event, ...args) => {
       const result = await fn(...args);
@@ -176,6 +190,11 @@ function registerIpc() {
   });
   handle('browser-open', () => browser.open());
   handle('browser-stop', () => browser.stop());
+  handle('search-task-content', (query: unknown) => {
+    if (typeof query !== 'string' || query.length > 200) return [];
+    const words = searchWords(query).slice(0, CONTENT_WORDS);
+    return mergeContent(store.searchTaskMessages(words), searchTaskDocuments(store.list('tasks').filter(task => task.status !== 'dismissed'), words));
+  });
   handle('document-list', (id: string) => listDocuments(documentRoot(id)));
   handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
   handle('document-image-read', (id: string, path: string, src: string) => readDocumentImage(documentRoot(id), path, src));
@@ -240,9 +259,28 @@ function registerIpc() {
   handle('start-thread', (groupId: string, content: string) =>
     runtime.startThread(groupId, content),
   );
-  handle('send-message', (threadId: string, content: string) =>
-    runtime.sendMessage(threadId, content, false),
-  );
+  handle('attachment-import', (id: string, name: string, bytes: Uint8Array) => importAttachment(attachmentRoot(id), name, bytes));
+  handle('attachment-open', async (id: string, path: string) => {
+    const file = readAttachment(attachmentRoot(id), path);
+    // Reveal files instead of executing arbitrary attachment types.
+    shell.showItemInFolder(file.path);
+  });
+  handle('send-message', (threadId: string, content: string, paths: string[] = []) => {
+    if (!Array.isArray(paths) || paths.length > attachmentLimits.count || paths.some(path => typeof path !== 'string')) throw new Error('Attach up to ten files per message');
+    const files = paths.map(path => readAttachment(attachmentRoot(threadId), path));
+    return runtime.sendMessage(threadId, content, false, files);
+  });
+  handle('browser-review-enabled', (enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new Error('Choose whether to enable browser review');
+    store.setSetting('browserReviewEnabled', String(enabled)); refresh();
+  });
+  handle('browser-review-start', (id: string, path: string) => {
+    if (store.getSetting('browserReviewEnabled') !== 'true') throw new Error('Enable browser review in Settings first');
+    const thread = store.get('threads', id);
+    if (!thread?.taskId || !store.get('tasks', thread.taskId)?.outputDir) throw new Error('Browser review needs a task workspace');
+    const document = readDocument(documentRoot(id), path);
+    return runtime.sendMessage(id, reviewRequest(document.path), false);
+  });
   handle('stop-thread', (threadId: string) => runtime.stopThread(threadId));
   handle('close-thread', (threadId: string) => {
     store.setThreadStatus(threadId, 'closed');
@@ -271,7 +309,7 @@ function registerIpc() {
   );
   handle('update-task', (id: string, change: TaskChange) => {
     const allowed: TaskChange = {};
-    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId', 'recurrence'] as const)
+    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId', 'recurrence', 'priority'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
     store.updateTask(id, allowed, true);
     refresh();

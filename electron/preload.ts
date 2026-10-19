@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  searchTaskContent: query => ipcRenderer.invoke('search-task-content', query),
   checkSetup: () => ipcRenderer.invoke('setup-check'),
   installSetupComponent: kind => ipcRenderer.invoke('setup-install', kind),
   signInCodex: () => ipcRenderer.invoke('setup-codex-login'),
@@ -52,7 +53,11 @@ const api: DesktopApi = {
   createAgent: input => ipcRenderer.invoke('create-agent', input),
   updateAgent: input => ipcRenderer.invoke('update-agent', input),
   startThread: (groupId, content) => ipcRenderer.invoke('start-thread', groupId, content),
-  sendMessage: (threadId, content) => ipcRenderer.invoke('send-message', threadId, content),
+  sendMessage: (threadId, content, attachments) => ipcRenderer.invoke('send-message', threadId, content, attachments),
+  importAttachment: (id, name, bytes) => ipcRenderer.invoke('attachment-import', id, name, bytes),
+  openAttachment: (id, path) => ipcRenderer.invoke('attachment-open', id, path),
+  setBrowserReviewEnabled: enabled => ipcRenderer.invoke('browser-review-enabled', enabled),
+  reviewInBrowser: (id, path) => ipcRenderer.invoke('browser-review-start', id, path),
   stopThread: threadId => ipcRenderer.invoke('stop-thread', threadId),
   closeThread: threadId => ipcRenderer.invoke('close-thread', threadId),
   createTaskList: name => ipcRenderer.invoke('create-task-list', name),
