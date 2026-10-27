@@ -8,7 +8,7 @@ import { api } from './common';
 
 const options = [{ value: null, label: 'Does not repeat' }, ...Object.entries(taskRecurrenceLabels).map(([value, label]) => ({ value: value as TaskRecurrence, label }))];
 
-export function TaskRepeat({ task }: { task: Task }) {
+export function TaskRepeat({ task, compact = false }: { task: Task; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -24,8 +24,8 @@ export function TaskRepeat({ task }: { task: Task }) {
     finally { savingRef.current = false; setSaving(false); }
   };
   return <Dialog.Root open={open} onOpenChange={value => { if (!savingRef.current) { setError(''); setOpen(value); } }}>
-    <Dialog.Trigger asChild><Button variant="ghost" size="sm" className="ws-task-repeat-action" aria-label="Repeat task">
-      <Repeat2 size={14} aria-hidden="true" />{task.recurrence ? taskRecurrenceLabels[task.recurrence] : 'Repeat'}
+    <Dialog.Trigger asChild><Button variant="ghost" size="sm" className="ws-task-repeat-action" icon={compact && !task.recurrence} title={task.recurrence ? `Repeat: ${taskRecurrenceLabels[task.recurrence]}` : 'Repeat task'} aria-label="Repeat task">
+      <Repeat2 size={14} aria-hidden="true" />{task.recurrence ? taskRecurrenceLabels[task.recurrence] : compact ? null : 'Repeat'}
     </Button></Dialog.Trigger>
     <Dialog.Portal>
       <Dialog.Overlay className="ws-list-dialog-overlay" />

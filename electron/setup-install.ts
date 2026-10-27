@@ -15,11 +15,11 @@ export const setupReleases = {
   memory: '3.15.1',
 };
 
-type CommandOptions = { signal?: AbortSignal; env?: NodeJS.ProcessEnv; timeout?: number };
+type CommandOptions = { signal?: AbortSignal; env?: NodeJS.ProcessEnv; timeout?: number; cwd?: string };
 export function setupCommand(binary: string, args: string[], options: CommandOptions = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) { reject(new Error('Setup cancelled. You can try again.')); return; }
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: options.env || process.env, detached: process.platform !== 'win32' });
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: options.env || process.env, cwd: options.cwd, detached: process.platform !== 'win32' });
     let output = ''; let errors = ''; let failure: Error | undefined;
     const stop = () => {
       try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { /* Already exited. */ }

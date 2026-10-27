@@ -15,3 +15,8 @@ The document supports direct text edits and a limited Markdown source toggle (he
 Edits last only until reload. Reset demo resets all state. Sidebar items illustrate context and are not navigation controls. Passage references reopen the document but do not yet anchor to the exact text. Version history, real Markdown round-trip fidelity, persistence, and live collaboration are outside this mockup.
 
 Accessible controls include focus outlines, labeled editors, textual suggestion states, and a keyboard-operable resize separator. This concept introduces no production components or token changes.
+
+
+## Task header iterations
+
+Serve `task-detail-iterations.html` through a plain Vite server to compare compact summary, Conversation/Context tabs, and Focus. Notes and priority are editable demo state; tabs, density controls, disclosures and fullscreen comparisons work locally. Copy and navigation actions show illustrative feedback and never call a live account. `task-detail-app.html?notes&files=1` loads the first implementation in the isolated app fixture; use `long`, `files=0`, or `failList` to inspect edge states.

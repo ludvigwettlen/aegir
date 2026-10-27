@@ -1,3 +1,7 @@
+import { PhoneCapture } from './phone-capture.js';
+import { findRemindersHelper } from './reminders.js';
+import { readClaudeRoutines } from './claude-schedule.js';
+import { homedir } from 'node:os';
 import { windowLook } from './window-look.js';
 import { importAttachment, readAttachment } from './attachments.js';
 import { attachmentLimits } from '../shared/attachments.js';
@@ -20,13 +24,19 @@ import {
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Agent, AppEvent, Approval, DesktopApi, Snapshot, TaskChange } from '../shared/types.js';
 import { normalizeTaskLink } from '../shared/task-links.js';
 import { documentLocation, listDocuments, readDocument, saveDocument } from './documents.js';
 import { importDocumentImage, readDocumentImage } from './document-images.js';
+import { executeExternalWrite } from './external-write.js';
 import { CodexProvider } from './codex.js';
+import { ClaudeProvider } from './claude.js';
+import { EngineRouter, findClaudeBinary } from './engine.js';
+import { MemoryRouter } from './memory-provider.js';
+import { GbrainMemoryService, findGbrainBinary } from './gbrain-memory.js';
+import { readProviderSetup, type ProviderSetup } from '../shared/provider-setup.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
 import { MemoryService } from './memory.js';
@@ -44,10 +54,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let store: Store;
-let codex: CodexProvider;
+let codex: EngineRouter;
 let connectors: ConnectorManager;
-let memory: MemoryService;
+let memory: MemoryRouter;
 let runtime: Runtime;
+let phoneCapture: PhoneCapture;
+let phoneTimer: NodeJS.Timeout | undefined;
 let browser: BrowserManager;
 let onboarding: OnboardingService;
 let shuttingDown = false;
@@ -69,7 +81,9 @@ function migrateLegacyData() {
 }
 function snapshot(): Snapshot {
   return {
+    reminders: phoneCapture?.state(),
     onboarding: onboarding?.state(),
+    brainBridge: runtime?.brainBridge?.state(),
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
     gmail: runtime?.gmail?.snapshot(),
     agents: store.list('agents'),
@@ -77,6 +91,7 @@ function snapshot(): Snapshot {
     threads: store.threadSummaries(),
     tasks: store.list('tasks'),
     taskLists: store.taskLists(),
+    taskViews: store.taskViews(),
     taskLinks: store.taskLinks(),
     routines: store.routines(),
     routineRuns: store.routineRuns(),
@@ -89,6 +104,7 @@ function snapshot(): Snapshot {
     typography: readTypography(store.getSetting('typography')),
     browser: browser.state,
     browserReviewEnabled: store.getSetting('browserReviewEnabled') === 'true',
+    showTaskPriorities: store.getSetting('showTaskPriorities') !== 'false',
     mcpSettings: {
       slackClientId: store.getSetting('slackClientId') || '',
       slackConfigured: connectors.slackConfigured(),
@@ -143,8 +159,11 @@ function approvalForExternal(detail: string, threadId: string | undefined, optio
   });
 }
 function registerIpc() {
-  const documentRoot = (threadId: string) => {
-    const thread = store.get('threads', threadId);
+  // Document workspaces accept a task ID before handoff, or the existing conversation ID.
+  const documentRoot = (workspaceId: string) => {
+    const task = store.get('tasks', workspaceId);
+    if (task?.outputDir) return task.outputDir;
+    const thread = store.get('threads', workspaceId);
     if (!thread) throw new Error('This conversation no longer exists');
     return (thread.taskId && store.get('tasks', thread.taskId)?.outputDir) || app.getPath('userData');
   };
@@ -163,7 +182,31 @@ function registerIpc() {
       return result;
     });
   handle('snapshot', () => snapshot());
+  handle('brain-bridge-configure', value => runtime.brainBridge.configure(value));
+  handle('brain-bridge-run', () => runtime.brainBridge.run());
+  handle('brain-bridge-folder', async (purpose: string) => {
+    if (!['import', 'export', 'filing'].includes(purpose)) throw new Error('Choose a workflow folder.');
+    const result = await dialog.showOpenDialog({ title: purpose === 'import' ? 'Choose the external task intake folder' : purpose === 'export' ? 'Choose the task export folder' : 'Choose the brain filing folder', properties: ['openDirectory', 'createDirectory'] });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
+  handle('brain-bridge-file', (id: string, path: string, kind: string) => {
+    if (kind === 'document') {
+      const document = readDocument(documentRoot(id), path);
+      return runtime.brainBridge.file(join(documentRoot(id), document.path), basename(document.path));
+    }
+    if (kind === 'attachment') {
+      const file = readAttachment(attachmentRoot(id), path);
+      if (!store.messagesForThread(id).some(message => message.meta?.type === 'attachments' && message.meta.files.some(item => item.path === file.path))) throw new Error('Choose an attachment already sent in this conversation.');
+      return runtime.brainBridge.file(file.path, file.name);
+    }
+    throw new Error('Choose a task document or conversation attachment.');
+  });
   handle('setup-check', () => onboarding.check());
+  handle('setup-select', choice => onboarding.select(choice));
+  handle('setup-brain-folder', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Choose your Obsidian brain folder', properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
   handle('setup-install', kind => onboarding.installComponent(kind));
   handle('setup-codex-login', () => onboarding.signIn());
   handle('setup-codex-cancel', () => onboarding.cancelSignIn());
@@ -175,12 +218,16 @@ function registerIpc() {
   handle('ui-feedback-copy', () => clipboard.writeText(feedbackBrief(feedback.list())));
   handle('gmail-configure', (account: string, email: string, enabled: boolean) => runtime.gmail.configure(account, email, enabled));
   handle('gmail-sync', () => runtime.gmail.sync());
-  handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));
+  handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).update(id, revision, fields));
   // These renderer-only endpoints are the user's explicit approval of the displayed draft.
-  handle('gmail-draft-send', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.send(id, revision, fields));
-  handle('slack-draft-targets', (kind: 'people' | 'channels', query: string, cursor?: string) => runtime.slackMessages.findTargets(kind, query, cursor));
-  handle('slack-draft-update', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.update(id, revision, fields));
-  handle('slack-draft-send', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.send(id, revision, fields));
+  handle('gmail-draft-cancel', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).cancelSend(id, revision));
+  handle('gmail-draft-manual', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).markSentManually(id, revision));
+  handle('gmail-draft-send', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).queueSend(id, revision, fields));
+  handle('slack-draft-targets', (kind: 'people' | 'channels', query: string, cursor?: string, draftId?: string) => (draftId && runtime.claudeDrafts.owns(draftId) ? runtime.claudeDrafts : runtime.slackMessages).findTargets(kind, query, cursor));
+  handle('slack-draft-update', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).update(id, revision, fields));
+  handle('slack-draft-cancel', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).cancelSend(id, revision));
+  handle('slack-draft-manual', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).markSentManually(id, revision));
+  handle('slack-draft-send', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).queueSend(id, revision, fields));
   handle('set-typography', (value: unknown) => {
     store.setSetting('typography', JSON.stringify(validateTypography(value)));
     refresh();
@@ -198,6 +245,11 @@ function registerIpc() {
     return mergeContent(store.searchTaskMessages(words), searchTaskDocuments(store.list('tasks').filter(task => task.status !== 'dismissed'), words));
   });
   handle('document-list', (id: string) => listDocuments(documentRoot(id)));
+  handle('document-create', (id: string, name: string) => {
+    const taskId = store.get('tasks', id)?.id || store.get('threads', id)?.taskId;
+    if (!taskId) throw new Error('Choose a task to create a document');
+    return runtime.createTaskDocument(taskId, name);
+  });
   handle('document-read', (id: string, path: string) => readDocument(documentRoot(id), path));
   handle('document-image-read', (id: string, path: string, src: string) => readDocumentImage(documentRoot(id), path, src));
   handle('document-image-import', (id: string, path: string, name: string, bytes: Uint8Array) => importDocumentImage(documentRoot(id), path, name, bytes));
@@ -272,6 +324,11 @@ function registerIpc() {
     const files = paths.map(path => readAttachment(attachmentRoot(threadId), path));
     return runtime.sendMessage(threadId, content, false, files);
   });
+  handle('set-show-task-priorities', (show: boolean) => {
+    if (typeof show !== 'boolean') throw new Error('Choose whether to show task priorities');
+    store.setSetting('showTaskPriorities', String(show));
+    refresh();
+  });
   handle('browser-review-enabled', (enabled: boolean) => {
     if (typeof enabled !== 'boolean') throw new Error('Choose whether to enable browser review');
     store.setSetting('browserReviewEnabled', String(enabled)); refresh();
@@ -288,6 +345,13 @@ function registerIpc() {
     store.setThreadStatus(threadId, 'closed');
     refresh();
   });
+  handle('capture-task', (text: string) => runtime.captureTask(text));
+  let claudeRead: ReturnType<typeof readClaudeRoutines> | null = null;
+  handle('claude-routines', () => claudeRead ||= readClaudeRoutines(join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions')).finally(() => { claudeRead = null; }));
+  handle('configure-reminders', (enabled: boolean, list: string) => phoneCapture.configure(enabled, list));
+  handle('sync-reminders', () => phoneCapture.sync());
+  handle('save-task-view', (input: unknown) => { store.saveTaskView(input); refresh(); });
+  handle('delete-task-view', (id: string) => { store.deleteTaskView(id); refresh(); });
   handle('create-task-list', (name: string) => {
     const list = store.createTaskList(name);
     refresh();
@@ -311,9 +375,13 @@ function registerIpc() {
   );
   handle('update-task', (id: string, change: TaskChange) => {
     const allowed: TaskChange = {};
-    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId', 'recurrence', 'priority'] as const)
+    for (const key of ['title', 'notes', 'status', 'label', 'dueAt', 'listId', 'recurrence', 'priority', 'snoozedUntil', 'labels'] as const)
       if (key in change) (allowed as Record<string, unknown>)[key] = change[key];
     store.updateTask(id, allowed, true);
+    refresh();
+  });
+  handle('mark-task-reviewed', (id: string) => {
+    store.markTaskReviewed(id);
     refresh();
   });
   handle('delete-task', (id: string) => {
@@ -409,7 +477,7 @@ function registerIpc() {
     refresh();
   });
   handle('launch-at-login', (enabled: boolean) => {
-    app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+    app.setLoginItemSettings({ openAtLogin: enabled });
     refresh();
   });
   handle('open-external', (url: string) => {
@@ -431,7 +499,7 @@ function createWindow() {
     vibrancy: look.vibrancy,
     visualEffectState: look.visualEffectState,
     backgroundColor: look.backgroundColor,
-    show: !app.getLoginItemSettings().wasOpenedAsHidden,
+    show: !app.getLoginItemSettings().wasOpenedAtLogin,
     webPreferences: {
       additionalArguments: look.args,
       preload: join(here, 'preload.cjs'),
@@ -531,9 +599,19 @@ if (app.requestSingleInstanceLock()) {
     store = new Store();
     initializeOnboarding(store, existingWorkspace);
     store.onMessage = (value) => emit({ type: 'message', value });
-    codex = new CodexProvider(() => store.getSetting('codexBinary'));
+    const codexProvider = new CodexProvider(() => store.getSetting('codexBinary'));
+    const mnemosyne = new MemoryService(store);
+    let claudeProvider: ClaudeProvider;
+    let brain: GbrainMemoryService;
+    const adapters = (setup: ProviderSetup) => {
+      claudeProvider = new ClaudeProvider(findClaudeBinary(store.getSetting('claudeBinary')));
+      brain = new GbrainMemoryService(findGbrainBinary(store.getSetting('gbrainBinary')), setup);
+      return { engine: setup.engine === 'claude' ? claudeProvider : codexProvider, memory: setup.memory === 'gbrain' ? brain : mnemosyne };
+    };
+    const initialAdapters = adapters(readProviderSetup(store.getSetting('providerSetup')));
+    codex = new EngineRouter(initialAdapters.engine, () => !!store.getSetting('providerSetup'));
     connectors = new ConnectorManager(store);
-    memory = new MemoryService(store);
+    memory = new MemoryRouter(initialAdapters.memory, () => !!store.getSetting('providerSetup'));
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
@@ -542,7 +620,17 @@ if (app.requestSingleInstanceLock()) {
       outputRoot,
       routineCwd: app.getPath('userData'),
     }, browser);
-    onboarding = new OnboardingService(store, codex, memory, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url));
+    onboarding = new OnboardingService(store, codexProvider, mnemosyne, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url), undefined, undefined, {
+      apply: setup => {
+        if (phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size) throw new Error('Stop active agents and routines, and wait for background work to finish before switching setup.');
+        const next = adapters(setup);
+        store.setSetting('providerSetup', JSON.stringify(setup));
+        store.setSetting('setupAutomationPaused', 'true');
+        codex.replace(next.engine); memory.replace(next.memory);
+      },
+      checkClaude: signal => claudeProvider.checkAccess(signal),
+      checkBrain: signal => brain.check(signal),
+    });
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
       if (shuttingDown || !store.isOpen) return;
@@ -585,16 +673,19 @@ if (app.requestSingleInstanceLock()) {
         // Tasks and routines only receive read-only tools; this is the backstop if one is called anyway.
         if (!readOnly && context && context.kind !== 'chat')
           throw new Error('Handed-off tasks and routines cannot write to external systems');
-        if (
-          !readOnly &&
-          !(await approvalForExternal(
-            `${provider}: ${tool}\n${JSON.stringify(args, null, 2)}`,
+        const call = () => {
+          if (shuttingDown || !store.isOpen) throw new Error('App is shutting down');
+          return connectors.call(provider, tool, args);
+        };
+        const result = readOnly ? await call() : await executeExternalWrite(
+          { signal: runtime.runSignal(codexThreadId), isCurrent: () => !!context && runtime.contextFor(codexThreadId) === context },
+          signal => approvalForExternal(
+            `${provider}: ${tool}\n${JSON.stringify(args, null, 2)}\nGrant: this one write only`,
             context?.threadId,
-          ))
-        )
-          throw new Error('External write declined');
-        if (shuttingDown || !store.isOpen) throw new Error('App is shutting down');
-        const result = await connectors.call(provider, tool, args);
+            { title: `Write to ${provider}`, signal, method: 'external-write' },
+          ),
+          call,
+        );
         runtime.logToolResult(codexThreadId, result);
         return result;
       } catch (error) {
@@ -609,7 +700,7 @@ if (app.requestSingleInstanceLock()) {
     createTray();
     connectors.start();
     runtime.start();
-    void memory
+    if (store.getSetting('providerSetup')) void memory
       .migrateLegacy()
       .then(() => {
         if (store.isOpen) refresh();
@@ -619,13 +710,15 @@ if (app.requestSingleInstanceLock()) {
         if (store.isOpen) refresh();
       });
     if (app.isPackaged && !store.getSetting('loginConfigured')) {
-      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
+      app.setLoginItemSettings({ openAtLogin: true });
       store.setSetting('loginConfigured', 'true');
       refresh();
     }
-    powerMonitor.on('resume', () => runtime.tick());
+    phoneCapture = new PhoneCapture(store, process.platform === 'darwin' ? findRemindersHelper([app.isPackaged ? join(process.resourcesPath, 'aegir-reminders') : join(app.getAppPath(), 'build', 'aegir-reminders')]) : null, refresh);
+    phoneTimer = setInterval(() => void phoneCapture.sync(), 60_000);
+    powerMonitor.on('resume', () => { runtime.tick(); void phoneCapture.sync(); });
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();
-    void codex.start().catch((error) => {
+    if (store.getSetting('providerSetup')) void codex.start().catch((error) => {
       codex.status = `Error: ${String(error)}`;
       refresh();
     });
@@ -637,6 +730,8 @@ if (app.requestSingleInstanceLock()) {
     for (const resolve of externalApprovalResolvers.values()) resolve(false);
     externalApprovalResolvers.clear();
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
+    if (phoneTimer) clearInterval(phoneTimer);
+    phoneCapture?.stop();
     runtime?.stop();
     const setupClosed = onboarding?.close();
     const browserClosed = browser?.close();

@@ -7,17 +7,25 @@ import type { EmailDraft } from '../../../shared/gmail';
 const initial: EmailDraft = { type: 'email-draft', account: 'work', email: 'me@example.com', to: 'peer@example.com', cc: '', bcc: '', subject: 'A draft with a longer subject to check narrow email layouts', body: 'Hi Sam,\n\nThanks for sending this over. I can review the proposal tomorrow.\n\nBest,\nAlex', revision: 1, state: 'draft' };
 const fixture = { compact: () => {}, fail: false, draft: initial, publish: (_draft: EmailDraft) => {}, sendCalls: [] as unknown[] };
 Object.assign(window, { fixture });
+let queuedTimer: ReturnType<typeof setTimeout> | undefined;
 window.aegir = {
   updateEmailDraft: async (_id, revision, fields) => {
     if (fixture.fail) throw new Error('Could not save draft. Try again.');
     if (revision !== fixture.draft.revision) throw new Error('Draft changed');
     fixture.draft = { ...fixture.draft, ...fields, revision: revision + 1 }; fixture.publish(fixture.draft); return fixture.draft;
   },
+  cancelEmailDraft: async () => {
+    if (fixture.draft.state !== 'queued') throw new Error('Sending has already started.');
+    clearTimeout(queuedTimer); fixture.draft = { ...fixture.draft, state: 'draft', queuedUntil: undefined }; fixture.publish(fixture.draft); return fixture.draft;
+  },
+  markEmailDraftSent: async () => { fixture.draft = { ...fixture.draft, state: 'sent-manually', manuallySentAt: new Date().toISOString() }; fixture.publish(fixture.draft); return fixture.draft; },
   sendEmailDraft: async (id, revision, fields) => {
-    fixture.sendCalls.push({ id, revision, fields });
-    fixture.draft = { ...fixture.draft, state: 'sending' }; fixture.publish(fixture.draft);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    fixture.draft = { ...fixture.draft, state: 'sent' }; fixture.publish(fixture.draft);
+    fixture.draft = { ...fixture.draft, state: 'queued', queuedUntil: Date.now() + 5000 }; fixture.publish(fixture.draft);
+    queuedTimer = setTimeout(() => {
+      fixture.sendCalls.push({ id, revision, fields });
+      fixture.draft = { ...fixture.draft, state: 'sending' }; fixture.publish(fixture.draft);
+      setTimeout(() => { fixture.draft = { ...fixture.draft, state: 'sent' }; fixture.publish(fixture.draft); }, 300);
+    }, 5000);
   },
 } satisfies Partial<DesktopApi> as unknown as DesktopApi;
 const { EmailDraftCard } = await import('../views/EmailDraftCard');

@@ -1,0 +1,47 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('reviews AI capture, filters and saved views, plans today and exposes optional integrations', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**', '**/build/**'] } } });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.setDefaultTimeout(10000);
+    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html?personal`);
+    await page.getByRole('button', { name: 'Inbox', exact: true }).click();
+    await page.getByRole('button', { name: 'Set deadline to today', exact: true }).click();
+    expect(await page.evaluate(() => (window as any).fixtureActions.task.dueAt)).toBe(await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }));
+    await page.getByRole('textbox', { name: 'New task', exact: true }).fill('Review a long dictated note');
+    await page.getByRole('button', { name: 'AI capture', exact: true }).click();
+    const preview = page.getByRole('region', { name: 'Review captured task' }); await preview.waitFor();
+    await preview.getByLabel('Title', { exact: true }).fill('Reviewed by me');
+    await preview.getByRole('button', { name: 'Add captured task', exact: true }).click();
+    await expect.poll(() => page.locator('[data-task-row]').count()).toBe(2);
+    await page.locator('.ws-task-filters > summary').click();
+    await page.getByRole('checkbox', { name: 'Filter label work', exact: true }).check();
+    await expect.poll(() => page.locator('[data-task-row]').count()).toBe(1);
+    await page.getByLabel('Save view as', { exact: true }).fill('Work');
+    await page.getByRole('button', { name: 'Save view', exact: true }).click();
+    await page.getByRole('button', { name: 'Update view', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
+    await expect.poll(() => page.locator('[data-task-row]').count()).toBe(2);
+    await page.getByRole('button', { name: 'Work', exact: true }).click();
+    await expect.poll(() => page.locator('[data-task-row]').count()).toBe(1);
+    await page.setViewportSize({ width: 900, height: 700 }); await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.screenshot({ path: '/tmp/aegir-pending-task-controls.png', fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'Search tasks and commands', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Search tasks and commands' }).fill('Settings');
+    await page.getByRole('option', { name: /^Settings/ }).click();
+    await page.getByRole('button', { name: 'Refresh external routines', exact: true }).click();
+    await page.getByText('Morning brief', { exact: false }).waitFor();
+    await page.getByLabel('Reminders list', { exact: true }).fill('Phone capture');
+    await page.getByLabel('Enable capture', { exact: true }).check();
+    await page.getByRole('button', { name: 'Save capture settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Check Reminders now', exact: true }).click();
+    await page.getByText('No new reminders', { exact: true }).waitFor();
+    await page.screenshot({ path: '/tmp/aegir-pending-integrations.png', fullPage: true });
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 60000);

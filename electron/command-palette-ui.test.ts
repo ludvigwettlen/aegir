@@ -25,7 +25,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('finds filed/completed tasks, runs
     await page.waitForFunction(() => (window as any).fixture.changes.includes('filed'));
     await launcher.click(); await input.fill('archived'); await page.keyboard.press('Enter');
     await page.getByRole('heading', { name: 'Completed', exact: true }).waitFor();
-    expect(await page.locator('[data-keyboard-current][data-task-row]').getAttribute('data-feedback-context')).toBe('task-row:done');
+    await expect.poll(() => page.locator('[data-keyboard-current][data-task-row]').getAttribute('data-feedback-context')).toBe('task-row:done');
     await launcher.click(); await input.fill('contract');
     await page.getByRole('option', { name: /Research memo.*memo.md/ }).waitFor();
     await input.fill('old');

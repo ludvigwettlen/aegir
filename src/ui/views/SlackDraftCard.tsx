@@ -1,3 +1,4 @@
+import { DraftCard, DraftActions } from './DraftCard';
 import { useEffect, useState } from 'react';
 import type { SlackDraft, SlackTarget, SlackTargets } from '../../../shared/slack-messages';
 import { slackFooter } from '../../../shared/slack-messages';
@@ -37,14 +38,15 @@ export function SlackDraftCard({ id, draft }: { id: string; draft: SlackDraft })
     localStorage.removeItem(`slack-draft:${id}:${saved.revision}`);
     localStorage.removeItem(`slack-draft:${id}:${saved.revision}:footer`);
   };
-  const action = async (send: boolean, destination = saved.destination, threadTs = saved.threadTs) => {
+  const action = async (send: boolean, destination = saved.destination, threadTs = saved.threadTs, manual = false) => {
     setPending(true); setError('');
     try {
       const fields = { destination, threadTs, text, includeFooter };
       const next = dirty || saved.error || destination !== saved.destination || threadTs !== saved.threadTs
         ? await api.updateSlackDraft(id, saved.revision, fields) : saved;
       clearRecovery(); setSaved(next); setChoosing(false);
-      if (send) {
+      if (manual) setSaved(await api.markSlackDraftSent(id, next.revision));
+      else if (send) {
         // A renamed recipient or edited parent message must be seen before a fresh Send click.
         if (next.destinationName !== saved.destinationName || next.threadPreview !== saved.threadPreview) throw new Error('The Slack destination or thread changed. Review the updated details and click Send again.');
         await api.sendSlackDraft(id, next.revision, fields);
@@ -53,27 +55,27 @@ export function SlackDraftCard({ id, draft }: { id: string; draft: SlackDraft })
     finally { setPending(false); }
   };
   const locked = pending || saved.state !== 'draft' || conflict;
-  return <section className="slack-draft-card email-draft-card" aria-label="Slack draft">
-    <header><strong>{saved.state === 'sent' ? 'Slack message sent' : 'Slack draft'}</strong><span>{saved.workspace} · from {saved.sender}</span></header>
+  return <DraftCard label="Slack draft" title={saved.state === 'sent' || saved.state === 'sent-manually' ? 'Slack message sent' : 'Slack draft'} context={`${saved.workspace} · from ${saved.sender}`}>
     <div className="slack-destination"><div><span>To</span><strong>{saved.destinationName}</strong></div>
       {saved.state === 'draft' && <Button variant="ghost" size="sm" disabled={locked} onClick={() => setChoosing(!choosing)}>{choosing ? 'Cancel recipient change' : 'Change recipient'}</Button>}</div>
-    {choosing && <SlackRecipientPicker disabled={locked} onChoose={target => void action(false, target.id, '')} />}
+    {choosing && <SlackRecipientPicker draftId={id} disabled={locked} onChoose={target => void action(false, target.id, '')} />}
     {saved.threadTs && <div className="slack-thread-context"><strong>Reply in thread</strong><blockquote>{saved.threadPreview}</blockquote>
       {saved.state === 'draft' && <Button variant="ghost" size="sm" disabled={locked} onClick={() => void action(false, saved.destination, '')}>Send as a new message instead</Button>}</div>}
     <label>Message<textarea aria-label="Slack message" rows={8} value={text} disabled={locked} maxLength={40000} onChange={event => edit(event.target.value)} /></label>
     <label className="slack-footer-choice"><input type="checkbox" checked={includeFooter} disabled={locked} onChange={event => toggleFooter(event.target.checked)} />Include “{slackFooter}” footer</label>
     {includeFooter && <p className="slack-footer-preview" aria-label="Message footer">{slackFooter}</p>}
-    <p role="status">{saved.state === 'draft' ? dirty ? 'Unsaved edits · local recovery enabled' : 'Saved in Aegir' : ({ sending: 'Sending…', sent: 'Slack confirmed sending.', uncertain: 'Delivery is unconfirmed. Check Slack before composing another message.' })[saved.state]}</p>
+    <p role="status">{saved.state === 'draft' ? dirty ? 'Unsaved edits · local recovery enabled' : 'Saved in Aegir' : ({ queued: '', 'sent-manually': '', sending: 'Sending…', sent: 'Slack confirmed sending.', uncertain: 'Delivery is unconfirmed. Check Slack before composing another message.' })[saved.state]}</p>
     {(error || saved.error) && <p role="alert">{error || saved.error}</p>}
     {conflict && <Button variant="outline" size="sm" onClick={() => {
       clearRecovery(); setSaved(draft); setText(draft.text); setIncludeFooter(draft.includeFooter); setError('');
     }}>Discard local edits and reload</Button>}
-    {saved.state === 'draft' && <><p>Clicking Send approves and sends this exact message. No additional confirmation.</p>
-      <footer><Button variant="outline" size="sm" disabled={locked || (!dirty && !saved.error)} onClick={() => void action(false)}>Save draft</Button>
-        <Button size="sm" disabled={locked || choosing || !text.trim()} onClick={() => void action(true)}>{pending ? 'Working…' : 'Send'}</Button></footer></>}
-  </section>;
+    <DraftActions state={saved.state} queuedUntil={saved.queuedUntil} locked={locked || choosing} saveDisabled={!dirty && !saved.error}
+      sendDisabled={!text.trim()} onSave={() => void action(false)} onSend={() => void action(true)}
+      onManual={() => void action(false, saved.destination, saved.threadTs, true)}
+      onUndo={() => { setError(''); void api.cancelSlackDraft(id, saved.revision).then(setSaved).catch(cause => setError(String(cause))); }} />
+  </DraftCard>;
 }
-function SlackRecipientPicker({ disabled, onChoose }: { disabled: boolean; onChoose: (target: SlackTarget) => void }) {
+function SlackRecipientPicker({ draftId, disabled, onChoose }: { draftId: string; disabled: boolean; onChoose: (target: SlackTarget) => void }) {
   const [kind, setKind] = useState<'people' | 'channels'>('people');
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SlackTargets | null>(null);
@@ -82,7 +84,7 @@ function SlackRecipientPicker({ disabled, onChoose }: { disabled: boolean; onCho
   const search = async (more = false) => {
     setPending(true); setError('');
     try {
-      const next = await api.findSlackTargets(kind, query, more ? result?.nextCursor : undefined);
+      const next = await api.findSlackTargets(kind, query, more ? result?.nextCursor : undefined, draftId);
       setResult({ targets: more ? [...(result?.targets || []), ...next.targets] : next.targets, nextCursor: next.nextCursor });
     } catch (cause) { setError(String(cause)); } finally { setPending(false); }
   };

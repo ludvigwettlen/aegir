@@ -4,7 +4,7 @@ import { Kbd, type Route } from './common';
 type Hint = [keys: string, action: string];
 type Context = { title: string; hints: Hint[]; editing: boolean; dialog: boolean };
 
-function contextFor(route: Route): Context {
+function contextFor(route: Route, showTaskPriorities: boolean): Context {
   const target = document.activeElement;
   const dialog = target?.closest('[role="dialog"]');
   const editor = target?.matches('input, textarea, select, [contenteditable="true"]');
@@ -32,7 +32,7 @@ function contextFor(route: Route): Context {
   else if (target?.closest('.ws-task-detail, .ws-thread') && route.view === 'tasks') hints.push(['Esc', 'Return to task list'], ['⌘O', 'Open task output or attachment']);
   else if (route.view === 'tasks') hints.push(
     ['Enter', 'Edit selected task title'], ['Space', route.list === 'completed' ? 'Reopen task' : 'Complete or reopen task'],
-    ['1 / 2 / 3 · 0', 'Set priority / clear priority'], ['F', 'Toggle fullscreen task'], ['N', 'Edit notes'], ['M', 'Move task to a list'], ['⌘L / ⇧B', 'Set / clear label'], ['D / ⇧D', 'Set / clear due date'],
+    ...(showTaskPriorities ? [['1 / 2 / 3 · 0', 'Set priority / clear priority'] as Hint] : []), ['F', 'Toggle fullscreen task'], ['N', 'Edit notes'], ['M', 'Move task to a list'], ['⌘L / ⇧B', 'Set / clear label'], ['S', 'Snooze task'], ['D / ⇧D', 'Set / clear due date'],
     ['⌘O', 'Open task output or attachment'], ['⌫', 'Delete task or dismiss suggestion'], ['⌘V', 'Attach copied link or file path'], ['Esc', 'Return to task list'],
     ['A', 'Hand off task or focus its chat'], ['⇧A', 'Open task conversation in its channel'],
     ...(route.list === 'needs' ? [['Y', 'Accept suggestion'] as Hint] : []),
@@ -41,7 +41,7 @@ function contextFor(route: Route): Context {
   return { title: target?.closest('.ws-sidebar') ? 'Sidebar' : titles[route.view], hints, editing: false, dialog: false };
 }
 
-export function ShortcutHints({ route }: { route: Route }) {
+export function ShortcutHints({ route, showTaskPriorities = true }: { route: Route; showTaskPriorities?: boolean }) {
   const [context, setContext] = useState<Context | null>(null);
   useEffect(() => {
     let held: string | null = null;
@@ -52,7 +52,7 @@ export function ShortcutHints({ route }: { route: Route }) {
       event.stopImmediatePropagation();
       if (held !== null) return;
       held = event.code;
-      setContext(contextFor(route));
+      setContext(contextFor(route, showTaskPriorities));
     };
     const up = (event: KeyboardEvent) => {
       if (held !== null && (event.code === held || event.key === '§')) hide();
@@ -68,7 +68,7 @@ export function ShortcutHints({ route }: { route: Route }) {
       document.removeEventListener('visibilitychange', hide);
       hide();
     };
-  }, [route]);
+  }, [route, showTaskPriorities]);
   if (!context) return null;
   const global: Hint[] = context.dialog ? [] : [...(context.title !== 'Document workspace' ? [['⌘K', 'Search tasks and commands'] as Hint] : []), ['⌘N', route.view === 'group' ? 'New thread in this channel' : 'New task'], ['⌘,', 'Settings'], ...(!context.editing ? [
     ['⌘Z', 'Undo task action'] as Hint,

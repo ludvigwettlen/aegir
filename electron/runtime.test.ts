@@ -11,6 +11,8 @@ import { BrowserManager } from './browser.js';
 import { calendarMeeting } from './one-on-one-calendar.js';
 import { taskSourceKey } from './agent-tools.js';
 import type { Task } from '../shared/types.js';
+import { providerSetup } from '../shared/provider-setup.js';
+import { readDocument, saveDocument } from './documents.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
 
@@ -33,6 +35,52 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
 }
 
 describe('runtime', () => {
+  it('creates personal task documents without an agent run and retains them through handoff', async () => {
+    const { store, runtime, runs } = setup();
+    const task = store.createTask({ title: 'My writing task', notes: 'Draft first' });
+    const before = store.get('tasks', task.id)!;
+    const threads = store.threads();
+    const file = runtime.createTaskDocument(task.id, 'Draft');
+    const prepared = store.get('tasks', task.id)!;
+    expect(prepared).toMatchObject({ ...before, outputDir: expect.any(String), updatedAt: expect.any(String) });
+    expect(store.threads()).toEqual(threads);
+    expect(runs).toEqual([]);
+    expect(file).toEqual(readDocument(prepared.outputDir!, 'Draft.md'));
+    saveDocument(prepared.outputDir!, file.path, file.revision, '# My draft');
+    expect(() => runtime.createTaskDocument(task.id, 'Draft')).toThrow('already exists');
+    expect(() => runtime.createTaskDocument('missing', 'Draft')).toThrow('Task not found');
+    await runtime.handOff(task.id, 'Review my draft');
+    expect(store.get('tasks', task.id)?.outputDir).toBe(prepared.outputDir);
+    expect(readDocument(prepared.outputDir!, file.path).content).toBe('# My draft');
+    expect(runs.at(-1)?.cwd).toBe(prepared.outputDir);
+    const second = runtime.createTaskDocument(task.id, 'Another draft');
+    expect(second.path).toBe('Another draft.md');
+    expect(store.get('tasks', task.id)?.status).toBe('review');
+  });
+  it('preserves routines and Gmail/calendar while routing Legolas discovery and connections externally', async () => {
+    const { store, runtime, runs } = setup();
+    store.setSetting('providerSetup', JSON.stringify(providerSetup({ preset: 'legolas', brainDir: '/brain', brainId: 'host', sourceId: 'default' })));
+    const discovery = store.routines().find(r => r.id === store.getSetting('discoveryRoutineId'))!;
+    const routine = store.createRoutine({ name: 'My routine', instructions: 'Summarize context', agentId: discovery.agentId, schedule: { every: 'day' }, enabled: true });
+    store.db.prepare('UPDATE routines SET createdAt=?').run(new Date(Date.now() - 3 * 86400_000).toISOString());
+    const before = store.routines();
+    const gmail = vi.spyOn(runtime.gmail, 'tick').mockResolvedValue(undefined);
+    const calendar = vi.spyOn(runtime.oneOnOnes, 'tick').mockResolvedValue(undefined);
+    await expect(runtime.runRoutine(discovery.id, 'manual')).rejects.toThrow('external discovery');
+    expect(store.routines()).toEqual(before);
+    const run = vi.spyOn(runtime, 'runRoutine').mockResolvedValue(undefined);
+    runtime.tick();
+    expect(run).toHaveBeenCalledWith(routine.id, 'schedule');
+    expect(run).not.toHaveBeenCalledWith(discovery.id, expect.anything());
+    expect(gmail).toHaveBeenCalledOnce(); expect(calendar).toHaveBeenCalledOnce();
+    store.setSetting('setupAutomationPaused', 'true');
+    runtime.tick();
+    expect(gmail).toHaveBeenCalledOnce(); expect(run).toHaveBeenCalledOnce();
+    run.mockRestore();
+    await runtime.runRoutine(routine.id, 'manual');
+    expect(runs.at(-1)?.tools.some(t => t.name === 'slack__search')).toBe(false);
+    expect(runs.at(-1)?.tools.some(t => t.name.startsWith('memory__'))).toBe(true);
+  });
   it('publishes a skill review card in its source chat and includes the saved outcome in later context', async () => {
     let receipt: unknown;
     let proposed = false;
@@ -453,6 +501,21 @@ describe('runtime', () => {
     expect(run.tools.map(tool => tool.name)).not.toContain('slack__post');
   });
 
+  it('returns a reviewed task to Needs you after new agent work', async () => {
+    const { store, runtime } = setup(async () => {
+      expect(store.get('tasks', task.id)?.status).toBe('running');
+      return 'Updated proposal';
+    });
+    const task = store.createTask({ title: 'Review proposal' });
+    await runtime.handOff(task.id, 'Prepare the proposal');
+    const threadId = store.get('tasks', task.id)!.threadId!;
+    store.markTaskReviewed(task.id);
+    expect(store.get('tasks', task.id)?.status).toBe('ready');
+    await runtime.sendMessage(threadId, 'Please refine the proposal');
+    expect(store.get('tasks', task.id)).toMatchObject({ status: 'review', completedAt: null, threadId });
+    expect(store.messagesForThread(threadId).map(message => message.content)).toContain('Please refine the proposal');
+  });
+
   it('keeps a task running through a teammate contribution and shares its output folder', async () => {
     let teammate = '';
     const { store, runtime, runs } = setup(async (_input, _id) => {
@@ -834,4 +897,38 @@ it('persists attachment metadata and gives both the current run and follow-ups t
   expect(runs.at(-1)?.prompt).toContain(files[0].path);
   await runtime.sendMessage(thread.id, 'Compare those numbers again');
   expect(runs.at(-1)?.prompt).toContain(files[0].path);
+});
+
+describe('run approval lifecycle', () => {
+  // Pending connector approvals listen to this signal, so they expire with the run (see external-write.ts).
+  it('aborts a run signal when the user stops the run', async () => {
+    let signal: AbortSignal | undefined;
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      signal = rt.runSignal(id);
+      expect(signal?.aborted).toBe(false);
+      await rt.stopThread(rt.appThreadFor(id)!);
+      expect(signal?.aborted).toBe(true);
+      return 'Stopped';
+    });
+    const thread = store.createThread(store.groups()[0].id, 'Stop me');
+    await runtime.sendMessage(thread.id, 'Post to Slack');
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it.each(['chat', 'task', 'routine'] as const)('aborts the run signal when a %s run completes', async kind => {
+    let signal: AbortSignal | undefined;
+    let codexId = '';
+    const { store, runtime } = setup(async (_input, id, rt) => {
+      codexId = id;
+      signal = rt.runSignal(id);
+      return 'Done';
+    });
+    if (kind === 'routine') await runtime.runRoutine(store.routines()[0].id, 'manual');
+    else if (kind === 'task') await runtime.handOff(store.createTask({ title: 'Finish me' }).id, 'Research');
+    else await runtime.sendMessage(store.createThread(store.groups()[0].id, 'Finish me').id, 'Hello');
+    expect(signal).toBeDefined();
+    expect(signal!.aborted).toBe(true);
+    expect(runtime.runSignal(codexId)).toBeUndefined();
+  });
+
 });

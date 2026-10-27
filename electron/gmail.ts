@@ -1,3 +1,4 @@
+import { DraftSendQueue } from './draft-send-queue.js';
 import type { Store } from './db.js';
 import type { Tool } from './codex.js';
 import type { EmailDraft, EmailFields, GmailState } from '../shared/gmail.js';
@@ -19,6 +20,8 @@ export const gmailTools: Tool[] = [
 export class GmailService {
   private syncing = false;
   private stopped = false;
+  private queue = new DraftSendQueue<EmailDraft>(id => this.draft(id).draft, (id, draft) => this.save(id, draft));
+  get hasActiveWork() { return this.queue.size > 0 || this.sending.size > 0; }
   private lastAttempt = 0;
   private sending = new Set<string>();
   constructor(private store: Store, private review: Review, private refresh: () => void, private request: GmailRequest = gmailRequest) {
@@ -27,7 +30,8 @@ export class GmailService {
     const rows = store.db.prepare("SELECT id,meta FROM messages WHERE meta LIKE '%email-draft%'").all() as { id: string; meta: string }[];
     for (const row of rows) {
       const draft = JSON.parse(row.meta) as EmailDraft;
-      if (draft.type !== 'email-draft') continue;
+      if (draft.type !== 'email-draft' || draft.deliveryProvider === 'claude') continue;
+      if (draft.state === 'queued') this.save(row.id, { ...draft, state: 'draft', queuedUntil: undefined, error: 'Queued send cancelled when Aegir restarted.' });
       if (draft.state === 'sending') this.save(row.id, { ...draft, state: 'uncertain', error: 'Sending was interrupted. Check Gmail Sent before composing another email.' });
       if (draft.state === 'awaiting-approval') this.save(row.id, { ...draft, state: 'draft' });
     }
@@ -37,11 +41,11 @@ export class GmailService {
       lastSyncedAt: this.store.getSetting('gmailLastSync') || null, error: this.store.getSetting('gmailError') || '', summary: this.store.getSetting('gmailSummary') || '' };
   }
   async configure(account: string, email: string, enabled: boolean) {
-    if (this.syncing || this.sending.size) throw new Error('Wait for Gmail work to finish.');
+    if (this.syncing || this.hasActiveWork) throw new Error('Wait for Gmail work to finish.');
     if (typeof account !== 'string' || !/^[\w@.+-]{1,200}$/.test(account.trim()) || typeof email !== 'string' || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) || typeof enabled !== 'boolean') throw new Error('Enter a Composio account alias and your email address.');
     await this.verify(account.trim(), email.toLowerCase());
     this.assertActive();
-    if (this.syncing || this.sending.size) throw new Error('Wait for Gmail work to finish.');
+    if (this.syncing || this.hasActiveWork) throw new Error('Wait for Gmail work to finish.');
     this.store.setSetting('gmailAccount', account.trim()); this.store.setSetting('gmailEmail', email.toLowerCase());
     this.store.setSetting('gmailInboxEnabled', String(enabled)); this.store.deleteSetting('gmailError');
     this.store.deleteSetting('gmailLastSync'); this.lastAttempt = 0; this.refresh();
@@ -90,7 +94,7 @@ export class GmailService {
   }
   private draft(id: string) {
     this.assertActive(); const message = this.store.message(id);
-    if (message?.meta?.type !== 'email-draft') throw new Error('Email draft not found');
+    if ((message?.meta?.type !== 'email-draft' || message.meta.deliveryProvider === 'claude')) throw new Error('Email draft not found');
     return { message, draft: message.meta };
   }
   private save(id: string, draft: EmailDraft) { this.store.setMessageMeta(id, draft); this.refresh(); }
@@ -101,6 +105,16 @@ export class GmailService {
     if (next.subject !== draft.subject) { delete next.replyThreadId; delete next.inReplyTo; delete next.references; }
     this.save(id, next); return next;
   }
+  queueSend(id: string, revision: number, fields: EmailFields) {
+    const { draft } = this.draft(id);
+    const approved = cleanEmailFields(fields);
+    if (JSON.stringify(approved) !== JSON.stringify(cleanEmailFields(draft))) throw new Error('The displayed draft changed. Save and review it before sending.');
+    rawEmail(draft);
+    if (this.sending.has(id)) throw new Error('Draft is busy.');
+    return this.queue.queue(id, revision, () => this.send(id, revision, approved));
+  }
+  cancelSend(id: string, revision: number) { return this.queue.cancel(id, revision); }
+  markSentManually(id: string, revision: number) { if (this.sending.has(id)) throw new Error('Draft is busy.'); return this.queue.markSentManually(id, revision); }
   // Called ONLY by renderer IPC, never by a model tool. The explicit Send click approves the displayed revision and fields.
   async send(id: string, revision: number, approvedFields: EmailFields) {
     const { draft } = this.draft(id);
@@ -198,5 +212,5 @@ export class GmailService {
     if (this.stopped || !this.store.isOpen || !this.snapshot().enabled || this.syncing || Date.now() - this.lastAttempt < 15 * 60_000) return;
     try { await this.sync(); } catch { /* Visible in Gmail settings; retry after the interval. */ }
   }
-  stop() { this.stopped = true; }
+  stop() { this.queue.stop(); this.stopped = true; }
 }

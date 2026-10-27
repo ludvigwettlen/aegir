@@ -38,3 +38,39 @@
 @container (min-width: 760px) {
   .ws-document-viewport[data-companion-open="true"]:has(.ws-review-comments) > .ws-document-scroll { padding-left: 348px; }
 }
+
+/* Compact summary: title first, quiet properties, context on demand. */
+.ws-task-title-input { field-sizing: content; resize: none; overflow: hidden; min-height: 34px; display: block; }
+.ws-task-plain-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.ws-task-toolbar-properties { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ds-space-1); flex: none; max-width: 100%;
+  .ws-task-repeat-action { color: var(--ds-color-muted); }
+}
+.ws-detail-head > .ws-detail-top {
+  gap: var(--ds-space-3); -webkit-app-region: no-drag;
+  > .ws-task-repeat-action { margin-left: 0; color: var(--ds-color-muted); }
+}
+.ws-priority-control select { border-color: transparent; background: transparent; padding-block: 2px; cursor: pointer;
+  &:hover { border-color: var(--ds-color-line); }
+}
+.ws-task-notes-disclosure {
+  min-width: 0; font-size: calc(12px * var(--ds-text-scale));
+  summary { display: flex; align-items: center; gap: var(--ds-space-2); padding-block: var(--ds-space-2); cursor: pointer; color: var(--ds-color-muted); list-style: none;
+    &::-webkit-details-marker { display: none; }
+    > svg, > span:first-of-type { flex: none; }
+    &:hover { color: var(--ds-color-ink); }
+    &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; border-radius: var(--ds-radius-control); }
+  }
+  &[open] summary > svg { transform: rotate(90deg); }
+  &[open] .ws-task-notes-preview { visibility: hidden; }
+  .ws-task-notes-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-task-notes { margin-top: var(--ds-space-1); }
+}
+.ws-conversation-head:has(> .ws-detail-head) {
+  > .ws-conversation-actions { flex-wrap: wrap; gap: var(--ds-space-1); margin-bottom: var(--ds-space-3); color: var(--ds-color-muted);
+    > .ws-task-thread-link { flex: 1 1 64px; max-width: 100%; }
+  }
+  > .ws-detail-head { gap: var(--ds-space-2); padding-bottom: var(--ds-space-2); }
+  > .ws-document-preview { gap: 0; padding-bottom: var(--ds-space-3);
+    .ws-document-file-open { padding-block: var(--ds-space-1); }
+  }
+}

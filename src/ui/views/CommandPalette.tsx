@@ -1,3 +1,4 @@
+import { taskLabels } from '../../../shared/task-labels';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -38,7 +39,7 @@ const shortDate = (iso: string) => {
 };
 
 const factsOf = (task: Task, list: TaskView, taskLists: Snapshot['taskLists']) =>
-  [listInfo.get(list)?.title || taskLists.find(item => `list:${item.id}` === list)?.name || 'My list', task.label ? `#${task.label}` : '', task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean).join(' · ');
+  [listInfo.get(list)?.title || taskLists.find(item => `list:${item.id}` === list)?.name || 'My list', taskLabels(task).map(label => `#${label}`).join(' · '), task.dueAt ? shortDate(task.dueAt) : ''].filter(Boolean).join(' · ');
 
 // A task found by what was typed in ⌘K: the list it is on, its band, label and date, and the words around the match
 // when it was not in the title (who said them, for a conversation; the file, for a document). Choosing it opens that
@@ -63,6 +64,7 @@ function appCommands({ data, route, go, run, notify, onNewGroup, onNewList }: Pr
     keywords: ['list', 'jump', 'open', 'show'], run: () => goToList(go, list),
   }))];
   for (const list of data.taskLists) commands.push({ id: `go.list.${list.id}`, section: 'go', title: `Go to ${list.name}`, icon: Inbox, keywords: ['list', 'custom'], run: () => goToList(go, `list:${list.id}`) });
+  for (const view of data.taskViews ?? []) commands.push({ id: `go.view.${view.id}`, section: 'go', title: `Go to ${view.name}`, keywords: ['filtered', 'view'], run: () => goToList(go, `view:${view.id}`) });
   for (const group of data.groups) {
     const agent = data.agents.find((item) => item.id === group.leadAgentId);
     commands.push(group.kind === 'group'

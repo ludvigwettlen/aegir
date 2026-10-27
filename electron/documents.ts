@@ -6,6 +6,23 @@ import type { WorkspaceDocument, WorkspaceDocumentEntry } from '../shared/docume
 const MAX_BYTES = 2 * 1024 * 1024;
 const revision = (text: string) => createHash('sha256').update(text).digest('hex');
 
+/** Create only a direct child of the workspace, exclusively: never overwrite an existing file or link. */
+export function createDocument(root: string, name: string): WorkspaceDocument {
+  if (typeof name !== 'string') throw new Error('Enter a Markdown filename');
+  name = name.trim();
+  if (!name || name.startsWith('.') || /[/\\:\x00-\x1f\x7f]/.test(name))
+    throw new Error('Enter a filename without folders or special characters');
+  if (!/\.(md|markdown)$/i.test(name)) name += '.md';
+  if (Buffer.byteLength(name, 'utf8') > 240) throw new Error('Choose a shorter filename');
+  try {
+    writeFileSync(join(realpathSync(root), name), '', { flag: 'wx' });
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('A file with this name already exists. Choose another name.');
+    throw cause;
+  }
+  return { path: name, content: '', revision: revision('') };
+}
+
 /** Resolve within the agent's working directory; never follow file or directory symlinks. */
 export function workspaceFile(root: string, reference: string): string {
   if (typeof reference !== 'string' || !reference || reference.includes('\0')) throw new Error('Choose a workspace file');

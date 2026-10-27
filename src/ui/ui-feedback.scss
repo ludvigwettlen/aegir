@@ -1,3 +1,6 @@
+/* Portaled feedback controls stay above panes and outside native window drag regions. */
+[data-ui-feedback] { font-family: var(--ds-font-body); -webkit-app-region: no-drag; }
+.ui-feedback-picking .ws-shell, .ui-feedback-picking .ws-shell * { -webkit-app-region: no-drag !important; }
 .ws-sidebar { padding-bottom: 76px; }
 .ui-feedback-launcher { position: fixed; z-index: 71; bottom: 16px; left: 16px; -webkit-app-region: no-drag; }
 .ui-feedback-shield { position: fixed; z-index: 70; inset: 0; cursor: crosshair; -webkit-app-region: no-drag; }

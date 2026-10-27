@@ -1,3 +1,5 @@
+import { readTaskViews, validateTaskView } from '../shared/task-filters.js';
+import { normalizeLabels, taskLabels } from '../shared/task-labels.js';
 import { conversationQuery, snippetFor } from '../shared/task-search.js';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
@@ -26,7 +28,7 @@ import type {
 import { defaultAgents, legacyAgents } from './default-agents.js';
 import { discoveryInstructions, discoveryPolicy, legacyDiscoveryOpening } from './task-discovery.js';
 export { discoveryInstructions } from './task-discovery.js';
-import { isoDate, nextTaskDue, validTaskDate, validateTaskRecurrence } from '../shared/tasks.js';
+import { canMarkTaskReviewed, isoDate, nextTaskDue, validTaskDate, validateTaskRecurrence } from '../shared/tasks.js';
 import { normalizeTaskAttachment } from '../shared/task-links.js';
 import type { SkillProposal } from '../shared/skills.js';
 
@@ -261,6 +263,12 @@ export class Store {
     add('tasks', 'label', 'TEXT');
     add('tasks', 'priority', 'INTEGER');
     add('tasks', 'dueAt', 'TEXT');
+    add('tasks', 'snoozedUntil', 'TEXT');
+    if (!this.columns('tasks').includes('labels')) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN labels TEXT");
+      for (const row of this.db.prepare('SELECT id,label FROM tasks').all() as { id: string; label: string | null }[])
+        this.db.prepare('UPDATE tasks SET labels=? WHERE id=?').run(JSON.stringify(row.label ? [row.label] : []), row.id);
+    }
     add('tasks', 'threadId', 'TEXT');
     add('tasks', 'outputDir', 'TEXT');
     add('tasks', 'completedAt', 'TEXT');
@@ -372,10 +380,16 @@ export class Store {
   }
   list<K extends 'agents' | 'tasks'>(table: K): Tables[K][] {
     const order = table === 'agents' ? 'createdAt ASC' : 'createdAt DESC';
-    return this.db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Tables[K][];
+    const rows = this.db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Tables[K][];
+    return table === 'tasks' ? rows.map(row => this.decodeTask(row as Task)) as Tables[K][] : rows;
   }
   get<K extends keyof Tables>(table: K, id: string): Tables[K] | undefined {
-    return this.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id) as Tables[K] | undefined;
+    const row = this.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id) as Tables[K] | undefined;
+    return row && table === 'tasks' ? this.decodeTask(row as Task) as Tables[K] : row;
+  }
+  private decodeTask(row: Task): Task {
+    const raw = row.labels as unknown;
+    return { ...row, labels: typeof raw === 'string' ? JSON.parse(raw) : taskLabels(row) };
   }
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Agent {
     const row: Agent = { id: randomUUID(), ...input, createdAt: now() };
@@ -600,6 +614,15 @@ export class Store {
     if (id !== null && (typeof id !== 'string' || !this.db.prepare('SELECT id FROM task_lists WHERE id=?').get(id)))
       throw new Error('Task list not found');
   }
+  taskViews() { return readTaskViews(this.getSetting('taskViews')); }
+  saveTaskView(input: unknown) {
+    const view = validateTaskView(input);
+    if (view.scope.startsWith('list:') && !this.taskLists().some(list => list.id === view.scope.slice(5))) throw new Error('The selected list no longer exists.');
+    const views = this.taskViews();
+    if (views.length >= 100 && !views.some(item => item.id === view.id)) throw new Error('You can save up to 100 filtered views.');
+    this.setSetting('taskViews', JSON.stringify([...views.filter(item => item.id !== view.id), view]));
+  }
+  deleteTaskView(id: string) { this.setSetting('taskViews', JSON.stringify(this.taskViews().filter(view => view.id !== id))); }
   createTaskList(name: string): TaskList {
     const list = { id: randomUUID(), name: this.taskListName(name), createdAt: now() };
     this.db.prepare('INSERT INTO task_lists(id,name,createdAt) VALUES (@id,@name,@createdAt)').run(list);
@@ -630,6 +653,7 @@ export class Store {
     title: string;
     notes?: string;
     label?: string | null;
+    labels?: string[];
     dueAt?: string | null;
     recurrence?: Task['recurrence'];
     listId?: string | null;
@@ -643,13 +667,16 @@ export class Store {
     validateTaskRecurrence(input.recurrence ?? null);
     const dueAt = input.dueAt || (input.recurrence ? isoDate(new Date()) : null);
     if (input.recurrence && !validTaskDate(dueAt!)) throw new Error('A repeating task needs a valid due date');
+    const labels = normalizeLabels(input.labels ?? (input.label ? [input.label] : []));
     const row: Task = {
       id: randomUUID(),
       title,
       notes: input.notes?.trim() || '',
-      label: input.label || null,
+      label: labels[0] ?? null,
+      labels,
       priority: null,
       dueAt,
+      snoozedUntil: null,
       recurrence: input.recurrence ?? null,
       recurrenceAnchor: input.recurrence ? dueAt : null,
       nextOccurrenceId: null,
@@ -666,9 +693,9 @@ export class Store {
     };
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO tasks(id,title,notes,label,priority,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@priority,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)',
+        'INSERT OR IGNORE INTO tasks(id,title,notes,label,labels,priority,dueAt,snoozedUntil,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@labels,@priority,@dueAt,@snoozedUntil,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)',
       )
-      .run(row);
+      .run({ ...row, labels: JSON.stringify(labels) });
     if (undoable) this.rememberTaskAction({ kind: 'created', taskId: row.id });
     return row;
   }
@@ -680,9 +707,14 @@ export class Store {
   ) {
     const row = this.get('tasks', id);
     if (!row) throw new Error('Task not found');
+    if ('snoozedUntil' in change && change.snoozedUntil !== null) {
+      if (typeof change.snoozedUntil !== 'string' || !validTaskDate(change.snoozedUntil) || (generateOccurrence && change.snoozedUntil <= isoDate(new Date()))) throw new Error('Choose a future date to snooze until.');
+      if (!['ready', 'review', 'blocked'].includes(row.status)) throw new Error('Only pending tasks can be snoozed.');
+    }
     if ('priority' in change && change.priority !== null && ![1, 2, 3].includes(change.priority as number)) throw new Error('Choose P1, P2, P3 or no priority');
     if ('listId' in change) this.validateTaskList(change.listId as string | null);
-    const next = { ...row, ...change, updatedAt: now() };
+    const labels = 'labels' in change ? normalizeLabels(change.labels) : 'label' in change ? normalizeLabels(change.label ? [change.label, ...taskLabels(row).slice(1)] : []) : taskLabels(row);
+    const next = { ...row, ...change, label: labels[0] ?? null, labels, updatedAt: now() };
     validateTaskRecurrence(next.recurrence ?? null);
     if (next.recurrence) {
       if (change.dueAt === null && row.recurrence) throw new Error('Turn off repetition before clearing the due date');
@@ -700,11 +732,11 @@ export class Store {
     this.db.transaction(() => {
       this.db
         .prepare(
-          'UPDATE tasks SET title=@title,notes=@notes,label=@label,priority=@priority,dueAt=@dueAt,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt,recurrence=@recurrence,recurrenceAnchor=@recurrenceAnchor WHERE id=@id',
+          'UPDATE tasks SET title=@title,notes=@notes,label=@label,labels=@labels,priority=@priority,dueAt=@dueAt,snoozedUntil=@snoozedUntil,listId=@listId,status=@status,agentId=@agentId,threadId=@threadId,outputDir=@outputDir,updatedAt=@updatedAt,completedAt=@completedAt,recurrence=@recurrence,recurrenceAnchor=@recurrenceAnchor WHERE id=@id',
         )
-        .run(next);
+        .run({ ...next, labels: JSON.stringify(next.labels) });
       if (generateOccurrence && next.status === 'done' && row.status !== 'done' && next.recurrence && !row.nextOccurrenceId) {
-        occurrence = this.createTask({ title: next.title, notes: next.notes, label: next.label,
+        occurrence = this.createTask({ title: next.title, notes: next.notes, label: next.label, labels: next.labels,
           listId: next.listId, sourceUrl: next.sourceUrl, recurrence: next.recurrence,
           dueAt: nextTaskDue(next.dueAt!, next.recurrence, new Date(), next.recurrenceAnchor!),
         });
@@ -725,9 +757,15 @@ export class Store {
           .run(next.title.slice(0, 120), next.updatedAt, next.threadId);
     })();
     if (undoable) {
-      const fields = ([...new Set([...Object.keys(change), 'dueAt'])] as (keyof TaskChange)[]).filter(field => row[field] !== next[field]);
+      const fields = ([...new Set([...Object.keys(change), 'dueAt', 'label', 'labels'])] as (keyof TaskChange)[]).filter(field => JSON.stringify(row[field]) !== JSON.stringify(next[field]));
       if (fields.length) this.rememberTaskAction({ kind: 'updated', before: row, after: next, fields, occurrence, occurrenceLinks });
     }
+  }
+  markTaskReviewed(id: string) {
+    const task = this.get('tasks', id);
+    if (!task) throw new Error('Task not found');
+    if (!canMarkTaskReviewed(task)) throw new Error('This task is no longer waiting for your review');
+    this.updateTask(id, { status: 'ready' }, true);
   }
   deleteTask(id: string, undoable = false) {
     const task = this.get('tasks', id);
@@ -754,7 +792,7 @@ export class Store {
       ? this.db.prepare('SELECT * FROM task_links WHERE taskId=? ORDER BY createdAt').all(taskId) as TaskLink[]
       : this.db.prepare('SELECT * FROM task_links ORDER BY createdAt').all() as TaskLink[];
   }
-  addTaskLink(taskId: string, value: string): TaskLink {
+  addTaskLink(taskId: string, value: string, undoable = true): TaskLink {
     if (!this.get('tasks', taskId)) throw new Error('Task not found');
     const latest = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) || '';
     const url = normalizeTaskAttachment(latest, homedir());
@@ -766,7 +804,7 @@ export class Store {
       this.db.prepare('DELETE FROM task_links WHERE taskId=?').run(taskId);
       this.insertTaskLink(link);
     })();
-    this.rememberTaskAction({ kind: 'link-added', link, previous });
+    if (undoable) this.rememberTaskAction({ kind: 'link-added', link, previous });
     return link;
   }
   private insertTaskLink(link: TaskLink) {
@@ -795,12 +833,12 @@ export class Store {
       const current = this.get('tasks', action.before.id);
       if (!current) throw new Error('The task has changed since this action');
       for (const field of action.fields)
-        if (current[field] !== action.after[field]) throw new Error('The task has changed since this action');
+        if (JSON.stringify(current[field]) !== JSON.stringify(action.after[field])) throw new Error('The task has changed since this action');
       const previous = Object.fromEntries(action.fields.map(field => [field, action.before[field]])) as TaskChange;
       if (action.occurrence) {
         const occurrence = this.get('tasks', action.occurrence.id);
         // Never delete work that has been edited, delegated, or completed since it was generated.
-        if (!occurrence || Object.entries(action.occurrence).some(([key, value]) => key !== 'updatedAt' && occurrence[key as keyof Task] !== value)
+        if (!occurrence || Object.entries(action.occurrence).some(([key, value]) => key !== 'updatedAt' && JSON.stringify(occurrence[key as keyof Task]) !== JSON.stringify(value))
           || JSON.stringify(this.taskLinks(occurrence.id)) !== JSON.stringify(action.occurrenceLinks))
           throw new Error('The next occurrence has changed; undo its changes before undoing completion');
       }
@@ -818,7 +856,7 @@ export class Store {
       label = 'task edit';
     } else if (action.kind === 'deleted') {
       this.db.transaction(() => {
-        this.db.prepare('INSERT INTO tasks(id,title,notes,label,priority,dueAt,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@priority,@dueAt,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)').run(action.task);
+        this.db.prepare('INSERT INTO tasks(id,title,notes,label,labels,priority,dueAt,snoozedUntil,listId,status,agentId,threadId,outputDir,sourceUrl,sourceKey,createdAt,updatedAt,completedAt,recurrence,recurrenceAnchor,nextOccurrenceId) VALUES (@id,@title,@notes,@label,@labels,@priority,@dueAt,@snoozedUntil,@listId,@status,@agentId,@threadId,@outputDir,@sourceUrl,@sourceKey,@createdAt,@updatedAt,@completedAt,@recurrence,@recurrenceAnchor,@nextOccurrenceId)').run({ ...action.task, labels: JSON.stringify(taskLabels(action.task)) });
         if (action.thread) {
           this.db.prepare('INSERT INTO threads(id,groupId,title,kind,taskId,status,createdAt,updatedAt) VALUES (@id,@groupId,@title,@kind,@taskId,@status,@createdAt,@updatedAt)').run(action.thread);
           for (const message of action.messages)

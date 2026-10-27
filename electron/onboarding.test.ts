@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initializeOnboarding, OnboardingService } from './onboarding.js';
 import type { CodexProvider } from './codex.js';
 import type { installDependency } from './setup-install.js';
+import { defaultProviderSetup } from '../shared/provider-setup.js';
 
 const services: OnboardingService[] = [];
 afterEach(() => { services.forEach(service => service.close()); services.length = 0; });
@@ -10,6 +11,8 @@ function fixture(options: { existing?: boolean; loggedIn?: boolean; memory?: boo
   const values = new Map<string, string>();
   const settings = { getSetting: (key: string) => values.get(key), setSetting: (key: string, value: string) => { values.set(key, value); } };
   initializeOnboarding(settings, options.existing || false);
+  // These checks exercise the Codex steps after an explicit setup selection.
+  settings.setSetting('providerSetup', JSON.stringify(defaultProviderSetup()));
   const codex = Object.assign(new EventEmitter(), {
     readAccount: vi.fn(async () => ({ account: options.loggedIn ? { type: 'chatgpt', email: 'tester@example.com' } : null, requiresOpenaiAuth: true })),
     checkModelAccess: vi.fn(async () => {}), close: vi.fn(),

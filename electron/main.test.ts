@@ -10,6 +10,11 @@ const fixture = vi.hoisted(() => ({
   connectors: null as unknown as EventEmitter,
   send: vi.fn(),
   started: vi.fn(),
+  toolHandler: null as any,
+  context: null as any,
+  controller: null as AbortController | null,
+  handlers: new Map<string, (...args: any[]) => any>(),
+  call: vi.fn(async () => ({ saved: true })),
 }));
 
 vi.mock('electron', async () => {
@@ -20,6 +25,7 @@ vi.mock('electron', async () => {
   fixture.root = mkdtempSync(join(tmpdir(), 'aegir-main-test-'));
   fixture.app = Object.assign(new EventEmitter(), {
     getPath: () => fixture.root,
+    getAppPath: () => fixture.root,
     requestSingleInstanceLock: () => true,
     whenReady: () => Promise.resolve(),
     getLoginItemSettings: () => ({}),
@@ -35,7 +41,7 @@ vi.mock('electron', async () => {
   class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} }
   return {
     app: fixture.app, BrowserWindow, Tray, nativeTheme: Object.assign(new EventEmitter(), { prefersReducedTransparency: false }),
-    ipcMain: { handle: vi.fn() }, powerMonitor: new EventEmitter(),
+    ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => fixture.handlers.set(name, handler) }, powerMonitor: new EventEmitter(),
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
     nativeImage: { createFromDataURL: () => ({}) }, clipboard: {}, dialog: {}, shell: {},
   };
@@ -44,8 +50,9 @@ vi.mock('./codex.js', async () => {
   const { EventEmitter } = await import('node:events');
   return { CodexProvider: class extends EventEmitter {
     constructor() { super(); fixture.codex = this; }
-    setToolHandler() {}
+    setToolHandler(handler: any) { fixture.toolHandler = handler; }
     async start() { fixture.started(); }
+    resolveApproval() {}
     close() { this.emit('status'); } // A synchronous status during teardown.
   } };
 });
@@ -57,10 +64,18 @@ vi.mock('./connectors.js', async () => {
     composioConfigured() { return false; }
     slackConfigured() { return false; }
     start() {}
+    toolInfo() { return { readOnly: false }; }
+    call(...args: any[]) { return fixture.call(); }
     close() { this.emit('change'); }
   } };
 });
-vi.mock('./runtime.js', () => ({ Runtime: class { start() {} stop() {} } }));
+vi.mock('./runtime.js', () => ({ Runtime: class {
+  start() {} stop() {}
+  logToolCall() {} logToolResult() {}
+  async handleInternalTool() { return undefined; }
+  contextFor() { return fixture.context; }
+  runSignal() { return fixture.controller?.signal; }
+} }));
 vi.mock('./memory.js', () => ({ MemoryService: class { async migrateLegacy() {} } }));
 
 afterEach(() => {
@@ -74,11 +89,35 @@ describe('application shutdown', () => {
     const reads = vi.spyOn(Store.prototype, 'list');
     const close = vi.spyOn(Store.prototype, 'close');
     await import('./main.js');
-    await vi.waitFor(() => expect(fixture.started).toHaveBeenCalled());
+    await vi.waitFor(() => expect(fixture.codex).toBeTruthy());
+    expect(fixture.started).not.toHaveBeenCalled(); // Fresh installs require a setup choice.
     fixture.codex.emit('status');
     fixture.connectors.emit('change');
     expect(reads).toHaveBeenCalled();
     expect(fixture.send).toHaveBeenCalledWith('app-event', expect.objectContaining({ type: 'snapshot' }));
+    // Exercise the actual main-process approval surface and connector dispatcher.
+    for (const end of ['stop', 'complete', 'replace', 'approve'] as const) {
+      fixture.context = { kind: 'chat' };
+      fixture.controller = new AbortController();
+      fixture.call.mockClear();
+      const pending = fixture.toolHandler('notion', 'update-page', {}, false, 'provider-thread');
+      const result = pending.then((value: unknown) => value, (error: Error) => error);
+      await vi.waitFor(() => expect(fixture.send.mock.calls.some(([, event]) => event.value?.approvals?.length)).toBe(true));
+      const snapshot = [...fixture.send.mock.calls].reverse().find(([, event]) => event.value?.approvals?.length)![1].value;
+      const id = snapshot.approvals[0].id;
+      if (end === 'stop') fixture.controller.abort();
+      if (end === 'complete') { fixture.context = null; fixture.controller.abort(); }
+      if (end === 'replace') fixture.context = { kind: 'chat' };
+      await fixture.handlers.get('resolve-approval')!({}, id, true);
+      if (end === 'approve') {
+        expect(await result).toEqual({ saved: true });
+        expect(fixture.call).toHaveBeenCalledTimes(1);
+      } else {
+        expect(await result).toBeInstanceOf(Error);
+        expect(fixture.call).not.toHaveBeenCalled();
+      }
+      fixture.send.mockClear();
+    }
     reads.mockClear();
     fixture.send.mockClear();
     fixture.app.emit('before-quit');

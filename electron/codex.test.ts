@@ -1,3 +1,4 @@
+import type { Approval } from '../shared/types.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CodexProvider } from './codex.js';
 import { mcpToolResult, toolResponse } from './tool-result.js';
@@ -45,4 +46,146 @@ describe('provider shutdown', () => {
     await expect(internal.handleServerRequest({ ...request, id: 2 })).resolves.toBeUndefined();
     expect(write).not.toHaveBeenCalled();
   });
+});
+
+describe('approval scope', () => {
+  function provider() {
+    const codex = new CodexProvider();
+    const internal = codex as unknown as {
+      child: { kill: () => void; stdin: { write: (data: string) => void } };
+      handleServerRequest: (message: unknown) => Promise<void>;
+      receive: (message: unknown) => void;
+    };
+    const write = vi.fn();
+    internal.child = { kill: vi.fn(), stdin: { write } };
+    const approvals: Approval[] = [];
+    codex.on('approval', (approval: Approval) => approvals.push(approval));
+    return { codex, internal, write, approvals };
+  }
+
+  // Regression: approving a permissions request grants every non-null profile entry for the turn.
+  // Each granted path, access level, the network state and the duration must be on the card.
+  it('shows every capability a permissions approval grants', async () => {
+    const { codex, internal, write, approvals } = provider();
+    const permissions = {
+      network: { enabled: true },
+      fileSystem: {
+        read: ['/Users/me/secrets'],
+        write: ['/Users/me/.ssh'],
+        entries: [
+          { path: { type: 'special', value: { kind: 'root' } }, access: 'write' },
+          { path: { type: 'glob_pattern', pattern: '/Users/me/**/*.env' }, access: 'read' },
+        ],
+      },
+    };
+    await internal.handleServerRequest({ id: 7, method: 'item/permissions/requestApproval', params: { threadId: 't', turnId: 'u', itemId: 'i', cwd: '/work', reason: 'Need to check a config file', permissions } });
+    const detail = approvals[0].detail;
+    codex.resolveApproval(approvals[0].id, true);
+    const granted = JSON.parse(write.mock.calls[0][0]).result;
+    expect(granted.scope).toBe('turn');
+    expect(detail).toMatch(/^Grant: .*rest of this turn/m);
+    expect(granted.permissions.network.enabled).toBe(true);
+    expect(detail).toMatch(/^Network: on$/m);
+    for (const path of granted.permissions.fileSystem.read) expect(detail.split('\n')).toContain(`Files: read ${path}`);
+    for (const path of granted.permissions.fileSystem.write) expect(detail.split('\n')).toContain(`Files: read and write ${path}`);
+    expect(granted.permissions.fileSystem.entries).toHaveLength(2);
+    expect(detail.split('\n')).toContain('Files: read and write the whole disk (/)');
+    expect(detail.split('\n')).toContain('Files: read /Users/me/**/*.env');
+    expect(detail).toContain('Why: Need to check a config file');
+  });
+
+  it('shows the command, folder, extra access and duration of a command approval', async () => {
+    const { internal, approvals } = provider();
+    await internal.handleServerRequest({ id: 8, method: 'item/commandExecution/requestApproval', params: {
+      threadId: 't', turnId: 'u', itemId: 'c', kind: 'command', command: 'npm publish', cwd: '/work', reason: 'Publishing',
+      additionalPermissions: { network: { enabled: true }, fileSystem: { read: null, write: ['/Users/me/.npmrc'] } },
+    } });
+    const lines = approvals[0].detail.split('\n');
+    expect(lines).toContain('Command: npm publish');
+    expect(lines).toContain('Runs in: /work');
+    expect(lines).toContain('Files: read and write /Users/me/.npmrc');
+    expect(lines).toContain('Network: on');
+    expect(lines).toContain('Grant: this command only');
+  });
+
+  it('says a plain command approval may leave the sandbox', async () => {
+    const { internal, approvals } = provider();
+    await internal.handleServerRequest({ id: 9, method: 'item/commandExecution/requestApproval', params: { threadId: 't', turnId: 'u', itemId: 'c', command: 'curl example.com' } });
+    expect(approvals[0].detail).toMatch(/^Network: may be open/m);
+  });
+
+  it('lists the files a file-change approval writes', async () => {
+    const { internal, approvals } = provider();
+    internal.receive({ method: 'item/started', params: { threadId: 't', item: { type: 'fileChange', id: 'f', changes: [
+      { path: '/work/a.md', kind: { type: 'add' }, diff: '' }, { path: '/Users/me/.zshrc', kind: { type: 'update', move_path: null }, diff: '' },
+    ] } } });
+    await internal.handleServerRequest({ id: 10, method: 'item/fileChange/requestApproval', params: { threadId: 't', turnId: 'u', itemId: 'f', grantRoot: '/Users/me' } });
+    const lines = approvals[0].detail.split('\n');
+    expect(lines).toContain('Files: add /work/a.md');
+    expect(lines).toContain('Files: update /Users/me/.zshrc');
+    expect(approvals[0].detail).toContain('/Users/me (not granted');
+    expect(lines).toContain('Network: none');
+    expect(lines).toContain('Grant: this change only');
+  });
+});
+
+describe('isolation from host Codex tools', () => {
+  // A fake app-server whose user config has a synthetic host write tool set to auto-approve.
+  function fakeServer(threadInventory: (config: Record<string, unknown>) => unknown[], nextCursor: string | null = null) {
+    const codex = new CodexProvider();
+    const internal = codex as unknown as { child: unknown; receive: (message: unknown) => void };
+    const requests: Array<{ method: string; params: any }> = [];
+    let threadConfig: Record<string, unknown> = {};
+    const reply = (id: number, result: unknown) => queueMicrotask(() => internal.receive({ id, result }));
+    internal.child = { kill: vi.fn(), stdin: { write: (data: string) => {
+      const message = JSON.parse(data);
+      requests.push(message);
+      if (message.id === undefined) return;
+      if (message.method === 'skills/list') reply(message.id, { data: [] });
+      else if (message.method === 'config/read') reply(message.id, { config: { mcp_servers: { hostwrite: { command: 'node', tools: { send_message: { approval_mode: 'approve' } } } } } });
+      else if (message.method === 'thread/start') { threadConfig = message.params.config; reply(message.id, { thread: { id: 'th1' } }); }
+      else if (message.method === 'thread/resume') { threadConfig = message.params.config; reply(message.id, { thread: { id: 'th1' } }); }
+      else if (message.method === 'mcpServerStatus/list') reply(message.id, { data: threadInventory(threadConfig), nextCursor });
+      else if (message.method === 'turn/start') {
+        reply(message.id, { turn: { id: 'tu1' } });
+        queueMicrotask(() => internal.receive({ method: 'turn/completed', params: { threadId: 'th1', turn: { status: 'completed', items: [{ type: 'agentMessage', text: 'Done' }] } } }));
+      }
+    } } };
+    return { codex, requests };
+  }
+  const input = { kind: 'routine' as const, cwd: '/tmp', instructions: 'Run', prompt: 'Go', tools: [], onDelta: () => {} };
+
+  it('disables every host MCP server, ChatGPT apps, plugins and hooks for the thread', async () => {
+    // Behaves like the real app-server: a disabled server is listed but serves no tools.
+    const { codex, requests } = fakeServer(config => [{ name: 'hostwrite', runtimeStatus: config['mcp_servers.hostwrite.enabled'] === false ? 'disabled' : 'connected', tools: config['mcp_servers.hostwrite.enabled'] === false ? {} : { send_message: {} } }]);
+    const result = await codex.run(input);
+    expect(result.status).toBe('completed');
+    const start = requests.find(request => request.method === 'thread/start')!;
+    expect(start.params.config).toMatchObject({ 'mcp_servers.hostwrite.enabled': false, 'features.apps': false, 'features.plugins': false, 'features.hooks': false });
+    expect(requests.find(request => request.method === 'mcpServerStatus/list')?.params.threadId).toBe('th1');
+  });
+
+  it('refuses to start a turn when the thread still has a host write tool', async () => {
+    const { codex, requests } = fakeServer(() => [{ name: 'codex_apps', runtimeStatus: 'connected', tools: { slack_send_message: {} } }]);
+    await expect(codex.run(input)).rejects.toThrow('codex_apps');
+    expect(requests.some(request => request.method === 'turn/start')).toBe(false);
+  });
+  it('applies isolation again before resuming a saved conversation', async () => {
+    const { codex, requests } = fakeServer(() => []);
+    await codex.run({ ...input, threadId: 'th1' });
+    expect(requests.find(request => request.method === 'thread/resume')?.params.config)
+      .toMatchObject({ 'mcp_servers.hostwrite.enabled': false, 'features.plugins': false });
+    expect(requests.some(request => request.method === 'thread/start')).toBe(false);
+  });
+
+  it('refuses to run when the effective inventory is missing or incomplete', async () => {
+    const missing = fakeServer(() => undefined as unknown as unknown[]);
+    await expect(missing.codex.run(input)).rejects.toThrow('did not report its tool inventory');
+    expect(missing.requests.some(request => request.method === 'turn/start')).toBe(false);
+    const incomplete = fakeServer(() => [], 'more');
+    await expect(incomplete.codex.run(input)).rejects.toThrow('page limit');
+    expect(incomplete.requests.filter(request => request.method === 'mcpServerStatus/list')).toHaveLength(10);
+    expect(incomplete.requests.some(request => request.method === 'turn/start')).toBe(false);
+  });
+
 });

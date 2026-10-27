@@ -3,7 +3,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and invokes scoped skills with recoverable drafts', async () => {
-  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } }, appType: 'custom' });
   server.middlewares.use('/task-commands', (_req, response) => {
     response.setHeader('Content-Type', 'text/html');
     response.end('<div id="root"></div><script type="module" src="/src/ui/testing/task-commands.tsx"></script>');
@@ -63,6 +63,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens the task conversation and i
     expect(await agentMessage.locator('.ws-copy-message').evaluate(element => getComputedStyle(element).justifyContent)).not.toBe('flex-end');
     await page.mouse.move(0, 0); await userCopy.focus();
     expect(await userCopy.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+    await page.locator('.ws-task-notes-disclosure > summary').click();
     const notes = page.getByRole('textbox', { name: 'Task notes' });
     expect(await notes.evaluate(element => Math.abs(element.getBoundingClientRect().width - (element.closest('.ws-task-detail')!.getBoundingClientRect().width - 41)) < 2)).toBe(true);
     await page.screenshot({ path: '/tmp/aegir-chat-controls.png' });

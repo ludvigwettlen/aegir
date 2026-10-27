@@ -1,5 +1,6 @@
+import { taskLabels } from './task-labels.js';
 import type { ContentMatch, Task } from './types.js';
-import { tasksFor, type TaskView } from './tasks.js';
+import { isTaskSnoozed, tasksFor, type TaskView } from './tasks.js';
 
 // ---- Find a task: one search across every list -----------------------------------------------
 // ⌘K and the sidebar's search bar use this. Every word typed must be somewhere in the task: its title, its label, its
@@ -34,6 +35,7 @@ const views: TaskView[] = ['today', 'upcoming', 'inbox', 'needs', 'team'];
 export function homeList(task: Task, today = new Date()): TaskView | null {
   if (task.status === 'dismissed') return null;
   if (task.status === 'done') return 'completed';
+  if (isTaskSnoozed(task, today)) return 'upcoming';
   if (['proposed', 'review', 'blocked'].includes(task.status)) return 'needs';
   if (task.listId) return `list:${task.listId}`;
   if (!task.dueAt) return 'inbox';
@@ -58,7 +60,7 @@ export function snippetFor(text: string, ...tokens: string[]) {
 const prepared = new WeakMap<Task, { title: string; label: string; notes: string }>();
 const textOf = (task: Task) => {
   let text = prepared.get(task);
-  if (!text) prepared.set(task, text = { title: fold(task.title), label: fold(task.label || ''), notes: fold(task.notes) });
+  if (!text) prepared.set(task, text = { title: fold(task.title), label: fold(taskLabels(task).join(' ')), notes: fold(task.notes) });
   return text;
 };
 
@@ -101,7 +103,7 @@ export function searchTasks(tasks: Task[], query: string, today = new Date(), li
       const word = raw.replace(/^#/, '');
       if (!word) continue;
       if (raw.startsWith('#')) {
-        if (label.startsWith(word)) { score += 3; continue; }
+        if (taskLabels(task).some(item => fold(item).startsWith(word))) { score += 3; continue; }
         all = false; break;
       }
       if (starts.get(raw)!.test(title)) score += 4;

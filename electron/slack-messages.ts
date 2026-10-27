@@ -1,3 +1,4 @@
+import { DraftSendQueue } from './draft-send-queue.js';
 import { randomUUID } from 'node:crypto';
 import type { Store } from './db.js';
 import type { Tool } from './codex.js';
@@ -15,16 +16,19 @@ export const slackMessageTools: Tool[] = [
 ];
 export class SlackMessages {
   private stopped = false;
+  private queue = new DraftSendQueue<SlackDraft>(id => this.draft(id).draft, (id, draft) => this.save(id, draft));
+  get hasActiveWork() { return this.queue.size > 0 || this.busy.size > 0; }
   private busy = new Set<string>();
   constructor(private store: Store, private refresh: () => void, private request: SlackRequest = slackRequest) {
     const rows = store.db.prepare("SELECT id,meta FROM messages WHERE meta LIKE '%slack-draft%'").all() as { id: string; meta: string }[];
     for (const row of rows) {
       const draft = JSON.parse(row.meta) as SlackDraft;
-      if (draft.type !== 'slack-draft') continue;
+      if (draft.type !== 'slack-draft' || draft.deliveryProvider === 'claude') continue;
       if (typeof draft.includeFooter !== 'boolean') {
         draft.includeFooter = draft.state === 'draft';
         this.save(row.id, draft);
       }
+      if (draft.state === 'queued') this.save(row.id, { ...draft, state: 'draft', queuedUntil: undefined, error: 'Queued send cancelled when Aegir restarted.' });
       if (draft.type === 'slack-draft' && draft.state === 'sending') this.save(row.id, { ...draft, state: 'uncertain', error: 'Sending was interrupted. Check Slack before composing another message.' });
     }
   }
@@ -99,7 +103,7 @@ export class SlackMessages {
   }
   private draft(id: string) {
     this.active(); const message = this.store.message(id);
-    if (message?.meta?.type !== 'slack-draft') throw new Error('Slack draft not found');
+    if ((message?.meta?.type !== 'slack-draft' || message.meta.deliveryProvider === 'claude')) throw new Error('Slack draft not found');
     return { message, draft: message.meta };
   }
   private save(id: string, draft: SlackDraft) { this.store.setMessageMeta(id, draft); this.refresh(); }
@@ -119,6 +123,16 @@ export class SlackMessages {
       this.save(id, next); return next;
     } finally { this.busy.delete(id); }
   }
+  queueSend(id: string, revision: number, fields: SlackFields) {
+    const { draft } = this.draft(id);
+    const approved = cleanSlackFields(fields);
+    if (JSON.stringify(approved) !== JSON.stringify(cleanSlackFields(draft))) throw new Error('The displayed draft changed. Save and review it before sending.');
+    if (!approved.text.trim()) throw new Error('Write a message before sending.'); slackMessagePayload(approved);
+    if (this.busy.has(id)) throw new Error('Draft is busy.');
+    return this.queue.queue(id, revision, () => this.send(id, revision, approved));
+  }
+  cancelSend(id: string, revision: number) { return this.queue.cancel(id, revision); }
+  markSentManually(id: string, revision: number) { if (this.busy.has(id)) throw new Error('Draft is busy.'); return this.queue.markSentManually(id, revision); }
   // Renderer IPC only. The explicit Send click authorizes this exact revision and displayed fields.
   async send(id: string, revision: number, approvedFields: SlackFields) {
     const { draft } = this.draft(id);
@@ -152,5 +166,5 @@ export class SlackMessages {
       throw error;
     } finally { this.busy.delete(id); }
   }
-  stop() { this.stopped = true; }
+  stop() { this.queue.stop(); this.stopped = true; }
 }

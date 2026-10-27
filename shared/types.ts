@@ -65,7 +65,9 @@ export type Task = {
   title: string;
   notes: string;
   label: string | null;
+  labels?: string[];
   dueAt: string | null;
+  snoozedUntil?: string | null;
   priority?: 1 | 2 | 3 | null;
   recurrence?: TaskRecurrence | null;
   recurrenceAnchor?: string | null;
@@ -108,6 +110,10 @@ export type RoutineRun = {
   startedAt: string;
   endedAt: string | null;
 };
+export type ClaudeRun = { startedAt: string; endedAt: string | null; status: 'completed' | 'failed' | 'needs_action' | 'unknown'; detail: string; needsAction: string | null };
+export type ClaudeRoutine = { id: string; name: string; description: string; schedule: string; cron: string | null; enabled: boolean; lastRunAt: string | null; runs: ClaudeRun[] };
+export type ClaudeRoutines = { tasks: ClaudeRoutine[]; source: string | null };
+export type RemindersState = { enabled: boolean; list: string; detail: string; syncing: boolean; lastSyncAt: string | null };
 export type RunEvent = {
   id: string;
   runId: string;
@@ -146,6 +152,8 @@ export type ThreadSummary = Thread & {
 };
 export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
+  reminders?: RemindersState;
+  brainBridge?: import('./brain-bridge.js').BrainBridgeState;
   onboarding?: import('./onboarding.js').OnboardingState;
   gmail?: import('./gmail.js').GmailState;
   oneOnOnes?: import('./one-on-ones.js').OneOnOneState;
@@ -154,6 +162,7 @@ export type Snapshot = {
   threads: ThreadSummary[];
   tasks: Task[];
   taskLists: TaskList[];
+  taskViews?: import('./task-filters.js').SavedTaskView[];
   taskLinks: TaskLink[];
   routines: Routine[];
   routineRuns: RoutineRun[];
@@ -165,6 +174,7 @@ export type Snapshot = {
   launchAtLogin: boolean;
   typography: Typography;
   browserReviewEnabled?: boolean;
+  showTaskPriorities?: boolean;
   browser: BrowserState;
   mcpSettings: { slackClientId: string; slackConfigured: boolean; composioConfigured?: boolean; composioSlackAccount?: string };
 };
@@ -174,11 +184,21 @@ export type AppEvent =
   | { type: 'snapshot'; value: Snapshot }
   | { type: 'message'; value: Message }
   | { type: 'run-event'; value: RunEvent };
-export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence' | 'priority'>>;
+export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence' | 'priority' | 'snoozedUntil' | 'labels'>>;
 
 export interface DesktopApi extends SkillsApi {
+  captureTask(text: string): Promise<{ title: string; notes: string; label: string | null; labels?: string[]; dueAt: string | null; recurrence?: TaskRecurrence }>;
+  claudeRoutines(): Promise<ClaudeRoutines>;
+  configureReminders(enabled: boolean, list: string): Promise<void>;
+  syncReminders(): Promise<void>;
   readonly windowVibrancy?: boolean;
   checkSetup(): Promise<import('./onboarding.js').OnboardingState>;
+  selectSetup(choice: import('./provider-setup.js').SetupChoice): Promise<import('./onboarding.js').OnboardingState>;
+  configureBrainBridge(value: import('./brain-bridge.js').BrainBridgeConfig): Promise<import('./brain-bridge.js').BrainBridgeState>;
+  runBrainBridge(): Promise<import('./brain-bridge.js').BrainBridgeState>;
+  chooseBridgeFolder(purpose: 'import' | 'export' | 'filing'): Promise<string | null>;
+  fileToBrain(workspaceId: string, path: string, kind: 'document' | 'attachment'): Promise<string>;
+  chooseBrainFolder(): Promise<string | null>;
   installSetupComponent(kind: 'codex' | 'memory'): Promise<import('./onboarding.js').OnboardingState>;
   signInCodex(): Promise<import('./onboarding.js').OnboardingState>;
   cancelCodexSignIn(): Promise<import('./onboarding.js').OnboardingState>;
@@ -190,9 +210,13 @@ export interface DesktopApi extends SkillsApi {
   configureGmail(account: string, email: string, enabled: boolean): Promise<void>;
   syncGmail(): Promise<void>;
   updateEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<import('./gmail.js').EmailDraft>;
+  cancelEmailDraft(id: string, revision: number): Promise<import('./gmail.js').EmailDraft>;
+  markEmailDraftSent(id: string, revision: number): Promise<import('./gmail.js').EmailDraft>;
   sendEmailDraft(id: string, revision: number, fields: import('./gmail.js').EmailFields): Promise<void>;
-  findSlackTargets(kind: 'people' | 'channels', query: string, cursor?: string): Promise<import('./slack-messages.js').SlackTargets>;
+  findSlackTargets(kind: 'people' | 'channels', query: string, cursor?: string, draftId?: string): Promise<import('./slack-messages.js').SlackTargets>;
   updateSlackDraft(id: string, revision: number, fields: import('./slack-messages.js').SlackFields): Promise<import('./slack-messages.js').SlackDraft>;
+  cancelSlackDraft(id: string, revision: number): Promise<import('./slack-messages.js').SlackDraft>;
+  markSlackDraftSent(id: string, revision: number): Promise<import('./slack-messages.js').SlackDraft>;
   sendSlackDraft(id: string, revision: number, fields: import('./slack-messages.js').SlackFields): Promise<void>;
   configureOneOnOnes(account: string, enabled: boolean): Promise<void>;
   syncOneOnOnes(): Promise<void>;
@@ -200,6 +224,8 @@ export interface DesktopApi extends SkillsApi {
   updateOneOnOne(id: string, change: { agenda?: string; hidden?: boolean }, expectedAgenda?: string): Promise<void>;
 
   listDocuments(threadId: string): Promise<import('./documents').WorkspaceDocumentEntry[]>;
+  /** Document APIs accept a task ID for personal tasks, or a conversation ID after handoff. */
+  createDocument(workspaceId: string, name: string): Promise<import('./documents').WorkspaceDocument>;
   readDocument(threadId: string, path: string): Promise<import('./documents').WorkspaceDocument>;
   readDocumentImage(threadId: string, path: string, src: string): Promise<string>;
   importDocumentImage(threadId: string, path: string, name: string, bytes: Uint8Array): Promise<string>;
@@ -219,9 +245,12 @@ export interface DesktopApi extends SkillsApi {
   importAttachment(threadId: string, name: string, bytes: Uint8Array): Promise<import('./attachments.js').Attachment>;
   openAttachment(threadId: string, path: string): Promise<void>;
   setBrowserReviewEnabled(enabled: boolean): Promise<void>;
+  setShowTaskPriorities(show: boolean): Promise<void>;
   reviewInBrowser(threadId: string, path: string): Promise<void>;
   stopThread(threadId: string): Promise<void>;
   closeThread(threadId: string): Promise<void>;
+  saveTaskView(view: import('./task-filters.js').SavedTaskView): Promise<void>;
+  deleteTaskView(id: string): Promise<void>;
   createTaskList(name: string): Promise<TaskList>;
   renameTaskList(id: string, name: string): Promise<void>;
   deleteTaskList(id: string): Promise<void>;
@@ -229,11 +258,13 @@ export interface DesktopApi extends SkillsApi {
     title: string;
     notes?: string;
     label?: string | null;
+    labels?: string[];
     dueAt?: string | null;
     recurrence?: TaskRecurrence | null;
     listId?: string | null;
   }): Promise<Task>;
   updateTask(taskId: string, change: TaskChange): Promise<void>;
+  markTaskReviewed(taskId: string): Promise<void>;
   deleteTask(taskId: string): Promise<void>;
   addTaskLink(taskId: string, url: string): Promise<TaskLink>;
   openTaskLink(linkId: string): Promise<void>;

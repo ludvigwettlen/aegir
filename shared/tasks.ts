@@ -1,3 +1,4 @@
+import { normalizeLabels } from './task-labels.js';
 import type { Task, TaskRecurrence } from './types.js';
 
 const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -15,7 +16,8 @@ export function parseDue(word: string, today: Date): string | null {
 }
 
 // "Summarise calls #customers fri" → title, label and due date. Only the first label and date are used.
-export function parseQuickAdd(text: string, today = new Date()): { title: string; label: string | null; dueAt: string | null; recurrence?: TaskRecurrence } {
+export function parseQuickAdd(text: string, today = new Date()): { title: string; label: string | null; dueAt: string | null; labels?: string[]; recurrence?: TaskRecurrence } {
+  const labels: string[] = [];
   let label: string | null = null; let dueAt: string | null = null;
   let recurrence: TaskRecurrence | undefined;
   const repeats: Record<string, TaskRecurrence> = { day: 'daily', weekday: 'weekdays', week: 'weekly', month: 'monthly' };
@@ -25,16 +27,16 @@ export function parseQuickAdd(text: string, today = new Date()): { title: string
   });
   const kept = text.trim().split(/\s+/).filter(token => {
     const tag = token.match(/^#([\w-]+)$/);
-    if (tag && !label) { label = tag[1].toLowerCase(); return false; }
+    if (tag) { labels.push(tag[1].toLowerCase()); label ??= tag[1].toLowerCase(); return false; }
     const due = dueAt ? null : parseDue(token, today);
     if (due) { dueAt = due; return false; }
     return true;
   });
-  return { title: kept.join(' '), label, dueAt: dueAt ?? (recurrence ? isoDate(today) : null), ...(recurrence ? { recurrence } : {}) };
+  return { title: kept.join(' '), label, ...(labels.length > 1 ? { labels: normalizeLabels(labels) } : {}), dueAt: dueAt ?? (recurrence ? isoDate(today) : null), ...(recurrence ? { recurrence } : {}) };
 }
 
-export type BuiltInTaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed';
-export type TaskView = BuiltInTaskView | `list:${string}`;
+export type BuiltInTaskView = 'inbox' | 'today' | 'upcoming' | 'team' | 'needs' | 'completed' | 'all';
+export type TaskView = BuiltInTaskView | `list:${string}` | `view:${string}`;
 export const customListId = (view: TaskView): string | null => view.startsWith('list:') ? view.slice(5) : null;
 
 // Keep selection near a removed task in the previous visible order.
@@ -50,18 +52,30 @@ export function taskCursor(order: string[], previousOrder: string[], selected?: 
   return order[0];
 }
 
+export function canMarkTaskReviewed(task: Pick<Task, 'status'>): boolean {
+  return task.status === 'review' || task.status === 'blocked';
+}
+
 // Needs you = suggested tasks, team work ready for review, and blocked team work. The team list = anything an agent has taken on.
 export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Task[] {
   const now = isoDate(today);
   if (view === 'completed') return tasks.filter(task => task.status === 'done').sort((a, b) => (b.completedAt || b.updatedAt).localeCompare(a.completedAt || a.updatedAt));
-  const open = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
+  const active = tasks.filter(task => task.status !== 'done' && task.status !== 'dismissed');
+  const snoozed = active.filter(task => isTaskSnoozed(task, today));
+  const open = active.filter(task => !isTaskSnoozed(task, today));
   const listId = customListId(view);
   if (listId) return open.filter(task => task.listId === listId);
+  if (view === 'all') return active;
+  if (view.startsWith('view:')) return [];
   if (view === 'inbox') return open.filter(task => !task.listId);
   if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
   if (view === 'team') return open.filter(task => task.threadId !== null);
   if (view === 'today') return open.filter(task => task.status !== 'proposed' && (task.dueAt ? task.dueAt <= now : !task.listId));
-  return open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now);
+  return [...snoozed, ...open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now)];
+}
+
+export function isTaskSnoozed(task: Pick<Task, 'snoozedUntil'>, today = new Date()): boolean {
+  return !!task.snoozedUntil && task.snoozedUntil > isoDate(today);
 }
 
 export const taskRecurrenceLabels: Record<TaskRecurrence, string> = {

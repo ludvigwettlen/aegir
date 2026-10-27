@@ -1,13 +1,14 @@
+import { BrainFileButton } from './BrainFileButton';
 import { attachmentLimits, type Attachment } from '../../../shared/attachments';
 import { SlackDraftCard } from './SlackDraftCard';
 import { EmailDraftCard } from './EmailDraftCard';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { DocumentFileLabel, DocumentPicker } from './DocumentFiles';
+import { CreateDocumentDialog, DocumentFileLabel, DocumentPicker } from './DocumentFiles';
 import { DocumentEditor, type DocumentEditorHandle } from './DocumentEditor';
 import { withDocumentReference, type DocumentReference, documentTitle, type WorkspaceDocument, type WorkspaceDocumentEntry } from '../../../shared/documents';
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
-import { ArrowDownRight, ChevronDown, FileText, MessageSquare, Paperclip, Repeat2, Send, Square, X } from 'lucide-react';
+import { ArrowDownRight, ChevronDown, FilePlus2, FileText, MessageSquare, Paperclip, Repeat2, Send, Square, X } from 'lucide-react';
 import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
@@ -32,6 +33,7 @@ export function ThreadView({
   run,
   header,
   leadingActions,
+  trailingActions,
   compact = false,
 }: {
   data: Snapshot;
@@ -40,6 +42,7 @@ export function ThreadView({
   run: Run;
   header?: ReactNode;
   leadingActions?: ReactNode;
+  trailingActions?: ReactNode;
   compact?: boolean;
 }) {
   const { messages, hasOlder, loading, loadOlder } = useThreadMessages(thread.id, run);
@@ -47,6 +50,7 @@ export function ThreadView({
   const [selection, setSelection] = useState<DocumentReference | null>(null);
   const [files, setFiles] = useState<WorkspaceDocumentEntry[]>([]);
   const [showFiles, setShowFiles] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [opening, setOpening] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -85,7 +89,11 @@ export function ThreadView({
       const file = await api.readDocument(thread.id, path);
       if (!active.current) return;
       setDocument(file); setSelection(null); setShowFiles(false);
-      requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]')?.focus());
+      requestAnimationFrame(() => {
+        const pane = workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]');
+        const emptyProse = !file.content.trim() && pane?.querySelector<HTMLElement>('.ws-document-prose[contenteditable="true"]');
+        (emptyProse || pane)?.focus({ preventScroll: true });
+      });
     } catch (cause) { if (active.current) setFileError(String(cause).replace(/^Error: /, '')); }
     finally { openingRef.current = false; if (active.current) setOpening(false); }
   };
@@ -98,6 +106,8 @@ export function ThreadView({
     });
   };
   const toggleFiles = () => { setShowFiles(true); void refreshFiles(); };
+  const startCreate = () => { setShowFiles(false); setShowCreate(true); };
+  const newDocument = thread.taskId && <Button variant="ghost" size="sm" disabled={opening} onClick={startCreate}><FilePlus2 size={14} aria-hidden="true" />New document</Button>;
   const busy =
     messages.some((message) => message.status === 'streaming') ||
     !!data.threads.find((item) => item.id === thread.id)?.busyAgentIds.length;
@@ -113,9 +123,9 @@ export function ThreadView({
     : <strong title={document?.path}>{document ? documentTitle(document.path) : ''}</strong>;
   return (
     <div ref={workspace} className={`ws-thread-workspace ${document ? 'document-open ws-document-first' : ''}`} data-chat-open={showChat}>
-      {!document && <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} /></div>
+      {!document && <div className="ws-conversation-head">{header}<div className="ws-conversation-actions">{leadingActions}{filePicker}{newDocument}<CopyChatButton key={thread.id} threadId={thread.id} disabled={!messages.length} iconOnly={compact} />{trailingActions}</div>
         {!!files.length && <div className="ws-document-preview" aria-label="Task documents">
-          {files.slice(0, 3).map(file => <Button key={file.path} variant="ghost" className="ws-document-file-open" aria-label={`Open ${file.path}`} disabled={opening} onClick={() => void openDocument(file.path)}><DocumentFileLabel file={file} /></Button>)}
+          {files.slice(0, 3).map(file => <Button key={file.path} variant="ghost" className="ws-document-file-open" aria-label={`Open ${file.path}`} disabled={opening} onClick={() => void openDocument(file.path)}><DocumentFileLabel file={file} compact={compact} /></Button>)}
           {files.length > 3 && <Button variant="ghost" size="sm" onClick={toggleFiles}>View all · {files.length} documents</Button>}
         </div>}
         {loadingFiles && !files.length && <p className="ws-document-list-status" role="status">Loading documents…</p>}
@@ -218,12 +228,22 @@ export function ThreadView({
             void (async () => { try { if (documentEditor.current && !await documentEditor.current.save()) return; await api.reviewInBrowser(thread.id, document.path); } catch (cause) { setFileError(String(cause)); } finally { setReviewing(false); } })();
           }}>{reviewing ? 'Starting review…' : 'Review in browser'}</Button>}
           workspaceHeader={{ title: documentTitleControl, backLabel: 'Back to list', busy: opening,
-            actions: <Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button> }} />
+            actions: <>{data.brainBridge?.filingEnabled && <BrainFileButton workspaceId={thread.id} path={document.path} kind="document" disabled={busy || opening} beforeFile={async () => !documentEditor.current || await documentEditor.current.save()} />}{newDocument}<Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button></> }} />
       </>}
       </div>
       {showFiles && <DocumentPicker files={files} loading={loadingFiles} error={fileError} opening={opening} threadId={thread.id} currentPath={document?.path}
+        onCreate={thread.taskId ? startCreate : undefined}
         onRetry={() => void refreshFiles()} onOpen={path => void openDocument(path)} onClose={() => setShowFiles(false)}
         onReturnFocus={() => (workspace.current?.querySelector<HTMLElement>('[data-document-files]') || workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]'))?.focus()} />}
+      {showCreate && <CreateDocumentDialog onClose={() => setShowCreate(false)}
+        onReturnFocus={() => (workspace.current?.querySelector<HTMLElement>('[data-document-files]') || workspace.current?.querySelector<HTMLElement>('[data-keyboard-pane="document"]'))?.focus()}
+        onCreate={async name => {
+        if (documentEditor.current && !await documentEditor.current.save()) throw new Error('Save the current document before creating another. Your edits are kept in the editor.');
+        const file = await api.createDocument(thread.id, name);
+        if (!active.current) return;
+        setDocument(file); setSelection(null); void refreshFiles();
+        requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>('.ws-document-prose[contenteditable="true"]')?.focus({ preventScroll: true }));
+      }} />}
     </div>
   );
 }
@@ -268,7 +288,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
             </span>
           )}
         </div>
-        {message.meta?.type === 'attachments' && <div className="ws-attachment-list" aria-label="Message attachments">{message.meta.files.map(file => <Button key={file.path} variant="ghost" size="sm" onClick={() => void run(() => api.openAttachment(message.threadId, file.path))}><Paperclip size={13} />{file.name} · {Math.ceil(file.size / 1024)} KB · Show in Finder</Button>)}</div>}
+        {message.meta?.type === 'attachments' && <div className="ws-attachment-list" aria-label="Message attachments">{message.meta.files.map(file => <span key={file.path}><Button variant="ghost" size="sm" onClick={() => void run(() => api.openAttachment(message.threadId, file.path))}><Paperclip size={13} />{file.name} · {Math.ceil(file.size / 1024)} KB · Show in Finder</Button>{data.brainBridge?.filingEnabled && <BrainFileButton workspaceId={message.threadId} path={file.path} kind="attachment" />}</span>)}</div>}
         <CopyMessageButton content={message.content} />
       </div>
     </article>

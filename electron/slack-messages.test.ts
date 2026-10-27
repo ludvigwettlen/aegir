@@ -123,3 +123,18 @@ describe('Slack message drafts', () => {
     expect(request.mock.calls.at(-1)?.[2]).toMatchObject({ cursor: 'next-page' });
   });
 });
+
+it('queues Slack delivery for five seconds and preserves the reviewed fields through Undo', async () => {
+  const { service, store, draft, request } = setup(), id = await draft(); vi.useFakeTimers();
+  try {
+    service.queueSend(id, 1, fields);
+    await expect(service.update(id, 1, { ...fields, text: 'Changed' })).rejects.toThrow();
+    expect(() => service.markSentManually(id, 1)).toThrow();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(request.mock.calls.filter(c => c[1] === 'chat.postMessage')).toHaveLength(0);
+    service.cancelSend(id, 1); expect(store.message(id)?.meta).toMatchObject({ state: 'draft', text: fields.text });
+    service.queueSend(id, 1, fields); await vi.advanceTimersByTimeAsync(5000);
+    expect(store.message(id)?.meta).toMatchObject({ state: 'sent' });
+    expect(request.mock.calls.filter(c => c[1] === 'chat.postMessage')).toHaveLength(1);
+  } finally { vi.useRealTimers(); }
+});

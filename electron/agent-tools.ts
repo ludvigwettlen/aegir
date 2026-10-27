@@ -1,3 +1,4 @@
+import { normalizeLabels } from '../shared/task-labels.js';
 import { createHash } from 'node:crypto';
 import type { Agent, Routine, RoutineChange, Task, TaskChange } from '../shared/types.js';
 import type { Tool } from './codex.js';
@@ -46,6 +47,7 @@ export const taskProposalTools: Tool[] = [
         title: { type: 'string', minLength: 1, maxLength: 240 },
         notes: { type: 'string' },
         label: { type: ['string', 'null'] },
+        labels: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 20 },
         dueAt: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null to clear' },
       }, minProperties: 1, additionalProperties: false },
     }, required: ['id', 'change'], additionalProperties: false },
@@ -67,7 +69,7 @@ export function cleanTaskProposalChange(value: unknown): TaskChange {
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
   if (!keys.length) throw new Error('The proposal change is empty');
-  if (keys.some(key => !['title', 'notes', 'label', 'dueAt'].includes(key))) throw new Error('Unsupported proposal field');
+  if (keys.some(key => !['title', 'notes', 'label', 'labels', 'dueAt'].includes(key))) throw new Error('Unsupported proposal field');
   const change: TaskChange = {};
   if ('title' in input) {
     if (typeof input.title !== 'string' || !input.title.trim() || input.title.trim().length > 240) throw new Error('A proposal title must be 1–240 characters');
@@ -81,6 +83,7 @@ export function cleanTaskProposalChange(value: unknown): TaskChange {
     if (input.label !== null && typeof input.label !== 'string') throw new Error('Proposal label must be text or null');
     change.label = input.label?.trim().replace(/^#/, '').toLowerCase() || null;
   }
+  if ('labels' in input) change.labels = normalizeLabels(input.labels);
   if ('dueAt' in input) {
     if (input.dueAt !== null && (typeof input.dueAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.dueAt)
       || !Number.isFinite(Date.parse(input.dueAt)) || new Date(input.dueAt).toISOString().slice(0, 10) !== input.dueAt))
@@ -93,7 +96,7 @@ export function cleanTaskProposalChange(value: unknown): TaskChange {
 export const suggestTaskTool: Tool = {
   name: 'tasks__suggest',
   description: 'Suggest a task to the user. It appears under Needs you until they accept or dismiss it. Requires primary-source evidence of personal ownership and a new actionable request. Never suggest routine Slack reply/read/acknowledgement reminders; Slack already handles unread conversations. A substantive obligation originating in Slack must be titled for its actual outcome, not replying to a person. An independent review checks relevance and all existing task statuses before saving; created=false means nothing was saved.',
-  inputSchema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, sourceUrl: { type: 'string' }, label: { type: 'string' }, ownershipEvidence: { type: 'string', description: 'Evidence identifying the user and their explicit personal obligation, not team ownership.' }, sourceEvidence: { type: 'string', description: 'Concise factual excerpt or paraphrase from the current primary source you read.' }, freshnessEvidence: { type: 'string', description: 'Dated new request or material change; explain any resurfacing after completion or dismissal.' } }, required: ['title', 'sourceUrl', 'ownershipEvidence', 'sourceEvidence', 'freshnessEvidence'] },
+  inputSchema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, sourceUrl: { type: 'string' }, label: { type: 'string' }, labels: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 20 }, ownershipEvidence: { type: 'string', description: 'Evidence identifying the user and their explicit personal obligation, not team ownership.' }, sourceEvidence: { type: 'string', description: 'Concise factual excerpt or paraphrase from the current primary source you read.' }, freshnessEvidence: { type: 'string', description: 'Dated new request or material change; explain any resurfacing after completion or dismissal.' } }, required: ['title', 'sourceUrl', 'ownershipEvidence', 'sourceEvidence', 'freshnessEvidence'] },
   readOnly: false
 };
 

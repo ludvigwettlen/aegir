@@ -3,7 +3,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
 it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates and edits repetition with loading, failure, keyboard and compact states', async () => {
-  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, appType: 'custom' });
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**', '**/release/**/*.tmp/**'] } }, appType: 'custom' });
   server.middlewares.use('/task-recurrence', (_req, response) => {
     response.setHeader('Content-Type', 'text/html');
     response.end('<div id="root"></div><script type="module" src="/src/ui/testing/task-lists.tsx"></script>');
@@ -17,12 +17,12 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates and edits repetition with
     await page.goto(`${server.resolvedUrls!.local[0]}task-recurrence`);
     const repeat = page.getByRole('button', { name: 'Repeat task', exact: true, includeHidden: true });
     await repeat.waitFor();
-    expect(await repeat.innerText()).toBe('Repeat');
+    expect(await repeat.getAttribute('title')).toBe('Repeat task');
     await page.evaluate(() => { (window as any).fixture.fail = true; });
     if (!await page.getByRole('dialog').count()) await repeat.click();
     await page.getByRole('button', { name: 'Weekly', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Could not save list' }).waitFor();
-    expect(await repeat.innerText()).toBe('Repeat');
+    expect(await repeat.getAttribute('title')).toBe('Repeat task');
     await page.evaluate(() => { (window as any).fixture.fail = false; (window as any).fixture.delay = 400; });
     if (!await page.getByRole('dialog').count()) await repeat.click();
     await page.getByRole('button', { name: 'Weekly', exact: true }).click();
@@ -36,7 +36,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('creates and edits repetition with
     await page.screenshot({ path: '/tmp/aegir-recurring-wide.png' });
     await repeat.click();
     await page.getByRole('button', { name: 'Does not repeat', exact: true }).click();
-    await expect.poll(() => repeat.innerText()).toBe('Repeat');
+    await expect.poll(() => repeat.getAttribute('title')).toBe('Repeat task');
     await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
     expect(await page.getByLabel('Repeats weekly').count()).toBe(0);
     await page.getByRole('textbox', { name: 'New task' }).fill('Review every month #work');

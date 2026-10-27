@@ -1,3 +1,8 @@
+import { TaskLabelsDialog } from './TaskLabelsDialog';
+import { taskLabels, parseLabels } from '../../../shared/task-labels';
+import { TaskFilters, loadTaskFilters } from './TaskFilters';
+import { filterTasks, compareTasks, selectedLabels, taskViewScope, taskFilterForPriorities, type TaskFilter, type TaskScope } from '../../../shared/task-filters';
+import { TaskSnoozeDialog } from './TaskSnoozeDialog';
 import { takeTaskFocus } from '../task-focus';
 import { useCommands, type Command } from '../commands';
 import {
@@ -9,10 +14,10 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ExternalLink, Maximize2, Minimize2, Plus, Repeat2, Square, Users, X } from 'lucide-react';
+import { CheckCheck, ChevronRight, ExternalLink, Flag, Maximize2, Minimize2, Plus, Repeat2, AlarmClock, Square, Users, X } from 'lucide-react';
 import type { Snapshot, Task } from '../../../shared/types';
 import { taskLinkLabel } from '../../../shared/task-links';
-import { customListId, taskRecurrenceLabels, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
+import { canMarkTaskReviewed, isTaskSnoozed, isoDate, customListId, taskRecurrenceLabels, parseDue, parseQuickAdd, taskCursor, tasksFor, type BuiltInTaskView, type TaskView } from '../../../shared/tasks';
 import {
   api,
   Avatar,
@@ -24,6 +29,7 @@ import {
   type Run,
 } from './common';
 import { ThreadView } from './ThreadView';
+import { TaskDocuments } from './TaskDocuments';
 import { Button } from '../design-system/primitives';
 import { TaskRepeat } from './TaskRepeat';
 import { MoveTaskDialog } from './MoveTaskDialog';
@@ -31,6 +37,7 @@ import type { TaskListAction } from './TaskListDialog';
 import { useTaskDetailWidth } from '../hooks/useTaskDetailWidth';
 
 const titles: Record<BuiltInTaskView, string> = {
+  all: 'All open tasks',
   inbox: 'Inbox',
   today: 'Today',
   upcoming: 'Upcoming',
@@ -49,7 +56,8 @@ const rank: Record<Task['status'], number> = {
   dismissed: 6,
 };
 
-function groupTasks(list: TaskView, tasks: Task[]) {
+function groupTasks(list: TaskView, tasks: Task[], sort: TaskFilter['sort'] = 'default') {
+  if (sort !== 'default') return tasks.length ? [['Tasks', [...tasks].sort((a, b) => compareTasks(a, b, sort))] as [string, Task[]]] : [];
   if (list === 'completed') return tasks.length ? [['Completed', tasks] as [string, Task[]]] : [];
   const sorted = [...tasks].sort(
     (a, b) =>
@@ -60,7 +68,7 @@ function groupTasks(list: TaskView, tasks: Task[]) {
   const groups = new Map<string, Task[]>();
   for (const task of sorted) {
     const key =
-      list === 'needs' ? taskStatusText[task.status] : task.label ? `#${task.label}` : 'No label';
+      list === 'needs' ? taskStatusText[task.status] : taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'No label';
     groups.set(key, [...(groups.get(key) || []), task]);
   }
   return [...groups].sort(([a], [b]) =>
@@ -75,7 +83,11 @@ export function TasksView({
   notify,
   onManageList,
   onOpenThread,
+  onNavigate,
+  navigationToken,
 }: {
+  navigationToken: object;
+  onNavigate: (list: TaskView) => void;
   data: Snapshot;
   run: Run;
   list: TaskView;
@@ -83,9 +95,22 @@ export function TasksView({
   onManageList: (action: TaskListAction) => void;
   onOpenThread: (groupId: string, threadId: string) => void;
 }) {
-  const listId = customListId(list);
+  const savedView = list.startsWith('view:') ? data.taskViews?.find(view => view.id === list.slice(5)) : undefined;
+  const [filters, setFilters] = useState<Record<string, TaskFilter>>({});
+  const [scopes, setScopes] = useState<Record<string, TaskScope>>({});
+  useLayoutEffect(() => {
+    if (!list.startsWith('view:')) return;
+    setFilters(previous => { const next = { ...previous }; delete next[list]; return next; });
+    setScopes(previous => { const next = { ...previous }; delete next[list]; return next; });
+  }, [list, navigationToken]);
+  const scope = scopes[list] ?? taskViewScope(list, data.taskViews ?? []) ?? 'all';
+  const filter = filters[list] ?? savedView?.filter ?? loadTaskFilters(list).filter;
+  const baseTasks = tasksFor(scope, data.tasks);
+  const [labelsTaskId, setLabelsTaskId] = useState<string | null>(null);
+  const effectiveFilter = taskFilterForPriorities(filter, data.showTaskPriorities !== false);
+  const listId = customListId(scope);
   const customList = data.taskLists.find(item => item.id === listId);
-  const title = customList?.name ?? titles[list as BuiltInTaskView];
+  const title = savedView?.name ?? (list.startsWith('view:') ? 'Filtered view unavailable' : customList?.name ?? titles[list as BuiltInTaskView]);
   const [cursors, setCursors] = useState<Partial<Record<TaskView, string>>>({});
   const [editTarget, setEditTarget] = useState<'title' | 'notes' | 'chat' | null>(null);
   const [popover, setPopover] = useState<Popover>(null);
@@ -93,22 +118,33 @@ export function TasksView({
   const moveTask = data.tasks.find(task => task.id === moveTaskId);
   const [fullscreen, setFullscreen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [capturing, setCapturing] = useState(false);
+  const [capturePreview, setCapturePreview] = useState<Awaited<ReturnType<typeof api.captureTask>> | null>(null);
+  const captureGeneration = useRef(0);
   const quickAdd = useRef<HTMLInputElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const detailWidth = useTaskDetailWidth();
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const [resizing, setResizing] = useState(false);
   const adding = useRef(false);
+  const reviewPending = useRef(false);
+  const [markingReviewed, setMarkingReviewed] = useState(false);
   const [createdTask, setCreatedTask] = useState<{ id: string; list: TaskView } | null>(null);
-  const groups = useMemo(() => groupTasks(list, tasksFor(list, data.tasks)), [list, data.tasks]);
+  const day = isoDate(new Date());
+  const [snoozeTaskId, setSnoozeTaskId] = useState<string | null>(null);
+  const groups = useMemo(() => groupTasks(scope, filterTasks(baseTasks, effectiveFilter), effectiveFilter.sort), [list, scope, data.tasks, day, JSON.stringify(selectedLabels(effectiveFilter)), effectiveFilter.labelMode, effectiveFilter.label, effectiveFilter.status, effectiveFilter.priority, effectiveFilter.sort]);
   const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
   const previousLists = useRef<Partial<Record<TaskView, { order: string[]; selected?: string }>>>({});
   const previousList = previousLists.current[list];
   const selectedId = cursors[list] ?? previousList?.selected;
-  const currentId = taskCursor(order.map(task => task.id), previousList?.order ?? [], selectedId);
-  const current = order.find(task => task.id === currentId);
+  const retained = useRef<{ list: TaskView; id?: string }>({ list });
+  const selected = data.tasks.find(task => task.id === selectedId);
+  const keepSelected = retained.current.list === list && retained.current.id === selectedId && selected && !['done', 'dismissed'].includes(selected.status);
+  const currentId = keepSelected ? selectedId : taskCursor(order.map(task => task.id), previousList?.order ?? [], selectedId);
+  const current = data.tasks.find(task => task.id === currentId);
   useLayoutEffect(() => {
+    retained.current = { list, id: currentId };
     previousLists.current[list] = { order: order.map(task => task.id), selected: currentId };
     if (selectedId && selectedId !== currentId) {
       setCursors(previous => ({ ...previous, [list]: currentId }));
@@ -120,8 +156,9 @@ export function TasksView({
   });
   const setCursor = (id: string) => setCursors((previous) => ({ ...previous, [list]: id }));
   useLayoutEffect(() => {
-    const requested = takeTaskFocus(list, order.map(task => task.id));
+    const requested = takeTaskFocus(list, baseTasks.map(task => task.id));
     if (requested) {
+      if (!order.some(task => task.id === requested)) setFilters(previous => ({ ...previous, [list]: { label: '', status: '', priority: '', sort: 'default' } }));
       setCursor(requested);
       requestAnimationFrame(() => rows.current?.querySelector<HTMLElement>('[data-keyboard-current]')?.focus());
     }
@@ -129,13 +166,22 @@ export function TasksView({
   const open = current;
   const openId = open?.id;
   const returnToList = () => {
+    if (current && !order.some(task => task.id === current.id)) {
+      retained.current = { list };
+      previousLists.current[list] = { order: order.map(task => task.id) };
+      setCursors(previous => ({ ...previous, [list]: order[0]?.id }));
+    }
     setFullscreen(false);
     window.requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.ws-rows [data-keyboard-current]')?.focus(),
     );
   };
   useEffect(() => {
+    captureGeneration.current++;
+    setCapturePreview(null);
     setPopover(null);
+    setSnoozeTaskId(null);
+    setLabelsTaskId(null);
     setMoveTaskId(null);
     setFullscreen(false);
   }, [list]);
@@ -148,8 +194,10 @@ export function TasksView({
         ? '.ws-task-detail [aria-label="Task title"]'
         : '.ws-task-detail [aria-label="Task notes"]',
     );
+    const disclosure = field?.closest('details');
+    if (disclosure) disclosure.open = true;
     field?.focus();
-    if (editTarget === 'title' && field instanceof HTMLInputElement) field.select();
+    if (editTarget === 'title') field?.select();
     setEditTarget(null);
   }, [editTarget, openId]);
 
@@ -170,6 +218,20 @@ export function TasksView({
 
   const update = (task: Task, change: Parameters<typeof api.updateTask>[1]) =>
     run(() => api.updateTask(task.id, change));
+  const markReviewed = (task: Task) => {
+    if (reviewPending.current) return;
+    reviewPending.current = true;
+    setMarkingReviewed(true);
+    void run(async () => {
+      try {
+        await api.markTaskReviewed(task.id);
+        notify('Marked reviewed · task stays open · ⌘Z to undo');
+      } finally {
+        reviewPending.current = false;
+        setMarkingReviewed(false);
+      }
+    });
+  };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || popover || document.querySelector('[role="dialog"], .ws-document-first')) return;
@@ -192,7 +254,7 @@ export function TasksView({
           return;
         }
         if (event.key.toLowerCase() === 'l' && !isTyping(event) && current && !target?.closest('.ws-task-detail')) {
-          event.preventDefault(); setPopover({ kind: 'label', taskId: current.id }); return;
+          event.preventDefault(); setLabelsTaskId(current.id); return;
         }
       }
       if (isTyping(event)) return;
@@ -215,9 +277,10 @@ export function TasksView({
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (target?.closest('.ws-sidebar')) return;
-      if (current && ['0', '1', '2', '3'].includes(event.key)) {
+      if (data.showTaskPriorities !== false && current && ['0', '1', '2', '3'].includes(event.key)) {
         event.preventDefault(); void update(current, { priority: event.key === '0' ? null : Number(event.key) as 1 | 2 | 3 }); return;
       }
+      if (current && event.key === 's' && ['ready', 'review', 'blocked'].includes(current.status)) { event.preventDefault(); setSnoozeTaskId(current.id); return; }
       if (current && event.key === 'f') { event.preventDefault(); setFullscreen(value => !value); return; }
       if (target?.closest('.ws-task-detail')) return;
       const key = event.key;
@@ -240,8 +303,8 @@ export function TasksView({
         else notify('This task has no conversation yet');
       }
       else if (key === 'm') setMoveTaskId(current.id);
-      else if (key === 'b') setPopover({ kind: 'label', taskId: current.id });
-      else if (key === 'B') void update(current, { label: null });
+      else if (key === 'b') setLabelsTaskId(current.id);
+      else if (key === 'B') void update(current, { labels: [] });
       else if (key === 'd') setPopover({ kind: 'due', taskId: current.id });
       else if (key === 'D') void update(current, { dueAt: null });
       else if (key === 'y' && current.status === 'proposed')
@@ -263,7 +326,8 @@ export function TasksView({
   });
 
   const add = () => {
-    const parsed = parseQuickAdd(draft);
+    let parsed: ReturnType<typeof parseQuickAdd>;
+    try { parsed = parseQuickAdd(draft); } catch (e) { notify((e as Error).message); return; }
     if (!parsed.title || adding.current) return;
     adding.current = true;
     void run(async () => {
@@ -286,13 +350,18 @@ export function TasksView({
       { id: 'task.notes', title: 'Edit task notes', section: 'task', keys: 'N', run: () => setEditTarget('notes') },
       { id: 'task.complete', title: task.status === 'done' ? 'Reopen task' : 'Mark task done', section: 'task', keys: 'Space', run: () => void update(task, { status: task.status === 'done' ? 'ready' : 'done' }) },
       { id: 'task.move', title: 'Move task to list…', section: 'task', keys: 'M', run: () => setMoveTaskId(task.id) },
-      { id: 'task.label', title: 'Set task label…', section: 'task', keys: 'B', run: () => setPopover({ kind: 'label', taskId: task.id }) },
+      { id: 'task.label', title: 'Set task labels…', section: 'task', keys: 'B', run: () => setLabelsTaskId(task.id) },
       { id: 'task.due', title: 'Set due date…', section: 'task', keys: 'D', run: () => setPopover({ kind: 'due', taskId: task.id }) },
     ];
+    if (canMarkTaskReviewed(task) && !markingReviewed) commands.push({ id: 'task.reviewed', title: 'Mark reviewed', icon: CheckCheck, keywords: ['clear needs you', 'acknowledge', 'attention'], subtitle: 'Clear Needs you and keep this task open', section: 'task', run: () => markReviewed(task) });
+    if (!['done', 'dismissed'].includes(task.status)) commands.push({ id: 'task.today', title: 'Set deadline to today', section: 'task', run: () => void update(task, { dueAt: isoDate(new Date()), snoozedUntil: null }) });
     commands.push({ id: 'task.fullscreen', title: fullscreen ? 'Exit fullscreen task' : 'Fullscreen task', section: 'task', keys: 'F', run: () => setFullscreen(value => !value) });
-    for (const priority of [1, 2, 3] as const) commands.push({ id: `task.priority.${priority}`, title: `Set priority P${priority}`, section: 'task', keys: String(priority), run: () => void update(task, { priority }) });
-    if (task.priority) commands.push({ id: 'task.priority.clear', title: 'Clear task priority', section: 'task', keys: '0', run: () => void update(task, { priority: null }) });
-    if (task.label) commands.push({ id: 'task.unlabel', title: 'Remove task label', section: 'task', keys: '⇧ B', run: () => void update(task, { label: null }) });
+    if (data.showTaskPriorities !== false) {
+      for (const priority of [1, 2, 3] as const) commands.push({ id: `task.priority.${priority}`, title: `Set priority P${priority}`, section: 'task', keys: String(priority), run: () => void update(task, { priority }) });
+      if (task.priority) commands.push({ id: 'task.priority.clear', title: 'Clear task priority', section: 'task', keys: '0', run: () => void update(task, { priority: null }) });
+    }
+    if (['ready', 'review', 'blocked'].includes(task.status)) commands.push({ id: 'task.snooze', title: isTaskSnoozed(task) ? 'Change snooze…' : 'Snooze…', section: 'task', keys: 'S', run: () => setSnoozeTaskId(task.id) });
+    if (taskLabels(task).length) commands.push({ id: 'task.unlabel', title: 'Remove all task labels', section: 'task', keys: '⇧ B', run: () => void update(task, { labels: [] }) });
     if (task.dueAt) commands.push({ id: 'task.undate', title: 'Remove due date', section: 'task', keys: '⇧ D', run: () => void update(task, { dueAt: null }) });
     if (task.status === 'proposed') commands.push(
       { id: 'task.accept', title: 'Accept suggestion', section: 'task', keys: 'Y', run: () => void update(task, { status: 'ready' }) },
@@ -321,12 +390,14 @@ export function TasksView({
               {team ? ` · ${team} delegated` : ''}
             </p>
           </div>
-          {customList && <div className="ws-list-actions">
+          {customList && !savedView && <div className="ws-list-actions">
             <Button variant="ghost" size="sm" onClick={() => onManageList({ kind: 'rename', list: customList })}>Rename list</Button>
             <Button variant="ghost" size="sm" onClick={() => onManageList({ kind: 'delete', list: customList })}>Delete list</Button>
           </div>}
         </header>
-        {list !== 'completed' && (
+        <TaskFilters key={list} list={list} tasks={data.tasks} lists={data.taskLists} value={filter} onChange={value => setFilters(previous => ({ ...previous, [list]: value }))} priorities={data.showTaskPriorities !== false}
+          scope={scope} onScope={value => setScopes(previous => ({ ...previous, [list]: value }))} saved={savedView} views={data.taskViews ?? []} onOpen={id => onNavigate(`view:${id}`)} onDeleted={() => onNavigate('all')} />
+        {scope !== 'completed' && (
           <form
             className="ws-quick-add"
             onSubmit={(event) => {
@@ -334,6 +405,12 @@ export function TasksView({
               add();
             }}
           >
+            <Button type="button" variant="ghost" size="sm" disabled={capturing || !draft.trim()} onClick={() => {
+              if (adding.current) return;
+              adding.current = true; setCapturing(true);
+              const generation = captureGeneration.current;
+              void run(async () => { try { const result = await api.captureTask(draft); if (generation === captureGeneration.current) setCapturePreview(result); } finally { adding.current = false; setCapturing(false); } });
+            }}>{capturing ? 'Preparing…' : 'AI capture'}</Button>
             <Plus size={15} aria-hidden="true" />
             <input
               ref={quickAdd}
@@ -341,10 +418,12 @@ export function TasksView({
               data-task-view={list}
               aria-label="New task"
               placeholder="New task — try: Review inbox every day #work"
+              disabled={capturing}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
+                  setCapturePreview(null);
                   setDraft('');
                   event.currentTarget.blur();
                 }
@@ -352,6 +431,17 @@ export function TasksView({
             />
           </form>
         )}
+        {capturePreview && <section className="ws-capture-preview" aria-label="Review captured task">
+          <h2>Review captured task</h2>
+          <label>Title<input disabled={capturing} value={capturePreview.title} onChange={e => setCapturePreview({ ...capturePreview, title: e.target.value })} /></label>
+          <label>Notes<textarea disabled={capturing} value={capturePreview.notes} onChange={e => setCapturePreview({ ...capturePreview, notes: e.target.value })} /></label>
+          <p>{taskLabels(capturePreview).map(label => `#${label} · `).join('')}{capturePreview.dueAt || 'No deadline'}{capturePreview.recurrence ? ` · ${capturePreview.recurrence}` : ''}</p>
+          <Button variant="outline" size="sm" disabled={capturing || !capturePreview.title.trim()} onClick={() => {
+            if (adding.current) return; adding.current = true; setCapturing(true);
+            void run(async () => { try { const task = await api.createTask({ ...capturePreview, listId }); setCursor(task.id); setCreatedTask({ id: task.id, list }); setCapturePreview(null); setDraft(''); } finally { adding.current = false; setCapturing(false); } });
+          }}>Add captured task</Button>
+          <Button variant="ghost" size="sm" disabled={capturing} onClick={() => setCapturePreview(null)}>Cancel capture</Button>
+        </section>}
         <div ref={rows} className="ws-rows" role="list" data-keyboard-pane="list" tabIndex={-1}>
           {groups.map(([name, tasks]) => (
             <div key={name} className="ws-row-group">
@@ -364,7 +454,6 @@ export function TasksView({
                   key={task.id}
                   task={task}
                   data={data}
-                  showLabel={list === 'needs'}
                   hasAttachedLink={linkedTaskIds.has(task.id)}
                   selected={task.id === current?.id}
                   opened={task.id === openId}
@@ -381,7 +470,7 @@ export function TasksView({
               ))}
             </div>
           ))}
-          {!order.length && <Empty list={list} />}
+          {!order.length && (effectiveFilter.label || selectedLabels(effectiveFilter).length || effectiveFilter.status || effectiveFilter.priority ? <p className="ws-empty-line">No tasks match these filters.</p> : <Empty list={scope} />)}
         </div>
       </section></div>
       {open && <div className="ws-task-divider" role="separator" tabIndex={0}
@@ -416,15 +505,23 @@ export function TasksView({
           else return;
           event.preventDefault();
         }} />}
+      {labelsTaskId && data.tasks.find(task => task.id === labelsTaskId) && <TaskLabelsDialog task={data.tasks.find(task => task.id === labelsTaskId)!} tasks={data.tasks} onClose={() => setLabelsTaskId(null)} />}
+      {snoozeTaskId && data.tasks.find(task => task.id === snoozeTaskId) && <TaskSnoozeDialog task={data.tasks.find(task => task.id === snoozeTaskId)!} onClose={() => setSnoozeTaskId(null)} />}
       {open && (
         <div className="ws-task-detail-clip" onFocusCapture={event => {
           if (detailWidth.width < 340 && !event.currentTarget.querySelector('.document-open')) detailWidth.resize(340);
-        }}><TaskDetail
+        }}>
+          {!order.some(task => task.id === open.id) && <div className="ws-task-retained" role="status">This task is outside {title}. You can finish editing.<Button variant="ghost" size="sm" onClick={returnToList}>Back to list</Button></div>}
+          <TaskDetail
           key={open.id}
           task={open}
           data={data}
           run={run}
           onOpenThread={onOpenThread}
+          markingReviewed={markingReviewed}
+          onMarkReviewed={() => markReviewed(open)}
+          onLabels={() => setLabelsTaskId(open.id)}
+          onSnooze={() => setSnoozeTaskId(open.id)}
           fullscreen={fullscreen}
           onToggleFullscreen={() => setFullscreen(value => !value)}
           onReturnToList={returnToList}
@@ -437,6 +534,7 @@ export function TasksView({
 
 function Empty({ list }: { list: TaskView }) {
   const text = customListId(list) ? 'No tasks in this list yet. Add a task above or move one here from another view.' : {
+    all: 'No open tasks. Add a task above.',
     inbox: 'Inbox is empty. Add a task above.',
     today: 'Nothing due today. Add a task above.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
@@ -450,7 +548,6 @@ function Empty({ list }: { list: TaskView }) {
 function TaskRow({
   task,
   data,
-  showLabel,
   hasAttachedLink,
   selected,
   opened,
@@ -462,7 +559,6 @@ function TaskRow({
 }: {
   task: Task;
   data: Snapshot;
-  showLabel: boolean;
   hasAttachedLink: boolean;
   selected: boolean;
   opened: boolean;
@@ -523,7 +619,7 @@ function TaskRow({
       >
         <TaskGlyph task={task} />
       </Button>
-      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{task.priority && <span className="ws-priority" aria-label={`Priority ${task.priority}`}>P{task.priority} </span>}{task.title}</span>
+      <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{data.showTaskPriorities !== false && task.priority && <span className="ws-priority" aria-label={`Priority ${task.priority}`}>P{task.priority} </span>}{task.title}</span>
       {(task.sourceUrl || hasAttachedLink) && (
         <ExternalLink
           size={12}
@@ -532,7 +628,7 @@ function TaskRow({
         />
       )}
       {task.recurrence && <Repeat2 size={13} className="ws-muted-icon" aria-label={`Repeats ${taskRecurrenceLabels[task.recurrence].toLowerCase()}`} />}
-      {showLabel && task.label && <span className="ws-label">#{task.label}</span>}
+      {taskLabels(task).length > 0 && <span className="ws-label" title={taskLabels(task).map(label => `#${label}`).join(', ')}>{taskLabels(task).map(label => `#${label}`).join(' · ')}</span>}
       {authors.length > 0 && (
         <span className="ws-agents">
           {authors.map((id) => (
@@ -541,6 +637,7 @@ function TaskRow({
           {state && <span>{state}</span>}
         </span>
       )}
+      {isTaskSnoozed(task) && <span className="ws-due">Snoozed until {task.snoozedUntil}</span>}
       <span
         className={`ws-due ${isOverdue(task.dueAt) && task.status !== 'done' ? 'overdue' : ''}`}
       >
@@ -563,7 +660,7 @@ function TaskPopover({
   run: Run;
 }) {
   const [value, setValue] = useState(
-    kind === 'label' ? task.label || '' : kind === 'due' ? task.dueAt || '' : '',
+    kind === 'label' ? taskLabels(task).join(', ') : kind === 'due' ? task.dueAt || '' : '',
   );
   const [error, setError] = useState('');
   const cancelled = useRef(false);
@@ -580,7 +677,8 @@ function TaskPopover({
       void run(() => api.updateTask(task.id, { dueAt }));
     } else if (kind === 'label') {
       submitted.current = true;
-      void run(() => api.updateTask(task.id, { label: value.replace(/^#/, '').trim().toLowerCase() || null }));
+      let labels: string[]; try { labels = parseLabels(value); } catch (e) { setError((e as Error).message); submitted.current = false; return; }
+      void run(() => api.updateTask(task.id, { labels }));
     } else {
       submitted.current = true;
       void run(() => api.handOff(task.id, value));
@@ -663,6 +761,7 @@ function TaskPopover({
 }
 
 function TaskDetail({
+  markingReviewed, onMarkReviewed, onSnooze, onLabels,
   fullscreen, onToggleFullscreen,
   task,
   data,
@@ -671,6 +770,7 @@ function TaskDetail({
   onHandOff,
   onOpenThread,
 }: {
+  markingReviewed: boolean; onMarkReviewed: () => void; onSnooze: () => void; onLabels: () => void;
   fullscreen: boolean; onToggleFullscreen: () => void;
   task: Task;
   data: Snapshot;
@@ -700,27 +800,28 @@ function TaskDetail({
     onClick={() => onOpenThread(group.id, thread.id)}>
     <span>{group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={14} aria-hidden="true" />
   </Button> : null;
+  const fullscreenAction = <Button variant="ghost" size="sm" aria-label={fullscreen ? 'Exit fullscreen task' : 'Fullscreen task'} aria-pressed={fullscreen} onClick={onToggleFullscreen}>{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button>;
+  const taskProperties = <div className="ws-task-toolbar-properties">
+    <Button variant="ghost" size="sm" aria-label="Edit task labels" onClick={onLabels}>{taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'Add labels'}</Button>
+    {!['done', 'dismissed'].includes(task.status) && <Button variant="ghost" size="sm" aria-label="Set deadline to today" onClick={() => void run(() => api.updateTask(task.id, { dueAt: isoDate(new Date()), snoozedUntil: null }))}>Today</Button>}
+    {data.showTaskPriorities !== false && <label className="ws-priority-control" title="Task priority"><Flag size={13} aria-hidden="true" /><select aria-label="Task priority" value={task.priority ?? ''} onChange={event => void run(() => api.updateTask(task.id, { priority: event.target.value ? Number(event.target.value) as 1 | 2 | 3 : null }))}><option value="">None</option><option value="1">P1</option><option value="2">P2</option><option value="3">P3</option></select></label>}
+    {['ready', 'review', 'blocked'].includes(task.status) && <Button variant="ghost" size="sm" onClick={onSnooze}><AlarmClock size={14} aria-hidden="true" />{isTaskSnoozed(task) ? `Snoozed until ${task.snoozedUntil}` : 'Snooze'}</Button>}
+    <TaskRepeat key={task.id} task={task} compact />
+    {canMarkTaskReviewed(task) && <Button variant="ghost" size="sm" icon aria-label="Mark reviewed" title="Mark reviewed — clear Needs you and keep this task open" disabled={markingReviewed} onClick={onMarkReviewed}><CheckCheck size={15} aria-hidden="true" /></Button>}
+    {task.status === 'running' && <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}><Square size={12} /> Stop</button>}
+  </div>;
   const header = (
     <header className="ws-detail-head">
-      <div className="ws-detail-top">
-        <Button variant="ghost" size="sm" aria-label={fullscreen ? 'Exit fullscreen task' : 'Fullscreen task'} aria-pressed={fullscreen} onClick={onToggleFullscreen}>{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button>
-        <label className="ws-priority-control">Priority <select aria-label="Task priority" value={task.priority ?? ''} onChange={event => void run(() => api.updateTask(task.id, { priority: event.target.value ? Number(event.target.value) as 1 | 2 | 3 : null }))}><option value="">None</option><option value="1">P1</option><option value="2">P2</option><option value="3">P3</option></select></label>
-        <TaskRepeat key={task.id} task={task} />
-        {!group && task.sourceUrl && <span className="ws-crumb">From a source</span>}
-        {task.status === 'running' && (
-          <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}>
-            <Square size={12} /> Stop
-          </button>
-        )}
-      </div>
-      <input
+      {!(thread && group) && <div className="ws-task-plain-tools">{taskProperties}{fullscreenAction}</div>}
+      <textarea
+        rows={1}
         className="ws-task-title-input"
         aria-label="Task title"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         onBlur={saveTitle}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') { event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.blur(); window.requestAnimationFrame(onReturnToList); }
           if (event.key === 'Escape') {
             event.preventDefault();
             cancelledTitle.current = true;
@@ -752,8 +853,10 @@ function TaskDetail({
           </span>
         ))}
       </div>}
+      <details className="ws-task-notes-disclosure">
+        <summary><ChevronRight size={13} aria-hidden="true" /><span>Notes</span><span className="ws-task-notes-preview">{notes.trim() || 'Add context…'}</span></summary>
       <label className="ws-field ws-task-notes">
-        <span>Notes</span>
+        <span className="ws-copy-announcement">Notes</span>
         <textarea
           aria-label="Task notes"
           rows={3}
@@ -772,6 +875,7 @@ function TaskDetail({
           }}
         />
       </label>
+      </details>
     </header>
   );
   return (
@@ -784,11 +888,12 @@ function TaskDetail({
           group={group}
           run={run}
           header={header}
-          leadingActions={threadLink}
+          leadingActions={<>{threadLink}{taskProperties}</>}
+          trailingActions={fullscreenAction}
           compact
         />
       ) : (
-        <div className="ws-detail-plain">
+        <TaskDocuments key={task.id} task={task} brainFilingEnabled={data.brainBridge?.filingEnabled}>
           {header}
           <div className="ws-row-actions">
             {task.status === 'proposed' ? (
@@ -817,7 +922,7 @@ function TaskDetail({
               </>
             )}
           </div>
-        </div>
+        </TaskDocuments>
       )}
     </aside>
   );

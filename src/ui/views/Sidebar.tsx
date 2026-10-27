@@ -1,3 +1,4 @@
+import { tasksForSavedView } from '../../../shared/task-filters';
 import { openCommandPalette } from '../commands';
 import type { ReactNode } from 'react';
 import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Search, Sun, Users } from 'lucide-react';
@@ -109,6 +110,8 @@ export function Sidebar({
       {data.taskLists.map(list => <Item key={list.id} active={isList(`list:${list.id}`)}
         onClick={() => go({ view: 'tasks', list: `list:${list.id}` })}
         icon={<List size={16} />} label={list.name} count={tasksFor(`list:${list.id}`, data.tasks).length} />)}
+      <div className="ws-nav-label"><span>FILTERED VIEWS</span><button aria-label="New filtered view" title="New filtered view" onClick={() => go({ view: 'tasks', list: 'all' })}><Plus size={13} /></button></div>
+      {(data.taskViews ?? []).map(view => <Item key={view.id} active={isList(`view:${view.id}`)} onClick={() => go({ view: 'tasks', list: `view:${view.id}` })} icon={<List size={16} />} label={view.name} count={tasksForSavedView(view, data.tasks, new Date(), data.showTaskPriorities !== false).length} />)}
       <div className="ws-nav-label">MEETINGS</div>
       <Item active={route.view === 'one-on-ones'} onClick={() => go({ view: 'one-on-ones' })} icon={<Users size={16} />} label="1:1 prep" />
       <div className="ws-nav-label">

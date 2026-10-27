@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && electron-builder --mac dir",
+    "build": "pnpm build:reminders && tsc -b && vite build && electron-builder --mac dir",
     "check": "tsc -b",
-    "test": "vitest run",
-    "dist": "electron-builder --mac dmg"
+    "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
+    "dist": "electron-builder --mac dmg",
+    "build:reminders": "mkdir -p build && swiftc -module-cache-path build/.swift-module-cache native/reminders/main.swift -o build/aegir-reminders -framework EventKit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.289",
     "@fontsource-variable/dm-sans": "^5.3.0",
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
     "@fontsource-variable/inter": "^5.3.0",
@@ -19,7 +21,7 @@
     "@fontsource-variable/playfair-display": "^5.3.0",
     "@fontsource-variable/roboto": "^5.3.0",
     "@fontsource-variable/source-sans-3": "^5.3.0",
-    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/mcp": "0.0.82",
     "@radix-ui/react-dialog": "^1.1.15",
     "@tiptap/extension-image": "^3.31.3",
@@ -27,11 +29,11 @@
     "@tiptap/extension-task-item": "^3.31.3",
     "@tiptap/extension-task-list": "^3.31.3",
     "@tiptap/markdown": "^3.31.3",
-    "@tiptap/pm": "3.31.3",
+    "@tiptap/pm": "3.32.0",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@usefragments/ui": "^3.1.2",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^13.0.3",
     "js-yaml": "4.3.2",
     "lucide-react": "^0.468.0",
     "playwright": "1.64.0-alpha-1789764292000",
@@ -39,7 +41,7 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "zod": "^3.25.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -47,14 +49,14 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^37.2.0",
+    "electron": "^44.9.3",
     "electron-builder": "^26.0.12",
     "sass": "^1.104.1",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5",
+    "vite": "^6.4.5",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6",
-    "vitest": "^3.2.0"
+    "vitest": "^4.1.12"
   },
   "main": "dist-electron/main.js",
   "build": {
@@ -71,8 +73,18 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "build/icon-light.png"
-    }
+      "icon": "build/icon-light.png",
+      "extendInfo": {
+        "NSRemindersFullAccessUsageDescription": "Capture tasks from the Reminders list you choose.",
+        "NSRemindersUsageDescription": "Capture tasks from the Reminders list you choose."
+      }
+    },
+    "extraResources": [
+      {
+        "from": "build/aegir-reminders",
+        "to": "aegir-reminders"
+      }
+    ]
   },
   "packageManager": "pnpm@11.24.0+sha512.bd27e345e976dcb0be0b7a1228217b049a817e21b1f355c90dbe7dc46671895a8bc1e6d06c24554505ea93ea0b45f489a27ec1bfbc8de6a9659fca0f16fa0000"
 }

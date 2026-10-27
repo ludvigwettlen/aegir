@@ -48,6 +48,53 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('guides setup, recovers failures, 
     await page.getByRole('button', { name: 'Start using Aegir' }).click();
     expect(await page.evaluate(() => (window as any).fixture.closed)).toBe(true);
     expect(await page.evaluate(() => (window as any).fixture.state.completed)).toBe(true);
+
+    // A fresh choice must be explicit, and Legolas checks must not install Codex/Mnemosyne.
+    await page.goto(`${server.resolvedUrls!.local[0]}setup-fixture?fresh`);
+    await page.getByRole('heading', { name: 'Choose your setup' }).waitFor();
+    expect(await page.getByRole('button', { name: /Connect your AI/ }).isDisabled()).toBe(true);
+    await page.getByRole('radio', { name: /^Legolas/ }).check();
+    await page.getByRole('button', { name: 'Choose folder', exact: true }).click();
+    expect(await page.getByRole('textbox', { name: 'Obsidian brain folder' }).inputValue()).toBe('/Users/test/Work notes/brain');
+    await page.getByText('gbrain routing', { exact: true }).click();
+    await page.getByRole('textbox', { name: 'Source ID' }).fill('notes');
+    await page.locator('.setup-page').evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: '/tmp/aegir-setup-choice-compact.png', fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.evaluate(() => { (window as any).fixture.rejectSwitch = true; });
+    await page.getByRole('button', { name: 'Use this setup' }).click();
+    await page.getByRole('alert').filter({ hasText: 'Stop active agents' }).waitFor();
+    await page.evaluate(() => { (window as any).fixture.rejectSwitch = false; });
+    await page.getByRole('button', { name: 'Use this setup' }).click();
+    await page.getByText('Claude Code is signed in.', { exact: true }).waitFor();
+    expect(await page.getByRole('button', { name: 'Install Codex', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Details for your setup helper').click();
+    await page.getByText('The selected gbrain source is not registered to this folder.', { exact: true }).waitFor();
+    await page.evaluate(() => { (window as any).fixture.failMemory = false; });
+    await page.getByRole('button', { name: 'Check brain', exact: true }).click();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: '/tmp/aegir-setup-brain.png', fullPage: true });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Use the connections in Claude Code.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Start using Aegir' }).click();
+    expect(await page.evaluate(() => (window as any).fixture.installed)).toEqual([]);
+    expect(await page.evaluate(() => (window as any).fixture.state.setup.sourceId)).toBe('notes');
+    // Settings can return to the chooser and switch back.
+    await page.getByRole('button', { name: /Choose your setup/ }).click();
+    await page.getByRole('radio', { name: /^Aegir/ }).check();
+    await page.getByRole('button', { name: 'Use this setup' }).click();
+    await page.getByRole('button', { name: 'Install Codex', exact: true }).waitFor();
+    expect(await page.evaluate(() => (window as any).fixture.state.completed)).toBe(false);
+    for (const provider of ['brain', 'mnemosyne']) {
+      await page.goto(`${server.resolvedUrls!.local[0]}setup-fixture?memory=${provider}`);
+      await page.getByRole('textbox', { name: 'Search memories', exact: true }).fill('decision');
+      await page.getByRole('button', { name: 'Search', exact: true }).click();
+      await page.getByText('A remembered decision', { exact: true }).waitFor();
+      expect(await page.getByRole('button', { name: 'Correct', exact: true }).count()).toBe(provider === 'brain' ? 0 : 1);
+      expect(await page.getByRole('button', { name: 'Forget memory', exact: true }).count()).toBe(provider === 'brain' ? 0 : 1);
+      expect(await page.getByText(/earlier memories are waiting/).count()).toBe(provider === 'brain' ? 0 : 1);
+    }
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 60000);

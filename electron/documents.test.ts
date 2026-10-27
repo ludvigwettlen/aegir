@@ -2,13 +2,37 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { documentLocation, listDocuments, readDocument, saveDocument } from './documents';
+import { createDocument, documentLocation, listDocuments, readDocument, saveDocument } from './documents';
 
 const dirs: string[] = [];
 const directory = () => { const path = mkdtempSync(join(tmpdir(), 'aegir-documents-')); dirs.push(path); return path; };
 afterEach(() => dirs.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })));
 
 describe('workspace documents', () => {
+  it('creates empty Markdown files, adds the extension and opens them for editing', () => {
+    const root = directory();
+    const file = createDocument(root, '  Meeting notes  ');
+    expect(file).toEqual(readDocument(root, 'Meeting notes.md'));
+    expect(file.content).toBe('');
+    expect(readFileSync(join(root, file.path), 'utf8')).toBe('');
+    expect(saveDocument(root, file.path, file.revision, '# My notes').content).toBe('# My notes');
+    expect(createDocument(root, 'Plan.MD').path).toBe('Plan.MD');
+    expect(createDocument(root, 'Draft.markdown').path).toBe('Draft.markdown');
+  });
+  it('rejects duplicate names, paths and symlinks without changing existing content', () => {
+    const root = directory(), outside = directory();
+    writeFileSync(join(root, 'notes.md'), 'Keep this');
+    writeFileSync(join(outside, 'private.md'), 'Private');
+    symlinkSync(join(outside, 'private.md'), join(root, 'linked.md'));
+    symlinkSync(join(outside, 'missing.md'), join(root, 'dangling.md'));
+    mkdirSync(join(root, 'folder.md'));
+    for (const name of ['notes.md', 'linked.md', 'dangling.md', 'folder.md'])
+      expect(() => createDocument(root, name)).toThrow('already exists');
+    for (const name of ['', ' ', '../escape.md', '/tmp/escape.md', 'nested/file.md', 'nested\\file.md', '.hidden.md', 'bad\0.md', 'line\nbreak.md', 'x'.repeat(241), null as unknown as string])
+      expect(() => createDocument(root, name)).toThrow();
+    expect(readFileSync(join(root, 'notes.md'), 'utf8')).toBe('Keep this');
+    expect(readFileSync(join(outside, 'private.md'), 'utf8')).toBe('Private');
+  });
   it('lists nested Markdown and saves edits without changing other files', () => {
     const root = directory(); mkdirSync(join(root, 'docs')); writeFileSync(join(root, 'docs/prd.md'), '# Vision\n'); writeFileSync(join(root, 'data.txt'), 'keep');
     expect(listDocuments(root)).toEqual([{ path: 'docs/prd.md', modifiedAt: expect.any(String) }]);

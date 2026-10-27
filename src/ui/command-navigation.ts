@@ -5,7 +5,7 @@ export function goTo(go: (route: Route) => void, route: Route) {
   go(route);
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const pane = document.querySelector<HTMLElement>('[data-keyboard-pane="list"], [data-keyboard-pane="page"]');
-    (pane?.querySelector<HTMLElement>('[data-keyboard-current], [data-keyboard-item]') || pane)?.focus();
+    (pane?.querySelector<HTMLElement>('[data-keyboard-current]') || pane?.querySelector<HTMLElement>('[data-keyboard-item]') || pane)?.focus();
   }));
 }
 export function goToList(go: (route: Route) => void, list: TaskView) { goTo(go, { view: 'tasks', list }); }

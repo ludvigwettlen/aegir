@@ -10,6 +10,13 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits Slack drafts, selects recip
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }); page.setDefaultTimeout(8000);
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${server.resolvedUrls!.local[0]}slack-fixture`);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByText('Sending in 5 seconds…', { exact: true }).waitFor();
+    expect(await page.getByLabel('Slack message', { exact: true }).isDisabled()).toBe(true);
+    expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([]);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    expect(await page.getByLabel('Slack message', { exact: true }).isDisabled()).toBe(false);
+
     const footer = page.getByRole('checkbox', { name: 'Include “Sent using Aegir” footer' });
     expect(await footer.isChecked()).toBe(true);
     await page.getByLabel('Message footer', { exact: true }).waitFor();
@@ -44,12 +51,19 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits Slack drafts, selects recip
     await page.emulateMedia({ reducedMotion: 'reduce' }); await page.screenshot({ path: '/tmp/aegir-slack-draft-compact.png' });
     expect(await page.locator('main').evaluate(element => element.scrollWidth <= 430)).toBe(true);
     await page.getByRole('button', { name: 'Send', exact: true }).focus(); await page.keyboard.press('Enter');
-    await page.getByText('Sending…', { exact: true }).waitFor();
+    await page.getByText(/^Sending in \d seconds…$/).waitFor();
     expect(await page.getByLabel('Slack message').isDisabled()).toBe(true);
     expect(await footer.isDisabled()).toBe(true);
     expect(await page.getByRole('button', { name: 'Approve', exact: true }).count()).toBe(0);
     await page.getByText('Slack confirmed sending.', { exact: true }).waitFor();
     expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([{ id: 'slack-test', revision: 5, fields: { destination: 'U234567', threadTs: '', text: 'Hello Sam, here is the plan.', includeFooter: false } }]);
+
+    await page.reload();
+    await page.getByLabel('Slack message', { exact: true }).fill('I sent this separately.');
+    await page.getByRole('button', { name: 'I sent it myself', exact: true }).click();
+    await page.getByText('You marked this as sent yourself. Aegir did not send it.', { exact: true }).waitFor();
+    expect(await page.evaluate(() => (window as any).fixture.draft)).toMatchObject({ state: 'sent-manually', text: 'I sent this separately.' });
+    expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([]);
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 45_000);

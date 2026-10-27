@@ -4,3 +4,7 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
+
+overrides:
+  "http-cache-semantics@<4.3.0": "^4.3.0"
+  "undici@6": "^6.29.1"

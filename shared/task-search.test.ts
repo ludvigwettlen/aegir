@@ -113,3 +113,11 @@ describe('finding a task', () => {
     expect(conversationQuery('  ?! ')).toBeNull();
   });
 });
+
+it('opens snoozed custom-list and review tasks in Upcoming where their rows remain visible', () => {
+  for (const patch of [{ listId: 'customers' }, { status: 'review' as const }]) {
+    const snoozed = task('Follow up', { ...patch, snoozedUntil: '2026-10-09' });
+    expect(homeList(snoozed, wednesday)).toBe('upcoming');
+    expect(searchTasks([snoozed], 'follow', wednesday)[0].list).toBe('upcoming');
+  }
+});

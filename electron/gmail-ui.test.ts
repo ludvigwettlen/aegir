@@ -10,6 +10,13 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, recovers and sends an inli
     const page = await browser.newPage({ viewport: { width: 1100, height: 850 } }); page.setDefaultTimeout(8000);
     const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
     await page.goto(`${server.resolvedUrls!.local[0]}email-fixture`);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByText('Sending in 5 seconds…', { exact: true }).waitFor();
+    expect(await page.getByLabel('Message', { exact: true }).isDisabled()).toBe(true);
+    expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([]);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    expect(await page.getByLabel('Message', { exact: true }).isDisabled()).toBe(false);
+
     await page.getByLabel('Message', { exact: true }).fill('Hello\n\nThis is my edited reply.');
     await page.reload(); expect(await page.getByLabel('Message', { exact: true }).inputValue()).toBe('Hello\n\nThis is my edited reply.');
     await page.evaluate(() => { (window as any).fixture.fail = true; });
@@ -30,6 +37,13 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits, recovers and sends an inli
     await page.getByText('Gmail confirmed sending.', { exact: true }).waitFor();
     expect(await page.getByRole('button', { name: 'Send', exact: true }).count()).toBe(0);
     expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([{ id: 'email-test', revision: 3, fields: { to: 'another@example.com', cc: '', bcc: '', subject: 'A draft with a longer subject to check narrow email layouts', body: 'Hello\n\nThis is my edited reply.' } }]);
+
+    await page.reload();
+    await page.getByLabel('Message', { exact: true }).fill('I sent this separately.');
+    await page.getByRole('button', { name: 'I sent it myself', exact: true }).click();
+    await page.getByText('You marked this as sent yourself. Aegir did not send it.', { exact: true }).waitFor();
+    expect(await page.evaluate(() => (window as any).fixture.draft)).toMatchObject({ state: 'sent-manually', body: 'I sent this separately.' });
+    expect(await page.evaluate(() => (window as any).fixture.sendCalls)).toEqual([]);
     expect(errors).toEqual([]);
   } finally { await browser?.close(); await server.close(); }
 }, 45_000);

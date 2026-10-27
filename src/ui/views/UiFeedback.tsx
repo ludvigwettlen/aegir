@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { MessageSquarePlus, MousePointer2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -52,6 +53,10 @@ export function UiFeedback({ route, active, onActiveChange }: {
     window.addEventListener('keydown', key, true);
     return () => window.removeEventListener('keydown', key, true);
   }, [active, dialog, picking, onActiveChange]);
+  useEffect(() => {
+    document.documentElement.classList.toggle('ui-feedback-picking', active && picking && !dialog);
+    return () => document.documentElement.classList.remove('ui-feedback-picking');
+  }, [active, picking, dialog]);
   const choose = (value: FeedbackTarget) => { setTarget(value); setText(''); setPicking(false); setHover(null); setError(''); setNotice(''); };
   const hit = (x: number, y: number) => {
     const element = document.elementsFromPoint(x, y).find(element => !element.closest('[data-ui-feedback]') && element !== document.documentElement && element !== document.body);
@@ -59,7 +64,7 @@ export function UiFeedback({ route, active, onActiveChange }: {
   };
   const closeDialog = () => { if (!saving.current) { setTarget(null); setInbox(false); setError(''); setText(''); } };
   const comments = state?.comments.filter(comment => !!comment.resolvedAt === showResolved) ?? [];
-  return <>
+  return createPortal(<>
     <div ref={launcher} className="ui-feedback-launcher" data-ui-feedback onKeyDown={event => event.stopPropagation()}>
       <Button variant="outline" size="sm" aria-pressed={active} onClick={() => {
         onActiveChange(!active); setPicking(!active); setHover(null); setNotice('');
@@ -118,5 +123,5 @@ export function UiFeedback({ route, active, onActiveChange }: {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  </>;
+  </>, document.body);
 }

@@ -1,0 +1,66 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows priorities by default and hides controls, badges and shortcuts without clearing assignments', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } } });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.setDefaultTimeout(10000);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html`);
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    const priority = page.getByRole('combobox', { name: 'Task priority', exact: true });
+    await priority.selectOption('2');
+    expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(1);
+    const palette = async (query: string) => {
+      await page.getByRole('button', { name: 'Search tasks and commands', exact: true }).click();
+      await page.getByRole('combobox', { name: 'Search tasks and commands' }).fill(query);
+    };
+    const settings = async () => { await palette('Settings'); await page.getByRole('option', { name: /^Settings/ }).click(); };
+    await settings();
+    const toggle = page.getByRole('switch', { name: 'Show task priorities', exact: true });
+    expect(await toggle.getAttribute('aria-checked')).toBe('true');
+    await page.evaluate(() => { const fixture = (window as any).fixtureActions; fixture.failPrioritySetting = true; fixture.prioritySettingDelay = 300; });
+    await toggle.click(); expect(await toggle.isDisabled()).toBe(true);
+    await page.getByRole('alert').filter({ hasText: 'Could not save priority setting' }).waitFor();
+    expect(await toggle.getAttribute('aria-checked')).toBe('true');
+    await page.evaluate(() => { (window as any).fixtureActions.failPrioritySetting = false; });
+    await toggle.click();
+    await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('false');
+    await page.setViewportSize({ width: 900, height: 750 });
+    await toggle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: '/tmp/aegir-priority-setting.png' });
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    expect(await priority.count()).toBe(0);
+    expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(0);
+    await page.locator('[data-task-row]').focus();
+    for (const key of ['0', '1', '2', '3']) await page.keyboard.press(key);
+    expect(await page.evaluate(() => (window as any).fixtureActions.task.priority)).toBe(2);
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '§', code: 'Backquote', bubbles: true })));
+    await page.getByRole('region', { name: 'Keyboard hints' }).waitFor();
+    expect(await page.getByText('Set priority / clear priority', { exact: true }).count()).toBe(0);
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: '§', code: 'Backquote', bubbles: true })));
+    await palette('priority');
+    expect(await page.getByRole('option', { name: /(?:Set priority P|Clear task priority)/ }).count()).toBe(0);
+    await page.keyboard.press('Escape');
+    await settings(); await toggle.click();
+    await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('true');
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    expect(await priority.inputValue()).toBe('2');
+    expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(1);
+    await page.locator('[data-task-row]').focus(); await page.keyboard.press('3');
+    await expect.poll(() => priority.inputValue()).toBe('3');
+    await palette('priority');
+    expect(await page.getByRole('option', { name: /^Set priority P/ }).count()).toBe(3);
+    await page.keyboard.press('Escape');
+    await settings(); await toggle.click();
+    await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('false');
+    await page.reload();
+    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    expect(await priority.count()).toBe(0);
+    await settings(); expect(await toggle.getAttribute('aria-checked')).toBe('false');
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 90000);

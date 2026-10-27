@@ -1,7 +1,9 @@
+import { PersonalIntegrations } from './PersonalIntegrations';
+import { BrainBridgeSettings } from './BrainBridgeSettings';
 import { GmailSettings } from './GmailSettings';
 import { TypographySettings } from './TypographySettings';
 import { ExternalLink, Plus, ShieldCheck, SquareArrowOutUpRight, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { modelTierForRole } from '../../../shared/model-policy';
 import type { Agent, Snapshot } from '../../../shared/types';
 import { Badge, Button, Card } from '../design-system/primitives';
@@ -24,6 +26,9 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
   const [draft, setDraft] = useState<Agent | null>(null);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('');
+  const prioritySaving = useRef(false);
+  const [priorityPending, setPriorityPending] = useState(false);
+  const showPriorities = data.showTaskPriorities !== false;
   const [browserPending, setBrowserPending] = useState(false);
   const browserAction = (action: () => Promise<unknown>) => void run(async () => {
     setBrowserPending(true);
@@ -41,11 +46,25 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
       <div className="settings-grid settings-controls">
         <div className="settings-main">
           {onSetup && <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
-            <div className="panel-heading"><div><h2>Getting started</h2><p>Set up Codex, local memory, and your connected services.</p></div>
+            <div className="panel-heading"><div><h2>Getting started</h2><p>Current setup: {data.onboarding?.choiceRequired ? 'Not selected yet' : data.onboarding?.setup?.preset === 'legolas' ? 'Legolas · Claude Code and Obsidian brain' : 'Aegir · Codex and built-in memory'}. Review setup to change providers or check your connections.</p></div>
               <Button variant="outline" size="sm" onClick={onSetup}>{data.onboarding?.completed ? 'Review setup' : 'Continue setup'}</Button>
             </div>
           </Card>}
+          <PersonalIntegrations reminders={data.reminders} />
+          <BrainBridgeSettings state={data.brainBridge} />
           <TypographySettings value={data.typography} />
+          <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
+            <div className="panel-heading"><div><h2>Task priorities</h2><p>Show priority controls, badges and shortcuts. Hiding them keeps your saved priorities.</p></div>
+              <Button variant="outline" size="sm" role="switch" aria-label="Show task priorities" aria-checked={showPriorities} disabled={priorityPending} onClick={() => {
+                if (prioritySaving.current) return;
+                prioritySaving.current = true; setPriorityPending(true);
+                void run(async () => {
+                  try { await api.setShowTaskPriorities(!showPriorities); }
+                  finally { prioritySaving.current = false; setPriorityPending(false); }
+                });
+              }}>{showPriorities ? 'On' : 'Off'}</Button>
+            </div>
+          </Card>
           <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
             <div className="panel-heading"><div><h2>Document review</h2><p>Use Aegir's built-in editor and passage comments by default. Enable Malcolm's human-review integration to also review task documents in your browser. Requires human-review installed and available to your agent.</p></div>
               <Button variant="outline" size="sm" aria-pressed={!!data.browserReviewEnabled} disabled={browserPending} onClick={() => browserAction(() => api.setBrowserReviewEnabled(!data.browserReviewEnabled))}>{data.browserReviewEnabled ? 'Disable browser review' : 'Enable browser review'}</Button>
@@ -268,8 +287,8 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
                   <small>
                     {agent.role} ·{' '}
                     {modelTierForRole(agent.role) === 'default'
-                      ? 'Codex default model'
-                      : 'Lightweight model'}
+                      ? data.onboarding?.setup?.engine === 'claude' ? 'Claude Code default model' : 'Codex default model'
+                      : data.onboarding?.setup?.engine === 'claude' ? 'Claude Sonnet' : 'Lightweight model'}
                   </small>
                 </div>
                 <AgentSkillsSummary agentId={agent.id} onOpen={onSkills}/>

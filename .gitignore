@@ -6,3 +6,6 @@ dist-types/
 release/
 *.tsbuildinfo
 .DS_Store
+
+build/.swift-module-cache/
+build/aegir-reminders

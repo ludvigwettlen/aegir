@@ -20,7 +20,7 @@
 }
 .ws-document-viewport { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; container-type: inline-size; }
 .ws-document-scroll { flex: 1; overflow: auto; min-width: 0; min-height: 0; padding: 0 clamp(24px, 4vw, 72px);
-  > div { padding-top: var(--document-typewriter-space, 36px); padding-bottom: var(--document-typewriter-space, 80px); }
+  > div { display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; padding-top: var(--document-typewriter-space, 36px); padding-bottom: var(--document-typewriter-space, 80px); }
 }
 .ws-document-prose {
   --ds-text-scale: var(--ds-editor-text-scale);
@@ -28,7 +28,7 @@
   --ds-font-body: var(--ds-font-editor);
   font-family: var(--ds-font-editor);
   button { font-family: var(--ds-font-system); }
-  max-width: 780px; margin: 0 auto; min-height: 100%; outline: none; font-size: calc(14px * var(--ds-text-scale, 1)); line-height: 1.85; overflow-wrap: anywhere;
+  flex: 1; width: 100%; max-width: 780px; margin: 0 auto; outline: none; font-size: calc(14px * var(--ds-text-scale, 1)); line-height: 1.85; overflow-wrap: anywhere;
   > :first-child { margin-top: 0; }
   h1 { font-size: calc(32px * var(--ds-text-scale, 1)); line-height: 1.3; margin: 28px 0 16px; }
   h2 { font-size: calc(21px * var(--ds-text-scale, 1)); margin: 28px 0 12px; }
@@ -318,6 +318,16 @@
 }
 .ws-document-list-status { flex: none; margin: 0; padding: var(--ds-space-2) var(--ds-space-5); font-size: calc(12px * var(--ds-text-scale, 1)); color: var(--ds-color-muted); }
 .ws-document-picker { width: min(520px, calc(100vw - 40px)); }
+.ws-document-create .ws-field input {
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--ds-color-line);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  color: var(--ds-color-ink);
+  font: calc(14px * var(--ds-text-scale, 1))/1.5 var(--ds-font-system);
+  letter-spacing: 0;
+  &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
+}
 .ws-document-picker-options { margin-top: var(--ds-space-3); max-height: min(420px, 50vh); overflow: auto;
   [aria-current="page"] { background: var(--ds-color-lime-soft); }
 }

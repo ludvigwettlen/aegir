@@ -129,3 +129,21 @@ describe('Gmail inbox', () => {
     expect(service.snapshot().error).toContain('repeated'); expect(service.snapshot().syncing).toBe(false);
   });
 });
+
+it('queues Gmail delivery, supports Undo/manual completion and cancels queued sends on restart', async () => {
+  const { service, store, draft, request, review } = setup(), id = await draft(); vi.useFakeTimers();
+  try {
+    service.queueSend(id, 1, fields);
+    expect(service.hasActiveWork).toBe(true);
+    expect(() => service.update(id, 1, fields)).toThrow();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(request.mock.calls.filter(c => c[1] === 'messages/send')).toHaveLength(0);
+    service.cancelSend(id, 1); await vi.advanceTimersByTimeAsync(1000);
+    service.queueSend(id, 1, fields); service.stop();
+    const reopened = new GmailService(store, review, () => {}, request);
+    expect(store.message(id)?.meta).toMatchObject({ state: 'draft' });
+    reopened.markSentManually(id, 1); expect(store.message(id)?.meta).toMatchObject({ state: 'sent-manually' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(request.mock.calls.filter(c => c[1] === 'messages/send')).toHaveLength(0); reopened.stop();
+  } finally { vi.useRealTimers(); }
+});
