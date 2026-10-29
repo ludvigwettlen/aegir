@@ -77,6 +77,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS routine_runs(id TEXT PRIMARY KEY,routineId TEXT NOT NULL,trigger TEXT NOT NULL,status TEXT NOT NULL,summary TEXT NOT NULL,startedAt TEXT NOT NULL,endedAt TEXT);
       CREATE TABLE IF NOT EXISTS run_events(id TEXT PRIMARY KEY,runId TEXT NOT NULL,at TEXT NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS run_events_run ON run_events(runId,at);
+      CREATE TABLE IF NOT EXISTS task_delegations(taskId TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     `);
     this.migrate();
@@ -389,7 +390,11 @@ export class Store {
   }
   private decodeTask(row: Task): Task {
     const raw = row.labels as unknown;
-    return { ...row, labels: typeof raw === 'string' ? JSON.parse(raw) : taskLabels(row) };
+    const delegation = this.db.prepare('SELECT data FROM task_delegations WHERE taskId=?').get(row.id) as { data: string } | undefined;
+    return { ...row, ...(delegation ? { delegation: JSON.parse(delegation.data) } : {}), labels: typeof raw === 'string' ? JSON.parse(raw) : taskLabels(row) };
+  }
+  saveDelegation(taskId: string, value: import('../shared/delegation.js').Delegation) {
+    this.db.prepare('INSERT INTO task_delegations(taskId,data) VALUES (?,?) ON CONFLICT(taskId) DO UPDATE SET data=excluded.data').run(taskId, JSON.stringify(value));
   }
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Agent {
     const row: Agent = { id: randomUUID(), ...input, createdAt: now() };

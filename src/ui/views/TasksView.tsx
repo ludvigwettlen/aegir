@@ -1,3 +1,4 @@
+import { TaskDelegation } from './TaskDelegation';
 import { TaskLabelsDialog } from './TaskLabelsDialog';
 import { taskLabels, parseLabels } from '../../../shared/task-labels';
 import { TaskFilters, loadTaskFilters } from './TaskFilters';
@@ -68,7 +69,7 @@ function groupTasks(list: TaskView, tasks: Task[], sort: TaskFilter['sort'] = 'd
   const groups = new Map<string, Task[]>();
   for (const task of sorted) {
     const key =
-      list === 'needs' ? taskStatusText[task.status] : taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'No label';
+      list === 'needs' ? (task.delegation && ['Blocked', 'Ready for review', 'Done'].includes(task.delegation.status) ? task.delegation.status : taskStatusText[task.status]) : taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'No label';
     groups.set(key, [...(groups.get(key) || []), task]);
   }
   return [...groups].sort(([a], [b]) =>
@@ -538,7 +539,7 @@ function Empty({ list }: { list: TaskView }) {
     inbox: 'Inbox is empty. Add a task above.',
     today: 'Nothing due today. Add a task above.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
-    team: 'Nothing handed off. Press A on a task to give it to the agent team.',
+    team: 'Nothing delegated. Assign a person in task details, or press A to hand off to agents.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
     completed: 'No completed tasks yet.',
   }[list as BuiltInTaskView];
@@ -629,6 +630,7 @@ function TaskRow({
       )}
       {task.recurrence && <Repeat2 size={13} className="ws-muted-icon" aria-label={`Repeats ${taskRecurrenceLabels[task.recurrence].toLowerCase()}`} />}
       {taskLabels(task).length > 0 && <span className="ws-label" title={taskLabels(task).map(label => `#${label}`).join(', ')}>{taskLabels(task).map(label => `#${label}`).join(' · ')}</span>}
+      {task.delegation && <span className="ws-person-label" title={`Assigned to ${task.delegation.assignee.name} · ${task.delegation.status}`}>@{task.delegation.assignee.name.split(' ')[0]} · {task.delegation.status}{task.delegation.error ? ' · Sync failed' : ''}</span>}
       {authors.length > 0 && (
         <span className="ws-agents">
           {authors.map((id) => (
@@ -853,6 +855,7 @@ function TaskDetail({
           </span>
         ))}
       </div>}
+      <TaskDelegation task={task} connected={data.connectors.some(c => c.id === 'notion' && c.status === 'connected')} />
       <details className="ws-task-notes-disclosure">
         <summary><ChevronRight size={13} aria-hidden="true" /><span>Notes</span><span className="ws-task-notes-preview">{notes.trim() || 'Add context…'}</span></summary>
       <label className="ws-field ws-task-notes">

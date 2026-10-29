@@ -1,3 +1,4 @@
+import { DelegationSettings } from './TaskDelegation';
 import { PersonalIntegrations } from './PersonalIntegrations';
 import { BrainBridgeSettings } from './BrainBridgeSettings';
 import { GmailSettings } from './GmailSettings';
@@ -51,6 +52,7 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
             </div>
           </Card>}
           <PersonalIntegrations reminders={data.reminders} />
+          <DelegationSettings state={data.delegation} connected={notion?.status === 'connected'} />
           <BrainBridgeSettings state={data.brainBridge} />
           <TypographySettings value={data.typography} />
           <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">

@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, DesktopApi } from '../shared/types.js';
 
 const api: DesktopApi = {
+  configureDelegation: database => ipcRenderer.invoke('delegation-configure', database),
+  findDelegationPeople: query => ipcRenderer.invoke('delegation-people', query),
+  delegateTask: (id, input) => ipcRenderer.invoke('delegation-publish', id, input),
+  syncDelegations: () => ipcRenderer.invoke('delegation-sync'),
+  setDelegationStatus: (id, status) => ipcRenderer.invoke('delegation-status', id, status),
   windowVibrancy: process.argv.includes('--aegir-vibrancy'),
   searchTaskContent: query => ipcRenderer.invoke('search-task-content', query),
   checkSetup: () => ipcRenderer.invoke('setup-check'),

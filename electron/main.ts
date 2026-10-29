@@ -1,3 +1,4 @@
+import { DelegationService } from './delegation.js';
 import { PhoneCapture } from './phone-capture.js';
 import { findRemindersHelper } from './reminders.js';
 import { readClaudeRoutines } from './claude-schedule.js';
@@ -59,6 +60,7 @@ let connectors: ConnectorManager;
 let memory: MemoryRouter;
 let runtime: Runtime;
 let phoneCapture: PhoneCapture;
+let delegation: DelegationService;
 let phoneTimer: NodeJS.Timeout | undefined;
 let browser: BrowserManager;
 let onboarding: OnboardingService;
@@ -82,6 +84,7 @@ function migrateLegacyData() {
 function snapshot(): Snapshot {
   return {
     reminders: phoneCapture?.state(),
+    delegation: delegation?.state(),
     onboarding: onboarding?.state(),
     brainBridge: runtime?.brainBridge?.state(),
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
@@ -345,6 +348,11 @@ function registerIpc() {
     store.setThreadStatus(threadId, 'closed');
     refresh();
   });
+  handle('delegation-configure', (database: string) => delegation.configure(database));
+  handle('delegation-people', (query: string) => delegation.people(query));
+  handle('delegation-publish', (id: string, input: import('../shared/delegation.js').DelegationInput) => delegation.delegate(id, input));
+  handle('delegation-sync', () => delegation.sync());
+  handle('delegation-status', (id: string, status: import('../shared/delegation.js').DelegationStatus) => delegation.setStatus(id, status));
   handle('capture-task', (text: string) => runtime.captureTask(text));
   let claudeRead: ReturnType<typeof readClaudeRoutines> | null = null;
   handle('claude-routines', () => claudeRead ||= readClaudeRoutines(join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions')).finally(() => { claudeRead = null; }));
@@ -693,6 +701,7 @@ if (app.requestSingleInstanceLock()) {
         throw error;
       }
     });
+    delegation = new DelegationService(store, connectors, refresh);
     connectors.on('change', refresh);
     registerIpc();
     createWindow();
@@ -700,6 +709,7 @@ if (app.requestSingleInstanceLock()) {
     createTray();
     connectors.start();
     runtime.start();
+    delegation.start();
     if (store.getSetting('providerSetup')) void memory
       .migrateLegacy()
       .then(() => {
@@ -732,6 +742,7 @@ if (app.requestSingleInstanceLock()) {
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
     if (phoneTimer) clearInterval(phoneTimer);
     phoneCapture?.stop();
+    delegation?.close();
     runtime?.stop();
     const setupClosed = onboarding?.close();
     const browserClosed = browser?.close();

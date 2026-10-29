@@ -68,8 +68,8 @@ export function tasksFor(view: TaskView, tasks: Task[], today = new Date()): Tas
   if (view === 'all') return active;
   if (view.startsWith('view:')) return [];
   if (view === 'inbox') return open.filter(task => !task.listId);
-  if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked');
-  if (view === 'team') return open.filter(task => task.threadId !== null);
+  if (view === 'needs') return open.filter(task => task.status === 'proposed' || task.status === 'review' || task.status === 'blocked' || (!!task.delegation && ['Blocked', 'Ready for review', 'Done'].includes(task.delegation.status)));
+  if (view === 'team') return open.filter(task => task.threadId !== null || !!task.delegation);
   if (view === 'today') return open.filter(task => task.status !== 'proposed' && (task.dueAt ? task.dueAt <= now : !task.listId));
   return [...snoozed, ...open.filter(task => task.status !== 'proposed' && task.dueAt !== null && task.dueAt > now)];
 }

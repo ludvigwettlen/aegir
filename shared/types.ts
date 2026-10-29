@@ -61,6 +61,7 @@ export type Message = {
 export type TaskList = { id: string; name: string; createdAt: string };
 export type TaskRecurrence = 'daily' | 'weekdays' | 'weekly' | 'monthly';
 export type Task = {
+  delegation?: import('./delegation.js').Delegation;
   id: string;
   title: string;
   notes: string;
@@ -152,6 +153,7 @@ export type ThreadSummary = Thread & {
 };
 export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
+  delegation?: import('./delegation.js').DelegationState;
   reminders?: RemindersState;
   brainBridge?: import('./brain-bridge.js').BrainBridgeState;
   onboarding?: import('./onboarding.js').OnboardingState;
@@ -187,6 +189,12 @@ export type AppEvent =
 export type TaskChange = Partial<Pick<Task, 'title' | 'notes' | 'status' | 'label' | 'dueAt' | 'listId' | 'recurrence' | 'priority' | 'snoozedUntil' | 'labels'>>;
 
 export interface DesktopApi extends SkillsApi {
+  configureDelegation(database: string): Promise<void>;
+  findDelegationPeople(query: string): Promise<import('./delegation.js').NotionPerson[]>;
+  delegateTask(taskId: string, input: import('./delegation.js').DelegationInput): Promise<void>;
+  syncDelegations(): Promise<void>;
+  setDelegationStatus(taskId: string, status: import('./delegation.js').DelegationStatus): Promise<void>;
+
   captureTask(text: string): Promise<{ title: string; notes: string; label: string | null; labels?: string[]; dueAt: string | null; recurrence?: TaskRecurrence }>;
   claudeRoutines(): Promise<ClaudeRoutines>;
   configureReminders(enabled: boolean, list: string): Promise<void>;
