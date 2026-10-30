@@ -14,6 +14,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('supports priorities, fullscreen, 
     const row = page.locator('[data-task-row]'); await row.focus(); await page.keyboard.press('1');
     await expect.poll(() => page.getByLabel('Task priority', { exact: true }).inputValue()).toBe('1');
     await page.keyboard.press('0'); await expect.poll(() => page.getByLabel('Task priority', { exact: true }).inputValue()).toBe('');
+    await page.locator('.ws-task-options > summary').click();
     await page.getByLabel('Task priority', { exact: true }).selectOption('2'); expect(await row.getByText('P2').count()).toBe(1);
     await page.getByRole('button', { name: 'Fullscreen task', exact: true }).click();
     expect(await page.locator('.ws-task-list').isVisible()).toBe(false);

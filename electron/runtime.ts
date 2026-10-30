@@ -1,3 +1,4 @@
+import { isRetiredAgentChat } from '../shared/conversations.js';
 import { taskLabels, normalizeLabels } from '../shared/task-labels.js';
 import { captureInstructions, readCapture } from './task-capture.js';
 import { isoDate } from '../shared/tasks.js';
@@ -30,22 +31,20 @@ import { discoveryPolicy, suggestionReviewInstructions, suggestionHistory, parse
 import { readProviderSetup } from '../shared/provider-setup.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
-import { baseAgentInstructions, collaborationInstructions, memoryInstructions } from './agent-instructions.js';
+import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
 import { BrowserManager, browserInstructions } from './browser.js';
 import { SkillRegistry, type SkillSession } from './skills.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
 import type { SkillProposal } from '../shared/skills.js';
-import { mentionsAgent } from '../shared/agent-mentions.js';
+import { mainAgent } from '../shared/agent-mentions.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
 import {
   cleanRoutineChange,
   cleanTaskProposalChange,
   connectorToolsFor,
-  jsonObject,
   logText,
   memoryRecallTool,
   memoryTool,
-  mentionedAgents,
   mentionedRoutines,
   proposeRoutineTool,
   slug,
@@ -136,11 +135,11 @@ export class Runtime {
   }
 
   // ---- Chat -------------------------------------------------------------
-  async startThread(groupId: string, content: string): Promise<Thread> {
+  async startThread(content: string): Promise<Thread> {
     if (!this.available) throw new Error('Runtime is stopped');
     const text = content.trim();
     if (!text) throw new Error('Write a first message');
-    const thread = this.store.createThread(groupId, text.split('\n')[0].slice(0, 80));
+    const thread = this.store.createThread(this.conversationHome().id, text.split('\n')[0].slice(0, 80));
     this.refresh();
     void this.sendMessage(thread.id, text).catch(() => {});
     return thread;
@@ -150,7 +149,8 @@ export class Runtime {
     const text = content.trim() + attachmentContext(attachments);
     if (!text.trim()) return;
     const thread = this.thread(threadId);
-    const group = this.group(thread.groupId);
+    if (isRetiredAgentChat(thread, this.store.groups(), this.store.list('agents')))
+      throw new Error('This agent chat is retired. Start a new thread with your assistant.');
     if (
       this.runningThreads.has(threadId) ||
       (thread.taskId && this.handingOffTasks.has(thread.taskId))
@@ -167,23 +167,18 @@ export class Runtime {
       this.runningThreads.delete(threadId);
       throw error;
     }
-    const completion = this.respondToMessage(thread, group, text, execution);
+    const completion = this.respondToMessage(thread, text, execution);
     if (waitForCompletion) await completion;
     else void completion.catch(() => {}); // runAgent records failures in the conversation.
   }
-  private async respondToMessage(thread: Thread, group: Group, text: string, execution: { cancelled: boolean }) {
+  private async respondToMessage(thread: Thread, text: string, execution: { cancelled: boolean }) {
     const threadId = thread.id;
     let ok = false;
     try {
       const kind: RunKind = thread.kind === 'task' ? 'task' : 'chat';
-      ok = true;
-      for (const agent of mentionedAgents(text, this.store.list('agents'), group)) {
-        if (!this.available || execution.cancelled) {
-          ok = false;
-          break;
-        }
-        ok = (await this.runAgent(thread, group, agent, text, kind)) && ok;
-      }
+      const agent = mainAgent(this.store.list('agents'));
+      if (!agent) throw new Error('Main assistant not found');
+      if (this.available && !execution.cancelled) ok = await this.runAgent(thread, agent, text, kind);
     } catch (error) {
       ok = false;
       throw error;
@@ -222,7 +217,7 @@ export class Runtime {
     this.refresh();
     return file;
   }
-  // A hand-off is one instruction. Atlas-style routing picks the group; the group lead starts in a fresh task thread.
+  // Keep topic routing, while the main assistant handles every task.
   async handOff(taskId: string, instruction: string) {
     if (!this.available) throw new Error('Runtime is stopped');
     const task = this.store.get('tasks', taskId);
@@ -234,12 +229,13 @@ export class Runtime {
     let activeThreadId: string | undefined;
     try {
       const brief = instruction.trim() || task.notes || task.title;
-      const group = await this.routeTask(task, brief);
+      const home = this.conversationHome();
       if (!this.available) return;
       const outputDir = this.taskOutputDirectory(taskId);
       mkdirSync(outputDir, { recursive: true });
+      const lead = mainAgent(this.store.list('agents'))!;
       let thread = task.threadId ? this.store.get('threads', task.threadId) : undefined;
-      if (!thread) thread = this.store.createThread(group.id, task.title, 'task', task.id);
+      if (!thread) thread = this.store.createThread(home.id, task.title, 'task', task.id);
       if (this.runningThreads.has(thread.id))
         throw new Error('An agent is already working in this thread');
       activeThreadId = thread.id;
@@ -248,13 +244,12 @@ export class Runtime {
         status: 'running',
         threadId: thread.id,
         outputDir,
-        agentId: group.leadAgentId,
+        agentId: lead.id,
       });
       started = true;
       this.store.addMessage(thread.id, null, 'user', brief);
       this.refresh();
-      const lead = this.store.get('agents', group.leadAgentId)!;
-      const ok = await this.runAgent(thread, group, lead, brief, 'task');
+      const ok = await this.runAgent(thread, lead, brief, 'task');
       if (!this.available) return;
       const latest = this.store.get('tasks', taskId);
       if (latest?.status === 'running')
@@ -275,52 +270,20 @@ export class Runtime {
     const task = this.store.get('tasks', taskId);
     if (task?.threadId) await this.stopThread(task.threadId);
   }
-  private async routeTask(task: Task, brief: string): Promise<Group> {
-    if (task.threadId) {
-      const existing = this.store.get('threads', task.threadId);
-      if (existing) return this.group(existing.groupId);
-    }
-    const groups = this.store.groups().filter((group) => group.kind === 'group');
-    if (groups.length <= 1) return groups[0] || this.store.groups()[0];
-    const agents = this.store.list('agents');
-    const listing = groups
-      .map(
-        (group) =>
-          `- id: ${group.id}\n  name: ${group.title}\n  agents: ${group.agentIds
-            .map((id) => agents.find((agent) => agent.id === id)?.name)
-            .filter(Boolean)
-            .join(', ')}\n  purpose: ${group.instructions || '(none)'}`,
-      )
-      .join('\n');
-    try {
-      const result = await this.codex.run({
-        kind: 'prep',
-        cwd: this.paths.routineCwd,
-        instructions:
-          'You route tasks to the best-suited group of agents. Reply with JSON only: {"groupId": "<id>"}.',
-        prompt: `Groups:\n${listing}\n\nTask: ${task.title}${taskLabels(task).length ? ` (${taskLabels(task).map(label => `#${label}`).join(' ')})` : ''}\nInstruction: ${brief}`,
-        tools: [],
-        modelTier: 'lightweight',
-        onDelta: () => {},
-      });
-      const chosen = groups.find(
-        (group) => group.id === jsonObject<{ groupId: string }>(result.text).groupId,
-      );
-      if (chosen) return chosen;
-    } catch {
-      /* fall back below */
-    }
-    return groups[0];
+  private conversationHome(): Group {
+    const agent = mainAgent(this.store.list('agents'));
+    if (!agent) throw new Error('Main assistant not found');
+    // A storage container keeps historical IDs and document paths intact. It has no UI or routing role.
+    return this.store.groups().find(group => group.kind === 'private' && group.leadAgentId === agent.id)
+      || this.store.createGroup(agent.name, [agent.id], agent.id, 'private');
   }
 
   // ---- Agent runs in threads ---------------------------------------------
   private async runAgent(
     thread: Thread,
-    group: Group,
     agent: Agent,
     userText: string,
     kind: RunKind,
-    depth = 0,
   ): Promise<boolean> {
     if (!this.available) return false;
     const message = this.store.addMessage(thread.id, agent.id, 'agent', '', 'streaming');
@@ -330,7 +293,7 @@ export class Runtime {
     try {
       const agents = this.store.list('agents');
       const page = this.store.messagePage(thread.id, message.id, 30);
-      const suggestTitle = kind === 'chat' && depth === 0 && !page.before
+      const suggestTitle = kind === 'chat' && !page.before
         && page.messages.length === 1 && page.messages[0].role === 'user';
       const proposals = new Map(this.skills.proposals().map(proposal => [proposal.id, proposal]));
       const history = page.messages.map((x) => {
@@ -379,7 +342,7 @@ export class Runtime {
         kind,
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
-        instructions: `${this.instructionsFor(kind, agent, group, depth)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}\n${suggestTitle ? threadTitleInstructions : ''}`,
+        instructions: `${this.instructionsFor(kind, agent)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}\n${suggestTitle ? threadTitleInstructions : ''}`,
         prompt,
         tools,
         modelTier: modelTierForRole(agent.role),
@@ -400,31 +363,6 @@ export class Runtime {
       const ok = result.status === 'completed' && !this.runningThreads.get(thread.id)?.cancelled;
       this.store.updateMessage(message.id, result.text || streamed, ok ? 'complete' : 'failed');
       this.refresh();
-      if (depth === 0 && ok) {
-        const next = agents.find(
-          (other) =>
-            other.id !== agent.id &&
-            group.agentIds.includes(other.id) &&
-            mentionsAgent(result.text, other.name),
-        );
-        if (next) {
-          this.store.addMessage(
-            thread.id,
-            null,
-            'system',
-            `${agent.name} brought in ${next.name}.`,
-          );
-          this.refresh();
-          return this.runAgent(
-            thread,
-            group,
-            next,
-            `${agent.name} asked you to contribute:\n${result.text}`,
-            kind,
-            1,
-          );
-        }
-      }
       return ok;
     } catch (error) {
       if (!this.available) return false;
@@ -442,17 +380,12 @@ export class Runtime {
       }
     }
   }
-  private instructionsFor(kind: RunKind, agent: Agent, group: Group, depth = 0) {
+  private instructionsFor(kind: RunKind, agent: Agent) {
     const memoryGuidance = memoryInstructions(this.store.getSetting('memoryInstructions') || '');
     const emailGuidance = this.setup.connections === 'claude' ? claudeDraftInstructions : this.gmail.snapshot().account ? gmailInstructions : 'Gmail is not configured. Ask the user to connect it in Settings when needed.';
-    const collaboration = collaborationInstructions(
-      this.store.list('agents').filter(other => other.id !== agent.id && group.agentIds.includes(other.id)),
-      depth > 0,
-      kind === 'task',
-    );
-    const purpose = group.instructions ? `\nGroup purpose: ${group.instructions}` : '';
+    const collaboration = 'You are the single main assistant. Handle the work yourself. Agent mentions in older messages are context only; do not route work to other agents or promise specialist handoffs.';
     if (kind === 'task')
-      return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to the agent team, in the "${group.title}" group.${purpose}
+      return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to you.
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
 Slack and Notion tools are read-only; use them to research. Do not write to external systems through commands or connectors. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
 ${collaboration}
@@ -461,7 +394,7 @@ ${emailGuidance}
 ${this.setup.connections !== 'claude' && this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
-    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread of the "${group.title}" ${group.kind === 'private' ? 'direct chat' : 'group'} in Aegir.${purpose}
+    return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread in Aegir.
 Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
 ${collaboration}
 ${taskProposalInstructions}
@@ -721,7 +654,7 @@ ${memoryGuidance}`;
     const routine = this.store.routine(routineId);
     if (!routine) throw new Error('Routine not found');
     if (this.runningRoutines.has(routineId)) throw new Error('This routine is already running');
-    const agent = this.store.get('agents', routine.agentId) || this.store.list('agents')[0];
+    const agent = mainAgent(this.store.list('agents'))!;
     this.runningRoutines.add(routineId);
     const discovery = this.store.getSetting('discoveryRoutineId') === routineId;
     const previous = discovery ? this.store.lastSuccessfulRun(routineId) : this.store.lastRun(routineId);
@@ -758,7 +691,7 @@ ${memoryGuidance}`;
       const connected = Object.values(this.connectors.states)
         .filter((state) => state.status === 'connected')
         .map((state) => state.id);
-      const instructions = `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background. No one is watching live; every step is logged for the user to audit.
+      const instructions = `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} running the scheduled routine "${routine.name}" in the background as the single main assistant. Handle the work yourself; do not delegate to other agents. No one is watching live; every step is logged for the user to audit.
 Connected tools are read-only. Never send messages or write to external systems. Use tasks__suggest for actionable findings with source links. If blocked by missing access or required user input, record the blocker and finish; never wait for an unattended approval. Distinguish an empty search from a failed search; do not report 'Nothing new' when a source could not be checked.\n${memoryInstructions(this.store.getSetting('memoryInstructions') || '')}
 Routine instructions:\n${routine.instructions}\n${skillContext.instructions}\n${discovery ? discoveryPolicy : ''}`;
       const prompt = `Now: ${new Date().toString()}\nPrevious run: ${previous ? `${previous.startedAt} (${previous.status}) — ${previous.summary}` : 'none'}\nConnected sources: ${connected.join(', ') || 'none'}\n\nRelevant memory:\n${recalled || '(none)'}`;
@@ -903,10 +836,5 @@ Return only a concise recap and suggested agenda in Markdown, suitable for the a
     const thread = this.store.get('threads', id);
     if (!thread) throw new Error('Thread not found');
     return thread;
-  }
-  private group(id: string) {
-    const group = this.store.group(id);
-    if (!group) throw new Error('Group not found');
-    return group;
   }
 }

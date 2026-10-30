@@ -1,0 +1,57 @@
+import { expect, it } from 'vitest';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+
+it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('flattens conversations, retires specialist chats, preserves task links and keeps failed new-thread drafts', async () => {
+  const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**', '**/build/**'] } } });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: 'reduce' }); page.setDefaultTimeout(10000);
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html?threads`);
+    const sidebar = page.getByRole('navigation', { name: 'Workspace' });
+    expect(await sidebar.getByRole('button', { name: 'General', exact: true }).count()).toBe(0);
+    expect(await sidebar.getByText('Previous agent chats', { exact: true }).count()).toBe(0);
+    await sidebar.getByRole('button', { name: 'All threads', exact: true }).click();
+    const list = page.getByRole('region', { name: 'All threads' });
+    await list.getByRole('button', { name: /Plan the week/ }).waitFor();
+    expect(await list.locator('.ws-thread-item').count()).toBe(3);
+    expect(await page.getByText('Specialist archive', { exact: true }).count()).toBe(0);
+    await list.getByRole('button', { name: /Review the launch/ }).click();
+    await page.getByRole('heading', { name: 'Review the launch', exact: true }).waitFor();
+    await page.screenshot({ path: '/tmp/aegir-flat-threads-wide.png', animations: 'disabled' });
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await list.getByRole('button', { name: /Earlier decisions/ }).waitFor();
+    expect(await list.getByRole('button', { name: /^Closed/ }).getAttribute('aria-pressed')).toBe('true');
+    await sidebar.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await page.getByRole('button', { name: 'Open task conversation', exact: true }).click();
+    await page.getByRole('heading', { name: 'Update career framework for PMs', exact: true }).waitFor();
+    expect(await list.getByRole('button', { name: /^Tasks/ }).getAttribute('aria-pressed')).toBe('true');
+    await sidebar.getByRole('button', { name: 'New thread', exact: true }).click();
+    const input = page.getByRole('textbox', { name: 'Start a thread', exact: true });
+    await input.fill('Help me prepare a proposal');
+    await page.evaluate(() => { (window as any).fixtureActions.failStartThread = true; });
+    await input.press('Enter'); await page.getByRole('alert').filter({ hasText: 'Could not start thread' }).waitFor();
+    expect(await input.inputValue()).toBe('Help me prepare a proposal');
+    await page.evaluate(() => { (window as any).fixtureActions.failStartThread = false; });
+    await input.press('Enter');
+    await page.getByRole('heading', { name: 'Help me prepare a proposal', exact: true }).waitFor();
+    expect(await input.inputValue()).toBe('');
+    expect(await page.evaluate(() => (window as any).fixtureActions.started)).toEqual(['Help me prepare a proposal']);
+    await input.fill('Keep this unfinished thought'); await page.keyboard.press('ControlOrMeta+n');
+    expect(await input.inputValue()).toBe('Keep this unfinished thought');
+    expect(await input.evaluate(element => element === document.activeElement)).toBe(true);
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.screenshot({ path: '/tmp/aegir-flat-threads-compact.png', animations: 'disabled' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await sidebar.getByRole('button', { name: 'Search tasks and commands', exact: true }).click();
+    const search = page.getByRole('combobox', { name: 'Search tasks and commands' });
+    await search.fill('Specialist archive');
+    expect(await page.getByRole('option', { name: /Specialist archive/ }).count()).toBe(0);
+    await search.fill('New group'); expect(await page.getByRole('option', { name: /^New group/ }).count()).toBe(0);
+    await search.fill('Earlier decisions'); await page.getByRole('option', { name: /^Earlier decisions/ }).click();
+    await page.getByRole('heading', { name: 'Earlier decisions', exact: true }).waitFor();
+    expect(errors).toEqual([]);
+  } finally { await browser?.close(); await server.close(); }
+}, 60000);

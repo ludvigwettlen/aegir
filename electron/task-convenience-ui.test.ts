@@ -11,6 +11,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('snoozes without changing deadline
     await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html?personal&notes`);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
     const title = page.getByRole('textbox', { name: 'Task title', exact: true });
+    await page.locator('.ws-task-options > summary').click();
     await page.getByRole('button', { name: 'Snooze', exact: true }).click();
     await page.screenshot({ path: '/tmp/aegir-snooze-dialog.png', fullPage: true });
     await page.getByRole('dialog', { name: 'Snooze task', exact: true }).getByRole('button', { name: 'Tomorrow', exact: true }).click();

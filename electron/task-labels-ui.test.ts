@@ -10,6 +10,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits multiple labels and saves s
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html?personal`);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
+    await page.locator('.ws-task-options > summary').click();
     await page.getByRole('button', { name: 'Edit task labels', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Task labels', exact: true });
     await dialog.getByLabel('Labels', { exact: true }).fill('work, board, Work');
@@ -24,9 +25,12 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits multiple labels and saves s
     await page.evaluate(async () => { const api = (window as any).aegir; await api.createTask({ title: 'Work only', labels: ['work'], listId: 'other' }); await api.createTask({ title: 'Board only', labels: ['board'] }); });
     await page.getByRole('button', { name: 'New filtered view', exact: true }).click();
     const filter = page.locator('.ws-task-filters');
+    if (await filter.getAttribute('open') === null) await filter.locator(':scope > summary').click();
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^Labels/ }).click();
     await filter.getByRole('checkbox', { name: 'Filter label work', exact: true }).check();
     await filter.getByRole('checkbox', { name: 'Filter label board', exact: true }).check();
     await expect.poll(() => page.locator('[data-task-row]').count()).toBe(1);
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^View settings/ }).click();
     await filter.getByLabel('Save view as', { exact: true }).fill('Board and work');
     await page.evaluate(() => { (window as any).fixtureActions.failViewSave = true; });
     await filter.getByRole('button', { name: 'Save view', exact: true }).click(); await filter.getByRole('alert').waitFor();
@@ -34,8 +38,11 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits multiple labels and saves s
     await page.evaluate(() => { (window as any).fixtureActions.failViewSave = false; });
     await filter.getByRole('button', { name: 'Save view', exact: true }).click();
     await page.getByRole('button', { name: 'Board and work', exact: true }).waitFor();
+    if (await filter.getAttribute('open') === null) await filter.locator(':scope > summary').click();
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^Labels/ }).click();
     await filter.getByLabel('Match labels', { exact: true }).selectOption('any');
     await expect.poll(() => page.locator('[data-task-row]').count()).toBe(3);
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^View settings/ }).click();
     await filter.getByLabel('Save view as', { exact: true }).fill('Board or work');
     await filter.getByRole('button', { name: 'Update view', exact: true }).click();
     await page.getByRole('button', { name: 'Board or work', exact: true }).waitFor();
@@ -43,10 +50,16 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits multiple labels and saves s
     await page.screenshot({ path: '/tmp/aegir-multiple-labels-compact.png', fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.reload(); await page.getByRole('button', { name: 'Board or work', exact: true }).click();
+    if (await filter.getAttribute('open') === null) await filter.locator(':scope > summary').click();
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^Labels/ }).click();
     expect(await filter.getByLabel('Match labels', { exact: true }).inputValue()).toBe('any');
     expect(await filter.getByRole('checkbox', { name: 'Filter label board', exact: true }).isChecked()).toBe(true);
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^View settings/ }).click();
     await filter.getByRole('button', { name: 'Save as new view', exact: true }).click();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fixtureTaskViews')!).length)).toBe(2);
+    if (await filter.getAttribute('open') === null) await filter.locator(':scope > summary').click();
+    const viewSettings = filter.locator('.ws-filter-section').filter({ has: page.locator('summary', { hasText: /^View settings/ }) });
+    if (await viewSettings.getAttribute('open') === null) await viewSettings.locator('summary').click();
     await filter.getByRole('button', { name: 'Delete view', exact: true }).click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fixtureTaskViews')!).length)).toBe(1);
     await page.screenshot({ path: '/tmp/aegir-filtered-view-builder.png', fullPage: true });
@@ -54,6 +67,8 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('edits multiple labels and saves s
     await page.reload(); await page.getByRole('button', { name: 'Legacy preset', exact: true }).waitFor();
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('aegir.task-filters.inbox')!).saved)).toEqual([]);
     await page.getByRole('button', { name: 'Legacy preset', exact: true }).click();
+    await filter.locator(':scope > summary').click();
+    await filter.locator('.ws-filter-section > summary').filter({ hasText: /^View settings/ }).click();
     await filter.getByRole('button', { name: 'Delete view', exact: true }).click();
     await page.reload(); await page.getByRole('button', { name: 'New filtered view', exact: true }).waitFor();
     expect(await page.getByRole('button', { name: 'Legacy preset', exact: true }).count()).toBe(0);

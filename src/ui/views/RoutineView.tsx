@@ -1,3 +1,4 @@
+import { mainAgent } from '../../../shared/agent-mentions';
 import { RoutineSkillBindings } from './SkillBindings';
 import { useEffect, useState } from 'react';
 import { Check, Copy, MessageSquare, Pause, Play, Repeat2, X } from 'lucide-react';
@@ -22,7 +23,7 @@ export function RoutineView({ data, routine, run, onDiscuss }: { data: Snapshot;
     const off = api.onEvent((event: AppEvent) => { if (event.type === 'run-event' && event.value.runId === selected.id) setEvents(current => current.some(item => item.id === event.value.id) ? current : [...current, event.value]); });
     return () => { live = false; off(); };
   }, [selected?.id]);
-  const agent = data.agents.find(item => item.id === routine.agentId);
+  const agent = mainAgent(data.agents);
   const status = routineStatus(routine, data.routineRuns);
   const byDay = new Map<string, typeof shown>();
   for (const item of shown) byDay.set(day(item.startedAt), [...(byDay.get(day(item.startedAt)) || []), item]);

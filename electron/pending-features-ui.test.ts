@@ -10,10 +10,17 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('reviews AI capture, filters and s
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html?personal`);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
+    expect(await page.getByRole('button', { name: 'Organize with AI', exact: true }).isVisible()).toBe(false);
+    expect(await page.getByLabel('From a source', { exact: true }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Mimer', exact: true }).count()).toBe(0);
+    expect(await page.getByText('Previous agent chats', { exact: true }).count()).toBe(0);
+    await page.screenshot({ path: '/tmp/aegir-feedback-clean.png', fullPage: true });
+    await page.locator('.ws-task-options > summary').click();
     await page.getByRole('button', { name: 'Set deadline to today', exact: true }).click();
     expect(await page.evaluate(() => (window as any).fixtureActions.task.dueAt)).toBe(await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }));
     await page.getByRole('textbox', { name: 'New task', exact: true }).fill('Review a long dictated note');
-    await page.getByRole('button', { name: 'AI capture', exact: true }).click();
+    await page.getByLabel('Task capture options', { exact: true }).click();
+    await page.getByRole('button', { name: 'Organize with AI', exact: true }).click();
     const preview = page.getByRole('region', { name: 'Review captured task' }); await preview.waitFor();
     await preview.getByLabel('Title', { exact: true }).fill('Reviewed by me');
     await preview.getByRole('button', { name: 'Add captured task', exact: true }).click();

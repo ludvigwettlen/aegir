@@ -1,9 +1,10 @@
+import { conversationThreads } from '../../../shared/conversations';
 import { taskLabels } from '../../../shared/task-labels';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Archive, Bot, CalendarDays, Check, CheckCheck, FileText, Hash, Inbox, MessageCircle, MessageSquare, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
-  Undo2, Users, Wand2, type LucideIcon,
+  Archive, Bot, CalendarDays, Check, CheckCheck, FileText, Inbox, MessageCircle, MessageSquare, Pause, Play, Plus, Repeat2, Search, Settings, Sun,
+  Undo2, Wand2, type LucideIcon,
 } from 'lucide-react';
 import type { ContentMatch, Snapshot, Task } from '../../../shared/types';
 import type { TaskView } from '../../../shared/tasks';
@@ -15,7 +16,7 @@ import { goTo, goToList, newTask, newThread, undoTaskAction } from '../command-n
 import { api, Kbd, routineStatus, type Route, type Run } from './common';
 
 type Props = {
-  data: Snapshot; route: Route; go: (route: Route) => void; run: Run; notify: (message: string) => void; onNewGroup: () => void; onNewList: () => void;
+  data: Snapshot; route: Route; go: (route: Route) => void; run: Run; notify: (message: string) => void; onNewList: () => void;
 };
 type Row = Command | CommandOption;
 // What the palette works from while it's open. It's read once when the palette opens, so a snapshot
@@ -58,27 +59,24 @@ const taskRow = ({ task, list, snippet, content }: TaskMatch, agents: Snapshot['
 };
 
 // Everything that doesn't depend on the selected task: navigation, creating things, routines and app actions.
-function appCommands({ data, route, go, run, notify, onNewGroup, onNewList }: Props): Command[] {
+function appCommands({ data, route, go, run, notify, onNewList }: Props): Command[] {
   const commands: Command[] = [...lists.map(([list, title, icon, key]): Command => ({
     id: `go.${list}`, section: 'go', title: `Go to ${title}`, icon, keys: `G then ${key}`,
     keywords: ['list', 'jump', 'open', 'show'], run: () => goToList(go, list),
   }))];
   for (const list of data.taskLists) commands.push({ id: `go.list.${list.id}`, section: 'go', title: `Go to ${list.name}`, icon: Inbox, keywords: ['list', 'custom'], run: () => goToList(go, `list:${list.id}`) });
   for (const view of data.taskViews ?? []) commands.push({ id: `go.view.${view.id}`, section: 'go', title: `Go to ${view.name}`, keywords: ['filtered', 'view'], run: () => goToList(go, `view:${view.id}`) });
-  for (const group of data.groups) {
-    const agent = data.agents.find((item) => item.id === group.leadAgentId);
-    commands.push(group.kind === 'group'
-      ? { id: `go.group.${group.id}`, section: 'go', title: `Go to #${group.title}`, icon: Hash, keywords: ['group', 'channel', 'threads'],
-        run: () => goTo(go, { view: 'group', groupId: group.id }) }
-      : { id: `go.chat.${group.id}`, section: 'go', title: `Go to ${group.title}`, subtitle: agent?.role ? `Private chat · ${agent.role}` : 'Private chat',
-        icon: MessageCircle, keywords: ['agent', 'chat', 'private'], run: () => goTo(go, { view: 'group', groupId: group.id }) });
-  }
+  commands.push({ id: 'go.chats', section: 'go', title: 'Go to all threads', icon: MessageCircle, keywords: ['chat', 'conversation'], run: () => goTo(go, { view: 'chats' }) });
+  for (const thread of conversationThreads(data.threads, data.groups, data.agents)) commands.push({
+    id: `go.thread.${thread.id}`, section: 'go', title: thread.title, subtitle: thread.kind === 'task' ? 'Task conversation' : thread.status === 'closed' ? 'Closed thread' : 'Thread', icon: MessageSquare,
+    keywords: ['chat', 'conversation'], searchOnly: true, run: () => goTo(go, { view: 'chats', threadId: thread.id }),
+  });
   // ⌘N starts a thread inside a chat and a task everywhere else, so the keycap follows the page.
-  const inChat = route.view === 'group';
+  const inChat = route.view === 'chats';
   commands.push({ id: 'create.task', section: 'create', title: 'New task', icon: Plus, keys: inChat ? undefined : '⌘ N', keywords: ['add', 'quick add', 'todo'], run: () => newTask(go) });
-  if (inChat) commands.push({ id: 'create.thread', section: 'create', title: 'New thread', icon: MessageCircle, keys: '⌘ N', keywords: ['start', 'conversation'], run: () => { newThread(notify); } });
+  commands.push({ id: 'create.thread', section: 'create', title: 'New thread', icon: MessageCircle, keys: inChat ? '⌘ N' : undefined, keywords: ['start', 'conversation'], run: () => { if (!inChat) go({ view: 'chats' }); requestAnimationFrame(() => requestAnimationFrame(() => newThread(notify))); } });
   commands.push({ id: 'create.list', section: 'create', title: 'New list…', icon: Plus, run: onNewList });
-  commands.push({ id: 'create.group', section: 'create', title: 'New group…', icon: Users, keywords: ['channel', 'team', 'agents'], run: onNewGroup });
+
   for (const routine of data.routines) {
     const status = routineStatus(routine, data.routineRuns);
     // Run and Pause rows only show up when searched for, or on that routine's own page.

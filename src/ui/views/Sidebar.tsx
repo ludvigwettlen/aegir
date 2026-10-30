@@ -1,10 +1,11 @@
+import { conversationThreads } from '../../../shared/conversations';
 import { tasksForSavedView } from '../../../shared/task-filters';
 import { openCommandPalette } from '../commands';
 import type { ReactNode } from 'react';
-import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Search, Sun, Users } from 'lucide-react';
+import { CalendarDays, CheckCheck, Inbox, List, Plus, Repeat2, Search, Sun, Users, MessageSquare } from 'lucide-react';
 import type { Snapshot } from '../../../shared/types';
 import { tasksFor } from '../../../shared/tasks';
-import { Avatar, routineStatus, type Route } from './common';
+import { routineStatus, type Route } from './common';
 
 function Item({
   active,
@@ -48,19 +49,18 @@ export function Sidebar({
   data,
   route,
   go,
-  onNewGroup,
+  onNewThread,
   onNewList,
 }: {
   data: Snapshot;
   route: Route;
   go: (route: Route) => void;
-  onNewGroup: () => void;
+  onNewThread: () => void;
   onNewList: () => void;
 }) {
   const needs = tasksFor('needs', data.tasks).length;
   const isList = (list: string) => route.view === 'tasks' && route.list === list;
-  const groups = data.groups.filter((group) => group.kind === 'group');
-  const privates = data.groups.filter((group) => group.kind === 'private');
+  const chats = conversationThreads(data.threads, data.groups, data.agents).filter(thread => thread.kind === 'chat' && thread.status === 'active');
   return (
     <nav className="ws-sidebar" aria-label="Workspace" data-keyboard-pane="sidebar">
       <Item active={false} onClick={() => openCommandPalette()} icon={<Search size={16} />} label="Search tasks and commands" />
@@ -114,43 +114,8 @@ export function Sidebar({
       {(data.taskViews ?? []).map(view => <Item key={view.id} active={isList(`view:${view.id}`)} onClick={() => go({ view: 'tasks', list: `view:${view.id}` })} icon={<List size={16} />} label={view.name} count={tasksForSavedView(view, data.tasks, new Date(), data.showTaskPriorities !== false).length} />)}
       <div className="ws-nav-label">MEETINGS</div>
       <Item active={route.view === 'one-on-ones'} onClick={() => go({ view: 'one-on-ones' })} icon={<Users size={16} />} label="1:1 prep" />
-      <div className="ws-nav-label">
-        <span>GROUPS</span>
-        <button aria-label="New group" onClick={onNewGroup}>
-          <Plus size={13} />
-        </button>
-      </div>
-      {groups.map((group) => (
-        <Item
-          key={group.id}
-          active={route.view === 'group' && route.groupId === group.id}
-          onClick={() => go({ view: 'group', groupId: group.id })}
-          icon={<span className="ws-hash">#</span>}
-          label={group.title}
-        />
-      ))}
-      <div className="ws-nav-label">AGENTS</div>
-      {privates.map((group) => {
-        const agent = data.agents.find((item) => item.id === group.leadAgentId);
-        const thread = data.threads.find((item) => agent && item.busyAgentIds.includes(agent.id));
-        const working = Boolean(thread);
-        return (
-          <Item
-            key={group.id}
-            active={route.view === 'group' && route.groupId === group.id}
-            onClick={() => go({ view: 'group', groupId: group.id })}
-            icon={
-              <span className="ws-nav-avatar">
-                <Avatar agent={agent} size={20} />
-                {working && <i className="ws-live-dot" />}
-              </span>
-            }
-            label={group.title}
-            detail={thread ? `Working · ${thread.title}` : agent?.role}
-            tone={thread ? 'live' : undefined}
-          />
-        );
-      })}
+      <div className="ws-nav-label"><span>CHATS</span><button aria-label="New thread" title="New thread" onClick={onNewThread}><Plus size={13} /></button></div>
+      <Item active={route.view === 'chats'} onClick={() => go({ view: 'chats' })} icon={<MessageSquare size={16} />} label="All threads" count={chats.length} />
       <div className="ws-nav-label">ROUTINES</div>
       {data.routines.map((routine) => {
         const status = routineStatus(routine, data.routineRuns);

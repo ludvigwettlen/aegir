@@ -39,6 +39,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('keeps long titles, collapsed note
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     expect(await page.locator('.ws-document-picker small').count()).toBe(6);
     await page.getByRole('button', { name: 'Close document picker' }).click();
+    await page.locator('.ws-task-options > summary').click();
     await page.getByRole('button', { name: 'Repeat task', exact: true }).click();
     await page.getByRole('dialog', { name: 'Repeat task' }).waitFor(); await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Fullscreen task', exact: true }).click();

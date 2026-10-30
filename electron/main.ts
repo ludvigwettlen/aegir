@@ -300,11 +300,6 @@ function registerIpc() {
   handle('copy-chat-transcript', (threadId: string) => {
     clipboard.writeText(chatTranscript(store, threadId, runtime.skills.proposals()));
   });
-  handle('create-group', (title: string, agentIds: string[]) => {
-    const group = store.createGroup(title.trim() || 'New group', agentIds);
-    refresh();
-    return group;
-  });
   handle('create-agent', (input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>) => {
     store.createAgent(input);
     refresh();
@@ -313,8 +308,8 @@ function registerIpc() {
     store.updateAgent(agent);
     refresh();
   });
-  handle('start-thread', (groupId: string, content: string) =>
-    runtime.startThread(groupId, content),
+  handle('start-thread', (content: string) =>
+    runtime.startThread(content),
   );
   handle('attachment-import', (id: string, name: string, bytes: Uint8Array) => importAttachment(attachmentRoot(id), name, bytes));
   handle('attachment-open', async (id: string, path: string) => {

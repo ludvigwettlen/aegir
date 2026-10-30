@@ -245,10 +245,9 @@ export interface DesktopApi extends SkillsApi {
   threadMessages(threadId: string, before?: string): Promise<MessagePage>;
   copyChatTranscript(threadId: string): Promise<void>;
   onEvent(callback: (event: AppEvent) => void): () => void;
-  createGroup(title: string, agentIds: string[]): Promise<Group>;
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Promise<void>;
   updateAgent(agent: Agent): Promise<void>;
-  startThread(groupId: string, content: string): Promise<Thread>;
+  startThread(content: string): Promise<Thread>;
   sendMessage(threadId: string, content: string, attachments?: string[]): Promise<void>;
   importAttachment(threadId: string, name: string, bytes: Uint8Array): Promise<import('./attachments.js').Attachment>;
   openAttachment(threadId: string, path: string): Promise<void>;

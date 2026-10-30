@@ -74,3 +74,25 @@
     .ws-document-file-open { padding-block: var(--ds-space-1); }
   }
 }
+
+/* Task creation and properties use spacing and progressive disclosure. */
+.ws-task-filters { border-bottom: 0; padding: var(--ds-space-2) var(--ds-space-5); }
+.ws-task-list > .ws-quick-add { margin: var(--ds-space-3) var(--ds-space-5) var(--ds-space-4); }
+.ws-capture-options { flex: none;
+  > summary { cursor: pointer; font-size: calc(12px * var(--ds-text-scale)); padding: var(--ds-space-1); }
+  > div { position: absolute; z-index: 5; right: 0; top: 100%; width: min(300px, 80vw); box-sizing: border-box; padding: var(--ds-space-3); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); color: var(--ds-color-ink); box-shadow: var(--ds-shadow-pane);
+    p { margin: 0 0 var(--ds-space-2); font-size: calc(12px * var(--ds-text-scale)); line-height: 1.5; }
+  }
+}
+.ws-task-list > .ws-quick-add { position: relative; }
+.ws-task-options { min-width: 0;
+  > summary { width: fit-content; cursor: pointer; color: var(--ds-color-muted); font-size: calc(12px * var(--ds-text-scale)); padding-block: var(--ds-space-2); }
+  > .ws-task-toolbar-properties { padding-block: var(--ds-space-2); gap: var(--ds-space-2); }
+}
+
+:is(.ws-capture-options, .ws-task-options) > summary:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; border-radius: var(--ds-radius-control); }
+
+.ws-task-options-row { display: flex; align-items: flex-start; gap: var(--ds-space-2); min-width: 0;
+  > .ws-task-options { flex: 1; }
+  > .ws-task-state-actions { display: flex; align-items: center; gap: var(--ds-space-1); padding-block: var(--ds-space-1); }
+}

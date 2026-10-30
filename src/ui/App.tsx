@@ -11,9 +11,9 @@ import type { Snapshot } from '../../shared/types';
 import { ApprovalDock } from './views/ApprovalDock';
 import { api, type Route, type Run } from './views/common';
 import { useWorkspaceKeyboard } from './hooks/useWorkspaceKeyboard';
-import { GroupView } from './views/GroupView';
+import { ThreadsView } from './views/ThreadsView';
+import { newThread } from './command-navigation';
 import { MemoryView } from './views/MemoryView';
-import { NewGroupModal } from './views/NewGroupModal';
 import { RoutineView } from './views/RoutineView';
 import { SkillsView } from './views/SkillsView';
 import { SettingsView } from './views/SettingsView';
@@ -41,7 +41,6 @@ export function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [listAction, setListAction] = useState<TaskListAction | null>(null);
-  const [showNewGroup, setShowNewGroup] = useState(false);
   const [feedbackActive, setFeedbackActive] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const onboardingVisible = setupOpen || data?.onboarding?.showOnLaunch === true;
@@ -50,7 +49,6 @@ export function App() {
     return api.onEvent((event) => {
       if (event.type === 'snapshot') setData(event.value);
       if (event.type === 'open-settings') {
-        setShowNewGroup(false);
         setListAction(null);
         setRoute({ view: 'settings' });
       }
@@ -98,37 +96,33 @@ export function App() {
   if (showSplash) return <SplashScreen onComplete={dismissSplash} />;
   if (!data) return <div className="loading">Loading Aegir…</div>;
   if (onboardingVisible && data.onboarding) return <OnboardingView data={data} onClose={() => setSetupOpen(false)} onSettings={() => { setSetupOpen(false); setRoute({ view: 'settings' }); }} />;
-  const group =
-    route.view === 'group' ? data.groups.find((item) => item.id === route.groupId) : undefined;
   const routine =
     route.view === 'routine'
       ? data.routines.find((item) => item.id === route.routineId)
       : undefined;
   const discuss = (name: string) => {
-    const home = data.groups.find((item) => item.kind === 'group') || data.groups[0];
-    setRoute({ view: 'group', groupId: home.id, draft: `@${name} ` });
+    setRoute({ view: 'chats', draft: `@${name} ` });
   };
   return (
     <div className="ws-shell">
       <ShortcutHints route={route} showTaskPriorities={data.showTaskPriorities !== false} />
       <CommandPalette data={data} route={route} go={setRoute} run={run} notify={setNotice}
-        onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
+        onNewList={() => setListAction({ kind: 'create' })} />
       <UiFeedback route={route} active={feedbackActive} onActiveChange={setFeedbackActive} />
-      <Sidebar data={data} route={route} go={setRoute} onNewGroup={() => setShowNewGroup(true)} onNewList={() => setListAction({ kind: 'create' })} />
+      <Sidebar data={data} route={route} go={setRoute} onNewThread={() => { setRoute({ view: 'chats' }); requestAnimationFrame(() => requestAnimationFrame(() => newThread(setNotice))); }} onNewList={() => setListAction({ kind: 'create' })} />
       <div className="ws-main">
         {route.view === 'tasks' && (
           <TasksView navigationToken={route} onNavigate={list => setRoute({ view: 'tasks', list })} data={data} run={run} list={route.list} notify={setNotice} onManageList={setListAction}
-            onOpenThread={(groupId, threadId) => setRoute({ view: 'group', groupId, threadId })} />
+            onOpenThread={threadId => setRoute({ view: 'chats', threadId })} />
         )}
-        {route.view === 'group' && group && (
-          <GroupView
-            key={`${group.id}:${route.draft || ''}`}
+        {route.view === 'chats' && (
+          <ThreadsView
+            key={route.draft ?? 'threads'}
             data={data}
-            group={group}
             threadId={route.threadId}
             draft={route.draft}
             run={run}
-            onSelectThread={(threadId) => setRoute({ view: 'group', groupId: group.id, threadId })}
+            onSelectThread={threadId => setRoute({ view: 'chats', threadId })}
           />
         )}
         {route.view === 'routine' && routine && (
@@ -165,19 +159,7 @@ export function App() {
       {notice && <div className="ws-notice" role="status">{notice}</div>}
       {listAction && <TaskListDialog action={listAction} onClose={() => setListAction(null)}
         onSaved={id => setRoute({ view: 'tasks', list: id ? `list:${id}` : 'inbox' })} />}
-      {showNewGroup && (
-        <NewGroupModal
-          agents={data.agents}
-          onClose={() => setShowNewGroup(false)}
-          onCreate={(title, agentIds) =>
-            run(async () => {
-              const created = await api.createGroup(title, agentIds);
-              setRoute({ view: 'group', groupId: created.id });
-              setShowNewGroup(false);
-            })
-          }
-        />
-      )}
+
     </div>
   );
 }

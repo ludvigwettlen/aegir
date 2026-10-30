@@ -16,17 +16,18 @@ describe('tool policy', () => {
 });
 
 describe('mentions', () => {
-  it('treats custom agent names literally without breaking composer discovery', () => {
+  it('keeps legacy and custom mentions on the main assistant', () => {
     const custom = [agent('a', 'Aegir'), agent('b', 'Research [EU]'), agent('c', 'René')];
-    expect(mentionedAgents('@Research [EU] review', custom, group).map(agent => agent.id)).toEqual(['b']);
-    expect(mentionedAgents('@René review', custom, group).map(agent => agent.id)).toEqual(['c']);
+    expect(mentionedAgents('@Research [EU] review', custom, group).map(agent => agent.id)).toEqual(['a']);
+    expect(mentionedAgents('@René review', custom, group).map(agent => agent.id)).toEqual(['a']);
     expect(mentionedAgents('@Renée review', custom, group).map(agent => agent.id)).toEqual(['a']);
   });
-  it('routes to mentioned agents, else the lead; private groups always go to their agent', () => {
-    expect(mentionedAgents('@mimer can you look?', agents, group).map(x => x.name)).toEqual(['Mimer']);
+  it('uses one assistant even for multiple mentions and legacy private groups', () => {
+    expect(mentionedAgents('@Mimer @Saga please help', agents, group).map(x => x.name)).toEqual(['Aegir']);
+    expect(mentionedAgents('@mimer can you look?', agents, group).map(x => x.name)).toEqual(['Aegir']);
     expect(mentionedAgents('@aegir please help', agents, group).map(x => x.name)).toEqual(['Aegir']);
     expect(mentionedAgents('hello', agents, group).map(x => x.name)).toEqual(['Aegir']);
-    expect(mentionedAgents('@Saga hi', agents, { ...group, kind: 'private', agentIds: ['s'], leadAgentId: 's' }).map(x => x.name)).toEqual(['Mimer']);
+    expect(mentionedAgents('@Saga hi', agents, { ...group, kind: 'private', agentIds: ['s'], leadAgentId: 's' }).map(x => x.name)).toEqual(['Aegir']);
   });
   it('finds tagged routines by full name', () => {
     const routine = (name: string) => ({ id: name, name } as Routine);

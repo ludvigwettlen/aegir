@@ -36,4 +36,4 @@ window.aegir = mockApi as DesktopApi;
 const { ThreadView } = await import('../views/ThreadView');
 const compact = new URLSearchParams(location.search).has('compact');
 const run = async (fn: () => Promise<unknown>) => { await fn(); };
-createRoot(document.getElementById('root')!).render(<ThemeProvider defaultMode="light"><div className="workspace" style={{ display: 'flex', width: compact ? 440 : 760, height: 760, margin: '20px auto' }}><ThreadView data={{ agents: [], routines: [], threads: [] } as unknown as Snapshot} thread={thread} group={group} compact={compact} run={run} header={<h2>Improve follow-ups</h2>} /></div></ThemeProvider>);
+createRoot(document.getElementById('root')!).render(<ThemeProvider defaultMode="light"><div className="workspace" style={{ display: 'flex', width: compact ? 440 : 760, height: 760, margin: '20px auto' }}><ThreadView data={{ agents: [], routines: [], threads: [] } as unknown as Snapshot} thread={thread} compact={compact} run={run} header={<h2>Improve follow-ups</h2>} /></div></ThemeProvider>);

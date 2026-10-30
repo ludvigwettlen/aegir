@@ -94,7 +94,7 @@ export function TasksView({
   list: TaskView;
   notify: (message: string) => void;
   onManageList: (action: TaskListAction) => void;
-  onOpenThread: (groupId: string, threadId: string) => void;
+  onOpenThread: (threadId: string) => void;
 }) {
   const savedView = list.startsWith('view:') ? data.taskViews?.find(view => view.id === list.slice(5)) : undefined;
   const [filters, setFilters] = useState<Record<string, TaskFilter>>({});
@@ -134,7 +134,6 @@ export function TasksView({
   const day = isoDate(new Date());
   const [snoozeTaskId, setSnoozeTaskId] = useState<string | null>(null);
   const groups = useMemo(() => groupTasks(scope, filterTasks(baseTasks, effectiveFilter), effectiveFilter.sort), [list, scope, data.tasks, day, JSON.stringify(selectedLabels(effectiveFilter)), effectiveFilter.labelMode, effectiveFilter.label, effectiveFilter.status, effectiveFilter.priority, effectiveFilter.sort]);
-  const linkedTaskIds = useMemo(() => new Set(data.taskLinks.map(link => link.taskId)), [data.taskLinks]);
   const order = groups.flatMap(([, tasks]) => tasks);
   const previousLists = useRef<Partial<Record<TaskView, { order: string[]; selected?: string }>>>({});
   const previousList = previousLists.current[list];
@@ -300,7 +299,7 @@ export function TasksView({
       }
       else if (key === 'A') {
         const thread = data.threads.find(item => item.id === current.threadId);
-        if (thread && data.groups.some(group => group.id === thread.groupId)) onOpenThread(thread.groupId, thread.id);
+        if (thread) onOpenThread(thread.id);
         else notify('This task has no conversation yet');
       }
       else if (key === 'm') setMoveTaskId(current.id);
@@ -406,12 +405,6 @@ export function TasksView({
               add();
             }}
           >
-            <Button type="button" variant="ghost" size="sm" disabled={capturing || !draft.trim()} onClick={() => {
-              if (adding.current) return;
-              adding.current = true; setCapturing(true);
-              const generation = captureGeneration.current;
-              void run(async () => { try { const result = await api.captureTask(draft); if (generation === captureGeneration.current) setCapturePreview(result); } finally { adding.current = false; setCapturing(false); } });
-            }}>{capturing ? 'Preparing…' : 'AI capture'}</Button>
             <Plus size={15} aria-hidden="true" />
             <input
               ref={quickAdd}
@@ -430,6 +423,22 @@ export function TasksView({
                 }
               }}
             />
+            <details className="ws-capture-options" onKeyDown={event => {
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; quickAdd.current?.focus(); }
+            }}>
+              <summary aria-label="Task capture options">More</summary>
+              <div>
+                <p>Turn your note into a task with suggested title, notes, labels and date. Review before adding.</p>
+                <Button type="button" variant="ghost" size="sm" disabled={capturing || !draft.trim()} onClick={event => {
+                  if (adding.current) return;
+                  event.currentTarget.closest('details')?.removeAttribute('open');
+                  quickAdd.current?.focus();
+                  adding.current = true; setCapturing(true);
+                  const generation = captureGeneration.current;
+                  void run(async () => { try { const result = await api.captureTask(draft); if (generation === captureGeneration.current) setCapturePreview(result); } finally { adding.current = false; setCapturing(false); } });
+                }}>{capturing ? 'Preparing…' : 'Organize with AI'}</Button>
+              </div>
+            </details>
           </form>
         )}
         {capturePreview && <section className="ws-capture-preview" aria-label="Review captured task">
@@ -455,7 +464,6 @@ export function TasksView({
                   key={task.id}
                   task={task}
                   data={data}
-                  hasAttachedLink={linkedTaskIds.has(task.id)}
                   selected={task.id === current?.id}
                   opened={task.id === openId}
                   onClick={() => {
@@ -539,7 +547,7 @@ function Empty({ list }: { list: TaskView }) {
     inbox: 'Inbox is empty. Add a task above.',
     today: 'Nothing due today. Add a task above.',
     upcoming: 'Nothing scheduled yet. Add a due date with D or type “fri” in quick add.',
-    team: 'Nothing delegated. Assign a person in task details, or press A to hand off to agents.',
+    team: 'Nothing delegated. Assign a person in task details, or press A to hand off to your assistant.',
     needs: 'All caught up. Suggestions and work ready for review show up here.',
     completed: 'No completed tasks yet.',
   }[list as BuiltInTaskView];
@@ -549,7 +557,6 @@ function Empty({ list }: { list: TaskView }) {
 function TaskRow({
   task,
   data,
-  hasAttachedLink,
   selected,
   opened,
   onClick,
@@ -560,7 +567,6 @@ function TaskRow({
 }: {
   task: Task;
   data: Snapshot;
-  hasAttachedLink: boolean;
   selected: boolean;
   opened: boolean;
   onClick: () => void;
@@ -621,13 +627,6 @@ function TaskRow({
         <TaskGlyph task={task} />
       </Button>
       <span className={`ws-task-title ${task.status === 'done' ? 'done' : ''}`}>{data.showTaskPriorities !== false && task.priority && <span className="ws-priority" aria-label={`Priority ${task.priority}`}>P{task.priority} </span>}{task.title}</span>
-      {(task.sourceUrl || hasAttachedLink) && (
-        <ExternalLink
-          size={12}
-          className="ws-muted-icon"
-          aria-label={task.sourceUrl ? 'From a source' : 'Has attached links'}
-        />
-      )}
       {task.recurrence && <Repeat2 size={13} className="ws-muted-icon" aria-label={`Repeats ${taskRecurrenceLabels[task.recurrence].toLowerCase()}`} />}
       {taskLabels(task).length > 0 && <span className="ws-label" title={taskLabels(task).map(label => `#${label}`).join(', ')}>{taskLabels(task).map(label => `#${label}`).join(' · ')}</span>}
       {task.delegation && <span className="ws-person-label" title={`Assigned to ${task.delegation.assignee.name} · ${task.delegation.status}`}>@{task.delegation.assignee.name.split(' ')[0]} · {task.delegation.status}{task.delegation.error ? ' · Sync failed' : ''}</span>}
@@ -705,7 +704,7 @@ function TaskPopover({
       role="dialog"
       aria-label={
         kind === 'handoff'
-          ? 'Hand off to the team'
+          ? 'Hand off to assistant'
           : kind === 'label'
             ? 'Set label'
             : 'Set due date'
@@ -722,13 +721,13 @@ function TaskPopover({
             autoFocus
             rows={3}
             aria-label="Instruction"
-            placeholder={`What should the team do? Leave empty to use “${task.title}”.`}
+            placeholder={`What should your assistant do? Leave empty to use “${task.title}”.`}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={onKeyDown}
           />
           <div className="ws-popover-foot">
-            <span className="grow">The team routes it · results saved as files</span>
+            <span className="grow">Your assistant handles it · results saved as files</span>
             <button type="button" className="ws-btn primary" onClick={submit}>Hand off</button>
           </div>
         </>
@@ -779,10 +778,9 @@ function TaskDetail({
   run: Run;
   onReturnToList: () => void;
   onHandOff: () => void;
-  onOpenThread: (groupId: string, threadId: string) => void;
+  onOpenThread: (threadId: string) => void;
 }) {
   const thread = data.threads.find((item) => item.id === task.threadId);
-  const group = thread && data.groups.find((item) => item.id === thread.groupId);
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const cancelledTitle = useRef(false);
@@ -796,11 +794,11 @@ function TaskDetail({
     }
     if (next !== task.title) void run(() => api.updateTask(task.id, { title: next }));
   };
-  const threadLink = group && thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
-    aria-label={`Thread in ${group.kind === 'private' ? group.title : `#${group.title}`}`}
-    title={`Open thread in ${group.title} (Shift+A)`}
-    onClick={() => onOpenThread(group.id, thread.id)}>
-    <span>{group.kind === 'private' ? group.title : `#${group.title}`}</span><ExternalLink size={14} aria-hidden="true" />
+  const threadLink = thread ? <Button variant="ghost" size="sm" className="ws-task-thread-link"
+    aria-label="Open task conversation"
+    title="Open task conversation (Shift+A)"
+    onClick={() => onOpenThread(thread.id)}>
+    <span>Conversation</span><ExternalLink size={14} aria-hidden="true" />
   </Button> : null;
   const fullscreenAction = <Button variant="ghost" size="sm" aria-label={fullscreen ? 'Exit fullscreen task' : 'Fullscreen task'} aria-pressed={fullscreen} onClick={onToggleFullscreen}>{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button>;
   const taskProperties = <div className="ws-task-toolbar-properties">
@@ -809,12 +807,10 @@ function TaskDetail({
     {data.showTaskPriorities !== false && <label className="ws-priority-control" title="Task priority"><Flag size={13} aria-hidden="true" /><select aria-label="Task priority" value={task.priority ?? ''} onChange={event => void run(() => api.updateTask(task.id, { priority: event.target.value ? Number(event.target.value) as 1 | 2 | 3 : null }))}><option value="">None</option><option value="1">P1</option><option value="2">P2</option><option value="3">P3</option></select></label>}
     {['ready', 'review', 'blocked'].includes(task.status) && <Button variant="ghost" size="sm" onClick={onSnooze}><AlarmClock size={14} aria-hidden="true" />{isTaskSnoozed(task) ? `Snoozed until ${task.snoozedUntil}` : 'Snooze'}</Button>}
     <TaskRepeat key={task.id} task={task} compact />
-    {canMarkTaskReviewed(task) && <Button variant="ghost" size="sm" icon aria-label="Mark reviewed" title="Mark reviewed — clear Needs you and keep this task open" disabled={markingReviewed} onClick={onMarkReviewed}><CheckCheck size={15} aria-hidden="true" /></Button>}
-    {task.status === 'running' && <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}><Square size={12} /> Stop</button>}
   </div>;
   const header = (
     <header className="ws-detail-head">
-      {!(thread && group) && <div className="ws-task-plain-tools">{taskProperties}{fullscreenAction}</div>}
+      {!(thread) && <div className="ws-task-plain-tools"><span />{fullscreenAction}</div>}
       <textarea
         rows={1}
         className="ws-task-title-input"
@@ -833,6 +829,13 @@ function TaskDetail({
           }
         }}
       />
+      <div className="ws-task-options-row">
+        <details className="ws-task-options"><summary>Task options</summary>{taskProperties}</details>
+        <div className="ws-task-state-actions">
+          {canMarkTaskReviewed(task) && <Button variant="ghost" size="sm" icon aria-label="Mark reviewed" title="Mark reviewed — clear Needs you and keep this task open" disabled={markingReviewed} onClick={onMarkReviewed}><CheckCheck size={15} aria-hidden="true" /></Button>}
+          {task.status === 'running' && <button className="ws-btn" onClick={() => void run(() => api.stopTask(task.id))}><Square size={12} /> Stop</button>}
+        </div>
+      </div>
       {(task.status !== 'review' || task.sourceUrl || links.length > 0) && <div className="ws-detail-meta">
         {task.status !== 'review' && <span className={`ws-status ${task.status}`}>{taskStatusText[task.status]}</span>}
         {task.sourceUrl && (
@@ -883,15 +886,14 @@ function TaskDetail({
   );
   return (
     <aside id="task-detail" className="ws-task-detail" aria-label="Task detail" data-keyboard-pane="detail" data-feedback-context={`task-detail:${task.id}`} tabIndex={-1}>
-      {thread && group ? (
+      {thread ? (
         <ThreadView
           key={thread.id}
           data={data}
           thread={thread}
-          group={group}
           run={run}
           header={header}
-          leadingActions={<>{threadLink}{taskProperties}</>}
+          leadingActions={threadLink}
           trailingActions={fullscreenAction}
           compact
         />
@@ -918,7 +920,7 @@ function TaskDetail({
               <>
                 {task.status !== 'done' && (
                   <button className="ws-btn primary" onClick={onHandOff}>
-                    <Users size={13} /> Hand off to the team
+                    <Users size={13} /> Hand off to assistant
                   </button>
                 )}
 

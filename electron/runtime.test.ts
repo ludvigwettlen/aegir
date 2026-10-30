@@ -143,7 +143,7 @@ describe('runtime', () => {
     expect(messages.at(-1)?.status).toBe('failed');
   });
 
-  it.each(['group', 'private'] as const)('lets the first agent title a new %s chat without adding a chat message', async kind => {
+  it('lets the assistant title a new thread without adding a chat message', async () => {
     const { store, runtime, runs } = setup(async (input, id, rt) => {
       if (input.tools.some(tool => tool.name === 'threads__set_title')) {
         expect(input.instructions).toContain('Before answering, call threads__set_title');
@@ -152,9 +152,8 @@ describe('runtime', () => {
       }
       return 'Here is the mapping.';
     });
-    const group = store.groups().find(group => group.kind === kind)!;
     const opening = 'Could you help me map our designers against the competencies in Proposal A?';
-    const thread = await runtime.startThread(group.id, opening);
+    const thread = await runtime.startThread(opening);
     await vi.waitFor(() => expect(store.messagesForThread(thread.id).at(-1)?.status).toBe('complete'));
     expect(store.get('threads', thread.id)?.title).toBe('Designer competency mapping');
     expect(store.threadSummaries().find(item => item.id === thread.id)?.title).toBe('Designer competency mapping');
@@ -172,7 +171,7 @@ describe('runtime', () => {
         await expect(rt.handleInternalTool('threads', 'set_title', { title }, id)).rejects.toThrow('title');
       return 'The answer still works.';
     });
-    const thread = await runtime.startThread(store.groups()[0].id, 'Help with planning');
+    const thread = await runtime.startThread('Help with planning');
     await vi.waitFor(() => expect(store.messagesForThread(thread.id).at(-1)?.status).toBe('complete'));
     expect(store.get('threads', thread.id)?.title).toBe('Help with planning');
   });
@@ -516,7 +515,19 @@ describe('runtime', () => {
     expect(store.messagesForThread(threadId).map(message => message.content)).toContain('Please refine the proposal');
   });
 
-  it('keeps a task running through a teammate contribution and shares its output folder', async () => {
+  it('retires specialist private chats without changing their saved history', async () => {
+    const { store, runtime, runs } = setup();
+    const agents = store.list('agents');
+    const lead = agents.find(agent => agent.role === 'Lead')!;
+    const legacy = store.groups().find(group => group.kind === 'private' && group.leadAgentId !== lead.id)!;
+    const thread = store.createThread(legacy.id, 'Older conversation');
+    store.addMessage(thread.id, legacy.leadAgentId, 'agent', 'Saved specialist advice');
+    await expect(runtime.sendMessage(thread.id, '@Mimer @Saga please help')).rejects.toThrow('retired');
+    expect(runs).toHaveLength(0);
+    expect(store.messagesForThread(thread.id).map(message => message.content)).toEqual(['Saved specialist advice']);
+  });
+
+  it('does not spawn a specialist when a response mentions a legacy agent', async () => {
     let teammate = '';
     const { store, runtime, runs } = setup(async (_input, _id) => {
       if (runs.length === 1) return `Draft ready. @${teammate} verify the evidence and improve the report.`;
@@ -528,13 +539,10 @@ describe('runtime', () => {
     teammate = specialist.name;
     const task = store.createTask({ title: 'Compare competitors' });
     await runtime.handOff(task.id, 'Compare the evidence');
-    expect(runs).toHaveLength(2);
-    expect(runs[1].cwd).toBe(runs[0].cwd);
-    expect(runs[1].prompt).toContain('verify the evidence');
-    expect(runs[1].tools.some(tool => tool.name === 'slack__post')).toBe(false);
+    expect(runs).toHaveLength(1);
     expect(store.get('tasks', task.id)?.status).toBe('review');
     const messages = store.messagesForThread(store.get('tasks', task.id)!.threadId!);
-    expect(messages.filter(message => message.role === 'agent').map(message => message.agentId)).toEqual([group.leadAgentId, specialist.id]);
+    expect(messages.filter(message => message.role === 'agent').map(message => message.agentId)).toEqual([group.leadAgentId]);
   });
 
   it('does not start a teammate after the task is stopped', async () => {
@@ -562,19 +570,19 @@ describe('runtime', () => {
     expect(runs).toHaveLength(1);
   });
 
-  it('rejects a second hand-off while the first is still routing', async () => {
-    let finishRouting!: (result: string) => void;
-    const routing = new Promise<string>(resolve => { finishRouting = resolve; });
-    const { store, runtime } = setup(async input => input.instructions.includes('route tasks') ? routing : 'Done');
-    const group = store.groups().find(item => item.kind === 'group')!;
-    store.createGroup('Second group', [group.leadAgentId]);
+  it('hands off directly to the main assistant without a channel-routing model call', async () => {
+    const { store, runtime, runs } = setup();
+    store.createGroup('Second topic', [store.list('agents')[1].id]);
     const task = store.createTask({ title: 'Competitor pricing' });
     const first = runtime.handOff(task.id, 'Compare competitors');
     await expect(runtime.handOff(task.id, 'Compare again')).rejects.toThrow('already working');
-    finishRouting(JSON.stringify({ groupId: group.id }));
     await first;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].kind).toBe('task');
+    expect(runs[0].instructions).not.toContain('Group purpose');
+    const thread = store.get('threads', store.get('tasks', task.id)!.threadId!)!;
+    expect(store.group(thread.groupId)?.leadAgentId).toBe(store.list('agents').find(agent => agent.role === 'Lead')!.id);
     expect(store.threads().filter(thread => thread.taskId === task.id)).toHaveLength(1);
-    expect(store.messagesForThread(store.get('tasks', task.id)!.threadId!).filter(message => message.role === 'user')).toHaveLength(1);
   });
 
   it('reports a hand-off setup failure and leaves the task blocked', async () => {
@@ -807,7 +815,7 @@ describe('runtime shutdown', () => {
     expect(databaseAccess).not.toHaveBeenCalled();
   });
 
-  it('does not create a task thread when routing resolves after shutdown', async () => {
+  it('finishes a direct task run safely when the provider shuts down', async () => {
     const { store, runtime } = setup(async () => { runtime.stop(); store.close(); return '{}'; });
     store.createGroup('Second team', [store.groups()[0].leadAgentId]);
     await expect(runtime.handOff(store.createTask({ title: 'Shutdown' }).id, 'Work')).resolves.toBeUndefined();

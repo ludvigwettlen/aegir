@@ -7,7 +7,7 @@ export const api = window.aegir;
 export type Run = (action: () => Promise<unknown>) => Promise<void>;
 export type Route =
   | { view: 'tasks'; list: TaskView }
-  | { view: 'group'; groupId: string; threadId?: string; draft?: string }
+  | { view: 'chats'; threadId?: string; draft?: string }
   | { view: 'routine'; routineId: string }
   | { view: 'skills'; agentId?: string }
   | { view: 'one-on-ones' }
@@ -42,7 +42,7 @@ export function Kbd({ children }: { children: ReactNode }) { return <kbd classNa
 export const taskStatusText: Record<Task['status'], string> = { proposed: 'Suggested', ready: 'Open', running: 'Working', review: 'Ready for review', blocked: 'Needs you', done: 'Done', dismissed: 'Dismissed' };
 
 export function TaskGlyph({ task }: { task: Task }) {
-  if (task.status === 'running') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Team working"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-line)" strokeWidth="2"/><circle className="ws-glyph-spin" cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-lime-strong)" strokeWidth="2" strokeDasharray="14 41" strokeLinecap="round"/></svg>;
+  if (task.status === 'running') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Assistant working"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-line)" strokeWidth="2"/><circle className="ws-glyph-spin" cx="8" cy="8" r="6.5" fill="none" stroke="var(--ds-color-lime-strong)" strokeWidth="2" strokeDasharray="14 41" strokeLinecap="round"/></svg>;
   if (task.status === 'review' || task.status === 'blocked') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label={taskStatusText[task.status]}><circle cx="8" cy="8" r="7" fill="var(--ds-color-lemon)" stroke="#d4ad00" strokeWidth="1.2"/><path d="M8 4.5v4.2" stroke="#4a3f00" strokeWidth="1.8" strokeLinecap="round"/><circle cx="8" cy="11.2" r="1" fill="#4a3f00"/></svg>;
   if (task.status === 'proposed') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a7c00" strokeWidth="2" strokeLinejoin="round" role="img" aria-label="Suggested"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>;
   if (task.status === 'done') return <svg className="ws-glyph" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Done"><circle cx="8" cy="8" r="7.5" fill="var(--ds-color-lime-ink)"/><path d="m4.8 8.2 2.2 2.2 4.2-4.6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>;

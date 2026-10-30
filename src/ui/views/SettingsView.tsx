@@ -1,3 +1,4 @@
+import { mainAgent } from '../../../shared/agent-mentions';
 import { DelegationSettings } from './TaskDelegation';
 import { PersonalIntegrations } from './PersonalIntegrations';
 import { BrainBridgeSettings } from './BrainBridgeSettings';
@@ -265,23 +266,11 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
           >
             <div className="panel-heading">
               <div>
-                <h2>Agent personalities</h2>
-                <p>Each agent has a role, its own instructions, and reusable skills.</p>
+                <h2>Your assistant</h2>
+                <p>One assistant for your chats, tasks and routines. Customize its instructions and skills.</p>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon
-                aria-label="New agent"
-                onClick={() => {
-                  setDraft(null);
-                  setEditing('new');
-                }}
-              >
-                <Plus size={17} />
-              </Button>
             </div>
-            {data.agents.map((agent) => (
+            {data.agents.filter(agent => agent.id === mainAgent(data.agents)?.id).map((agent) => (
               <div className="settings-agent" key={agent.id}>
                 <Avatar agent={agent} size={34} />
                 <div>

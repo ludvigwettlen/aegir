@@ -5,9 +5,12 @@ export function mentionsAgent(text: string, name: string) {
   return new RegExp(`@${literal}(?![\\p{L}\\p{N}_])`, 'iu').test(text);
 }
 
-// Agents mentioned by name (@Mimer), falling back to the group lead.
-export function mentionedAgents(text: string, agents: Agent[], group: Group): Agent[] {
-  const mentioned = agents.filter(agent => mentionsAgent(text, agent.name));
-  if (group.kind === 'private') return agents.filter(agent => agent.id === group.leadAgentId);
-  return mentioned.length ? mentioned : agents.filter(agent => agent.id === group.leadAgentId);
+// Legacy identities remain readable, but all new work uses one main assistant.
+export function mainAgent(agents: Agent[]): Agent | undefined {
+  return agents.find(agent => agent.role === 'Lead') || agents[0];
+}
+
+export function mentionedAgents(_text: string, agents: Agent[], _group: Group): Agent[] {
+  const agent = mainAgent(agents);
+  return agent ? [agent] : [];
 }

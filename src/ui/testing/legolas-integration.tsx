@@ -21,6 +21,20 @@ if (new URLSearchParams(location.search).has('personal')) {
   Object.assign(task, { status: 'ready', threadId: null, agentId: null, outputDir: null });
   snapshot.threads = [];
 }
+const chatMessages: Message[] = [];
+if (new URLSearchParams(location.search).has('threads')) {
+  groups.push({ ...groups[0], id: 'product', title: 'Product channel' });
+  for (const [id, groupId, title, status] of [
+    ['welcome', 'general', 'Plan the week', 'active'],
+    ['product-chat', 'product', 'Review the launch', 'active'],
+    ['personal-chat', 'Aegir', 'Prepare for Friday', 'active'],
+    ['retired-chat', 'Mimer', 'Specialist archive', 'active'],
+    ['closed-chat', 'general', 'Earlier decisions', 'closed'],
+  ] as const) {
+    snapshot.threads.push({ ...thread, id, groupId, title, kind: 'chat', taskId: null, status, messageCount: 1, snippet: `Context for ${title}` });
+    chatMessages.push({ id: `message-${id}`, threadId: id, agentId: 'Aegir', role: 'agent', content: `Context for ${title}`, status: 'complete', meta: null, createdAt: timestamp });
+  }
+}
 const messages: Message[] = [
   { id: 'm1', threadId: thread.id, agentId: null, role: 'user', content: 'Let’s make the progression between PM levels clearer. We need a framework that describes scope and accountability.', status: 'complete', meta: null, createdAt: timestamp },
   { id: 'm2', threadId: thread.id, agentId: 'Aegir', role: 'agent', content: '**The central distinction is the scope of accountability.**\n\nThe framework should describe how a PM’s contribution changes as they take responsibility for a larger part of the product.\n\n- Own a problem and its outcome.\n- Shape a product area’s strategy.\n- Lead a cross-area mandate.\n\nI’ve prepared a [revised proposal](pm-level-boundaries-proposal.md) for us to review.\n\n| Level | Accountability |\n| --- | --- |\n| L2 | Own a problem and its outcome. |\n| L3 | Shape a product area’s strategy. |\n| L4 | Lead a cross-area mandate. |', status: 'complete', meta: null, createdAt: timestamp },
@@ -37,7 +51,7 @@ ${commentStart}${encodeComment({ id: 'second', text: 'Add an example.' })} -->Se
 ` + files[0].content;
 const publish = () => listeners.forEach(listener => listener({ type: 'snapshot', value: structuredClone(snapshot) }));
 const reviewUndo: Task['status'][] = [];
-const actions = { filed: [] as { id: string; path: string; kind: string; content?: string }[], task, failPrioritySetting: false, prioritySettingDelay: 0, failReview: false, reviewDelay: 0, reviewCalls: 0, setTaskStatus: (status: Task['status']) => { Object.assign(task, { status }); publish(); }, failSend: false, failUpload: false, sent: [] as { text: string; paths?: string[] }[], reviews: [] as string[], uploads: [] as string[], failRead: false, failSave: false, failList: new URLSearchParams(location.search).has('failList'), files, copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false };
+const actions = { filed: [] as { id: string; path: string; kind: string; content?: string }[], task, failPrioritySetting: false, prioritySettingDelay: 0, failReview: false, reviewDelay: 0, reviewCalls: 0, setTaskStatus: (status: Task['status']) => { Object.assign(task, { status }); publish(); }, failSend: false, failUpload: false, sent: [] as { text: string; paths?: string[] }[], reviews: [] as string[], uploads: [] as string[], failRead: false, failSave: false, failList: new URLSearchParams(location.search).has('failList'), files, copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false, failStartThread: false, started: [] as string[] };
 Object.assign(window, { fixtureActions: actions });
 const creation = { fail: false, delay: 0, calls: [] as { id: string; name: string }[] };
 Object.assign(window, { fixtureCreation: creation });
@@ -58,11 +72,20 @@ const fixture: Partial<DesktopApi> = {
   },
   importAttachment: async (_id, name, bytes) => { if (actions.failUpload) throw new Error('Copy failed'); actions.uploads.push(name); return { path: '/mock/attachments/' + name, name, size: bytes.length }; },
   openAttachment: async () => {},
+  startThread: async content => {
+    if (actions.failStartThread) throw new Error('Could not start thread');
+    actions.started.push(content);
+    const created = { ...thread, id: crypto.randomUUID(), groupId: 'Aegir', title: content.slice(0, 80), kind: 'chat' as const, taskId: null, messageCount: 1, snippet: content };
+    snapshot.threads.unshift(created);
+    chatMessages.push({ id: crypto.randomUUID(), threadId: created.id, agentId: null, role: 'user', content, status: 'complete', meta: null, createdAt: timestamp });
+    publish(); return created;
+  },
+  closeThread: async id => { const item = snapshot.threads.find(thread => thread.id === id)!; item.status = 'closed'; publish(); },
   sendMessage: async (_id, text, paths) => { if (actions.failSend) throw new Error('Message rejected'); actions.sent.push({ text, paths }); },
   setBrowserReviewEnabled: async enabled => { snapshot.browserReviewEnabled = enabled; listeners.forEach(listener => listener({ type: 'snapshot', value: structuredClone(snapshot) })); },
   reviewInBrowser: async (_id, path) => { actions.reviews.push(path); },
   onEvent: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; },
-  threadMessages: async () => ({ messages, before: null }),
+  threadMessages: async id => ({ messages: id === thread.id ? messages : chatMessages.filter(message => message.threadId === id), before: null }),
   copyChatTranscript: async id => { if (actions.failCopy) throw new Error('Clipboard unavailable'); actions.copied.push(id); },
   showDocumentInFinder: async (threadId, path) => { actions.revealed.push({ threadId, path }); },
   listDocuments: async () => { if (actions.failList) throw new Error('Documents unavailable'); return files.map(({path, modifiedAt}) => ({path, modifiedAt})); },

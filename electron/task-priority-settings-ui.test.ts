@@ -12,6 +12,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows priorities by default and h
     await page.goto(`${server.resolvedUrls!.local[0]}design/mockups/task-detail-app.html`);
     await page.getByRole('button', { name: 'Needs you', exact: true }).click();
     const priority = page.getByRole('combobox', { name: 'Task priority', exact: true });
+    await page.locator('.ws-task-options > summary').click();
     await priority.selectOption('2');
     expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(1);
     const palette = async (query: string) => {
@@ -48,6 +49,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows priorities by default and h
     await settings(); await toggle.click();
     await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('true');
     await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await page.locator('.ws-task-options > summary').click();
     expect(await priority.inputValue()).toBe('2');
     expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(1);
     await page.locator('[data-task-row]').focus(); await page.keyboard.press('3');

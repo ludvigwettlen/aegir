@@ -9,7 +9,7 @@ import { withDocumentReference, type DocumentReference, documentTitle, type Work
 import { ChatMarkdown } from '../design-system/ChatMarkdown';
 import { ConversationList } from '@usefragments/ui';
 import { ArrowDownRight, ChevronDown, FilePlus2, FileText, MessageSquare, Paperclip, Repeat2, Send, Square, X } from 'lucide-react';
-import type { Agent, Group, Message, Routine, Snapshot, Thread } from '../../../shared/types';
+import type { Message, Routine, Snapshot, Thread } from '../../../shared/types';
 import { describeSchedule } from '../../../shared/routines';
 import { api, Avatar, time, YouAvatar, type Run } from './common';
 
@@ -21,15 +21,14 @@ import { CopyChatButton } from './CopyChatButton';
 import { CopyMessageButton } from './CopyMessageButton';
 import { useSkillLibrary } from '../hooks/useSkillLibrary';
 import { commandSkills, withSkillCommands } from '../../../shared/skill-commands';
-import { mentionedAgents } from '../../../shared/agent-mentions';
+import { mainAgent } from '../../../shared/agent-mentions';
 import type { Skill } from '../../../shared/skills';
 
-type Mention = { kind: 'agent'; agent: Agent } | { kind: 'routine'; routine: Routine } | { kind: 'skill'; skill: Skill };
+type Mention = { kind: 'routine'; routine: Routine } | { kind: 'skill'; skill: Skill };
 
 export function ThreadView({
   data,
   thread,
-  group,
   run,
   header,
   leadingActions,
@@ -38,7 +37,6 @@ export function ThreadView({
 }: {
   data: Snapshot;
   thread: Thread;
-  group: Group;
   run: Run;
   header?: ReactNode;
   leadingActions?: ReactNode;
@@ -176,11 +174,10 @@ export function ThreadView({
       <Composer
         key={`composer-${thread.id}`}
         data={data}
-        group={group}
         busy={busy}
         kind={thread.kind}
         placeholder={
-          thread.kind === 'task' ? 'Reply to the team on this task…' : 'Reply in thread…'
+          thread.kind === 'task' ? 'Reply to your assistant on this task…' : 'Reply in thread…'
         }
         reference={selection}
         onClearReference={() => setSelection(null)}
@@ -365,7 +362,6 @@ function RoutineChangeCard({ message, data, run }: { message: Message; data: Sna
 
 export function Composer({
   data,
-  group,
   busy,
   placeholder,
   onSend,
@@ -376,7 +372,6 @@ export function Composer({
   threadId,
 }: {
   data: Snapshot;
-  group: Group;
   busy: boolean;
   placeholder: string;
   threadId?: string;
@@ -397,7 +392,7 @@ export function Composer({
   const [picker, setPicker] = useState<{ kind: 'mention' | 'skill'; query: string; start: number; end: number } | null>(null);
   const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
   const { library, error: skillError, reload } = useSkillLibrary();
-  const availableSkills = commandSkills(library?.skills || [], mentionedAgents(value, data.agents, group).map(agent => agent.id), kind);
+  const availableSkills = commandSkills(library?.skills || [], data.agents.filter(agent => agent.id === mainAgent(data.agents)?.id).map(agent => agent.id), kind);
   const invalidSelection = selectedSkills.some(skill => !availableSkills.some(item => item.id === skill.id));
   const pickerId = useId();
   const [active, setActive] = useState(0);
@@ -409,18 +404,12 @@ export function Composer({
       .filter(skill => !selectedSkills.some(item => item.id === skill.id)
         && `${skill.name} ${skill.description}`.toLowerCase().includes(q))
       .slice(0, 8).map(skill => ({ kind: 'skill', skill }));
-    const agents = [...data.agents].sort(
-      (a, b) => Number(group.agentIds.includes(b.id)) - Number(group.agentIds.includes(a.id)),
-    );
     return [
       ...data.routines
         .filter((routine) => routine.name.toLowerCase().includes(q))
         .map((routine) => ({ kind: 'routine', routine }) as Mention),
-      ...agents
-        .filter((agent) => agent.name.toLowerCase().startsWith(q))
-        .map((agent) => ({ kind: 'agent', agent }) as Mention),
     ].slice(0, 8);
-  }, [picker, data.agents, data.routines, group.agentIds, library, value, selectedSkills, kind]);
+  }, [picker, data.agents, data.routines, library, value, selectedSkills, kind]);
   const activeIndex = Math.min(active, Math.max(0, options.length - 1));
   useEffect(() => {
     if (picker) document.getElementById(`${pickerId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
@@ -443,7 +432,7 @@ export function Composer({
   };
   const choose = (option: Mention) => {
     if (!picker) return;
-    const insertion = option.kind === 'skill' ? '' : `@${option.kind === 'agent' ? option.agent.name : option.routine.name} `;
+    const insertion = option.kind === 'skill' ? '' : `@${option.routine.name} `;
     if (option.kind === 'skill') setSelectedSkills(previous => [...previous.filter(skill => skill.id !== option.skill.id), option.skill]);
     const next = `${value.slice(0, picker.start)}${insertion}${value.slice(picker.end)}`;
     setValue(next);
@@ -548,7 +537,6 @@ export function Composer({
     }
   };
   const routines = options.filter((option) => option.kind === 'routine');
-  const agents = options.filter((option) => option.kind === 'agent');
   return (
     <div className="ws-composer-wrap">
       {picker && (options.length > 0 || picker.kind === 'skill') && (
@@ -588,28 +576,7 @@ export function Composer({
               </button>
             );
           })}
-          {agents.length > 0 && <div className="ws-picker-label">AGENTS</div>}
-          {agents.map((option) => {
-            const index = options.indexOf(option);
-            const agent = (option as { agent: Agent }).agent;
-            return (
-              <button
-                key={agent.id}
-                id={`${pickerId}-${index}`}
-                role="option"
-                aria-selected={index === activeIndex}
-                className={index === activeIndex ? 'active' : ''}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(option);
-                }}
-              >
-                <Avatar agent={agent} size={18} />
-                <span>{agent.name}</span>
-                <small>{agent.role}</small>
-              </button>
-            );
-          })}
+
         </div>
       )}
       <div className="ws-composer">
