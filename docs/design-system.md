@@ -365,6 +365,12 @@ The sidebar has a Filtered views section with a labelled + button opening the al
 
 The controls reuse Button, Radix dialog and semantic surface, ink, line, focus and control-radius tokens. Checkboxes have explicit accessible names, actions work from the keyboard, compact controls wrap/scroll, and no motion is added. Existing document/chat context and retained task details are preserved when a label edit removes a row from a filtered result.
 
+### Quiet task filters (28 October 2026)
+
+Task filters collapse by default, including saved views; the new all-task builder opens initially. The summary shows a count of effective active filter categories. Status, priority and sort share a responsive grid. Labels live in a nested disclosure with a selected count; label matching appears only when multiple labels are selected. View settings separately disclose scope and save/rename/copy/delete controls. Reset appears only with active criteria. Collapsing sections preserves all selections. Native disclosures support keyboard activation; labelled fields and focus outlines remain intact. The panel retains its 40vh scroll bound and uses existing line, surface, ink, muted and spacing tokens without animation.
+
+Suggested task notes contain practical task context only. Ownership/source/freshness evidence remains part of suggestion review, and review decisions remain in routine logs; rationale is not appended to task notes.
+
 ### Human delegation through Notion
 
 `TaskDelegation` appears in task details alongside the local notes. **Assign to person** opens a Radix dialog with one assignee, optional tagged collaborators, a separate shared brief, and a preview of the title, date and labels being published. People search resolves actual Notion identities; plain names are never treated as user IDs. Search supports empty, loading, no-results and retryable failure states. Selected people appear as removable chips. The dialog preserves drafts on failure, prevents duplicate submission and dismissal while publishing, and returns focus to its trigger on close. Unaccepted, running and completed tasks cannot publish new briefs.

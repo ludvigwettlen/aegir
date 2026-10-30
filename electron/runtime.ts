@@ -880,7 +880,7 @@ Return only a concise recap and suggested agenda in Markdown, suitable for the a
     if (suggestionHistory(this.store.list('tasks')) !== history)
       return { created: false, reason: 'Task history changed during review; retry against the current tasks' };
     const task = this.store.createTask({
-      title, notes: `${notes}${notes ? '\n\n' : ''}Ownership: ${evidence.ownershipEvidence}\nSource evidence: ${evidence.sourceEvidence}\nNew evidence: ${evidence.freshnessEvidence}`,
+      title, notes,
       label: typeof args.label === 'string' ? args.label.replace(/^#/, '').toLowerCase() || null : null,
       ...(args.labels !== undefined ? { labels: normalizeLabels(args.labels) } : {}),
       status: 'proposed', sourceUrl, sourceKey,

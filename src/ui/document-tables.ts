@@ -6,7 +6,7 @@ import { headerlessTableStart, tableHeaderOffMarker } from '../../shared/documen
 
 export const DocumentTable = Table.extend({
   parseMarkdown(token, helpers) {
-    const table = Table.config.parseMarkdown!(token, helpers);
+    const table = this.parent!(token, helpers);
     if (token.headerOff && !Array.isArray(table)) {
       for (const cell of table.content?.[0]?.content || []) cell.type = 'tableCell';
     }
@@ -17,7 +17,7 @@ export const DocumentTable = Table.extend({
     const normalized = headerOff ? { ...node, content: node.content?.map((row, index) => index ? row : {
       ...row, content: row.content?.map(cell => ({ ...cell, type: 'tableHeader' })),
     }) } : node;
-    const source = Table.config.renderMarkdown!(normalized, helpers, context);
+    const source = this.parent!(normalized, helpers, context);
     return headerOff ? `${tableHeaderOffMarker}\n${source.trimStart()}` : source;
   },
   markdownTokenizer: {

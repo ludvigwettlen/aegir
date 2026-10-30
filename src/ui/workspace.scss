@@ -608,6 +608,28 @@
 
 .ws-task-labels-dialog [role=alert] { color: var(--ds-color-danger); }
 
+.ws-task-filters > summary { display: flex; align-items: center; gap: var(--ds-space-2); cursor: pointer; color: var(--ds-color-muted); font-size: 12px; list-style: none; }
+.ws-task-filters > summary::before { content: '›'; font-size: 16px; }
+.ws-task-filters[open] > summary::before { transform: rotate(90deg); }
+.ws-filter-count { margin-left: auto; color: var(--ds-color-ink); }
+.ws-task-filters > .ws-filter-fields { display: flex; flex-direction: column; align-items: stretch; gap: var(--ds-space-3); padding-block: var(--ds-space-3); }
+.ws-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr)); gap: var(--ds-space-2); }
+.ws-filter-fields label { gap: var(--ds-space-1); color: var(--ds-color-muted); font-size: 12px; }
+.ws-filter-fields select, .ws-filter-fields input:not([type=checkbox]) { width: 100%; min-height: 32px; padding: var(--ds-space-1) var(--ds-space-2); }
+.ws-filter-section { min-width: 0; border-block-start: 1px solid var(--ds-color-line); padding-block-start: var(--ds-space-2); }
+.ws-filter-section > summary { display: flex; justify-content: space-between; align-items: center; gap: var(--ds-space-2); cursor: pointer; font-size: 12px; }
+.ws-filter-section > summary::after { content: '+'; color: var(--ds-color-muted); }
+.ws-filter-section[open] > summary::after { content: '−'; }
+.ws-filter-section > summary span { margin-left: auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ds-color-muted); }
+.ws-filter-section > :not(summary) { margin-top: var(--ds-space-2); }
+.ws-filter-save { display: flex; flex-wrap: wrap; align-items: end; gap: var(--ds-space-2); }
+.ws-filter-save > label { flex: 1 1 100%; }
+.ws-filter-fields > button { align-self: flex-start; }
+.ws-task-filters { min-width: 0; }
+.ws-task-filters > .ws-filter-fields { min-inline-size: 0; flex-wrap: nowrap; }
+.ws-filter-fields > * { flex-shrink: 0; }
+.ws-task-list-clip > .ws-task-list { min-width: 0; }
+
 // Shared human handoffs use the same compact controls as task metadata.
 .ws-task-delegation { border-top: 1px solid var(--ds-color-line); padding: var(--ds-space-2) 0; margin-top: var(--ds-space-2); font-size: calc(12px * var(--ds-text-scale, 1));
   p { margin: var(--ds-space-2) 0; overflow-wrap: anywhere; }

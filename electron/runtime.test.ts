@@ -596,6 +596,7 @@ describe('runtime', () => {
     const run = store.routineRuns()[0];
     expect(run).toMatchObject({ status: 'ok', summary: '1 task suggested', trigger: 'manual' });
     expect(store.list('tasks').filter(x => x.status === 'proposed').map(x => x.title)).toEqual(['Approve the final draft']);
+    expect(store.list('tasks').find(x => x.status === 'proposed')?.notes).toBe('');
     const kinds = store.runEvents(run.id).map(x => x.kind);
     expect(kinds[0]).toBe('run'); expect(kinds.at(-1)).toBe('run'); expect(kinds).toContain('agent');
     expect(store.routine(routine.id)!.lastRunAt).toBe(run.startedAt);
@@ -653,7 +654,7 @@ describe('runtime', () => {
         return '{"approve":true,"slackReplyOnly":false,"reason":"Distinct new personal request"}';
       }
       const result = await rt.handleInternalTool('tasks', 'suggest', {
-        title: 'Approve launch budget', sourceUrl: 'https://notion.test/meeting',
+        title: 'Approve launch budget', sourceUrl: 'https://notion.test/meeting', notes: 'Check the revised cost estimate before approving.',
         ownershipEvidence: 'Alex was explicitly asked to approve the budget', sourceEvidence: 'Alex: please approve the launch budget', freshnessEvidence: 'New request today',
       }, id);
       expect(result).toMatchObject({ created: true });
@@ -663,7 +664,7 @@ describe('runtime', () => {
     store.createTask({ title: 'Send meeting agenda', status: 'done', sourceUrl: 'https://notion.test/meeting' });
     await runtime.runRoutine(store.routines()[0].id, 'manual');
     expect(store.list('tasks')).toHaveLength(2);
-    expect(store.list('tasks').find(task => task.status === 'proposed')?.notes).toContain('Alex was explicitly asked');
+    expect(store.list('tasks').find(task => task.status === 'proposed')?.notes).toBe('Check the revised cost estimate before approving.');
   });
 
   it('does not advance discovery past a failed run', async () => {

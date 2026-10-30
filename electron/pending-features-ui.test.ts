@@ -19,11 +19,13 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('reviews AI capture, filters and s
     await preview.getByRole('button', { name: 'Add captured task', exact: true }).click();
     await expect.poll(() => page.locator('[data-task-row]').count()).toBe(2);
     await page.locator('.ws-task-filters > summary').click();
+    await page.locator('.ws-filter-section > summary').filter({ hasText: /^Labels/ }).click();
     await page.getByRole('checkbox', { name: 'Filter label work', exact: true }).check();
     await expect.poll(() => page.locator('[data-task-row]').count()).toBe(1);
+    await page.locator('.ws-filter-section > summary').filter({ hasText: /^View settings/ }).click();
     await page.getByLabel('Save view as', { exact: true }).fill('Work');
     await page.getByRole('button', { name: 'Save view', exact: true }).click();
-    await page.getByRole('button', { name: 'Update view', exact: true }).waitFor();
+    await page.locator('.ws-task-filters > summary').click();
     await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
     await expect.poll(() => page.locator('[data-task-row]').count()).toBe(2);
     await page.getByRole('button', { name: 'Work', exact: true }).click();
