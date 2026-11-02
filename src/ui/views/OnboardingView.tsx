@@ -111,7 +111,9 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
           {step === 'codex' && !legolas && <>
             <div className="setup-feature-icon"><Sparkles size={28} /></div>
             <p className="setup-lead">Codex powers your agent team.</p>
-            <p>Use your own ChatGPT account. If Codex is already set up on this Mac, Aegir can use it. Otherwise, we can install it for you.</p>
+            <p>Install the ChatGPT desktop app on this Mac and sign in with your own ChatGPT account. You need the ChatGPT app as well as Codex; having only the Codex app is not enough.</p>
+            <Button variant="link" disabled={locked} onClick={() => void act(() => api.openExternal('https://chatgpt.com/download/'))}>Download ChatGPT <ExternalLink size={15} /></Button>
+            <p>If Codex is already set up on this Mac, Aegir can use it. Otherwise, we can install it for you.</p>
             {status(state.codex)}
             <div className="setup-actions">
               {state.codex.status !== 'ready' && state.codex.status !== 'needs-sign-in' && <Button disabled={locked} onClick={() => void act(() => api.installSetupComponent('codex'))}><Download size={16} /> Install Codex</Button>}

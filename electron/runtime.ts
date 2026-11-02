@@ -387,7 +387,7 @@ export class Runtime {
     if (kind === 'task')
       return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to you.
 Your working directory is the task's output folder. Put every deliverable there as Markdown, HTML or code files, and name them clearly.
-Slack and Notion tools are read-only; use them to research. Do not write to external systems through commands or connectors. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
+Direct Slack and Notion connector tools are read-only; use them to research. When asked to draft, reply or send a Slack message or email, use the available inline draft editor tools. The user can review the card and click Send to authorize delivery. Do not refuse to open a draft because connector tools or the filesystem are read-only. Do not write to external systems through commands or direct connector calls. If browser tools are available, browser interaction is a separate capability that requires explicit in-app browser control approval for this response.
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
@@ -395,7 +395,7 @@ ${this.setup.connections !== 'claude' && this.slackMessages.tools(true).length ?
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
     return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread in Aegir.
-Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval.
+Address the user directly. Be clear about source links and tool failures. Connected Slack and Notion tools are available; writing to them requires the user's approval. For Slack messages and email, use the available inline draft editor tools; the user's Send click authorizes delivery. Do not refuse to open a draft because connector tools or the filesystem are read-only.
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
