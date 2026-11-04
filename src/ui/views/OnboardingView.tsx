@@ -111,9 +111,9 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
           {step === 'codex' && !legolas && <>
             <div className="setup-feature-icon"><Sparkles size={28} /></div>
             <p className="setup-lead">Codex powers your agent team.</p>
-            <p>Install the ChatGPT desktop app on this Mac and sign in with your own ChatGPT account. You need the ChatGPT app as well as Codex; having only the Codex app is not enough.</p>
-            <Button variant="link" disabled={locked} onClick={() => void act(() => api.openExternal('https://chatgpt.com/download/'))}>Download ChatGPT <ExternalLink size={15} /></Button>
-            <p>If Codex is already set up on this Mac, Aegir can use it. Otherwise, we can install it for you.</p>
+            <p>Aegir needs the Codex engine and an account with Codex access. Your ChatGPT account is used for sign-in; the ChatGPT desktop app is optional.</p>
+            <p>Aegir looks for the engine bundled with Codex or ChatGPT in Applications, including your personal Applications folder, and for an installed Codex CLI. Click Check again to test access.</p>
+            <p>If no engine is found, or your existing installation cannot start, choose Install Codex to give Aegir its own copy. You can then sign in here through your browser.</p>
             {status(state.codex)}
             <div className="setup-actions">
               {state.codex.status !== 'ready' && state.codex.status !== 'needs-sign-in' && <Button disabled={locked} onClick={() => void act(() => api.installSetupComponent('codex'))}><Download size={16} /> Install Codex</Button>}

@@ -2,7 +2,7 @@
 
 A short checklist for testing the current macOS preview. Use your own accounts; no credentials come with the app.
 
-1. **Set up Codex.** Install the ChatGPT desktop app in `/Applications`, sign in, and confirm you can run a Codex chat. Aegir detects its bundled Codex executable. You need an account with Codex access; the specialist agents and task routing also require a Luna model available to that account. See the [official quickstart](https://learn.chatgpt.com/docs/quickstart).
+1. **Set up Codex in Aegir.** In onboarding, choose **Check again** to test an existing Codex engine, or **Install Codex** to download a private copy for Aegir. Aegir detects engines bundled with Codex or ChatGPT in `/Applications` or `~/Applications`, as well as standard Codex CLI installations. Neither desktop app is required when using Aegir’s private copy. Choose **Sign in with ChatGPT** if prompted; this opens your browser and requires your own account with Codex access. Setup also checks that a Luna model is available to your account. If an installed engine cannot start, use **Install Codex** and retry here.
 
 2. **Install Mnemosyne for memory.** With Python 3.10 or newer installed, run the following in Terminal. This puts it where Aegir automatically looks; no separate memory account or server is needed. [Package information](https://pypi.org/project/mnemosyne-memory/).
 

@@ -2,6 +2,8 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexProvider } from './codex.js';
 
@@ -39,6 +41,10 @@ describe('Codex startup', () => {
   it.each([
     '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
     '/Applications/ChatGPT.app/Contents/Resources/codex',
+    join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'),
+    join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex'),
+    '/Applications/Codex.app/Contents/Resources/codex',
+    join(homedir(), 'Applications/Codex.app/Contents/Resources/codex'),
   ])('launches the installed bundle at %s without relying on PATH', async path => {
     vi.stubEnv('CODEX_BINARY', '');
     vi.mocked(existsSync).mockImplementation(candidate => candidate === path);
