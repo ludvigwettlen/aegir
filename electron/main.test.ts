@@ -28,6 +28,7 @@ vi.mock('electron', async () => {
   fixture.app = Object.assign(new EventEmitter(), {
     getPath: () => fixture.root,
     getAppPath: () => fixture.root,
+    getVersion: () => '0.1.1',
     requestSingleInstanceLock: () => true,
     whenReady: () => Promise.resolve(),
     getLoginItemSettings: () => ({}),
@@ -84,6 +85,7 @@ vi.mock('./memory.js', () => ({ MemoryService: class { async migrateLegacy() {} 
 afterEach(() => {
   fixture.app.emit('before-quit');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   rmSync(fixture.root, { recursive: true, force: true });
 });
 
@@ -91,6 +93,7 @@ describe('application shutdown', () => {
   it('stops real snapshot reads during teardown and after SQLite closes', async () => {
     const reads = vi.spyOn(Store.prototype, 'list');
     const close = vi.spyOn(Store.prototype, 'close');
+    vi.stubGlobal('process', Object.assign(Object.create(process), { getSystemVersion: () => '14.0' }));
     await import('./main.js');
     await vi.waitFor(() => expect(fixture.codex).toBeTruthy());
     expect(fixture.preferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false });

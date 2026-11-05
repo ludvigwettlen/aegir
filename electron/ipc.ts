@@ -25,7 +25,11 @@ import { UiFeedbackStore } from './ui-feedback.js';
 import { assertTrustedSender, ipcArgumentSchema, validateIpcArgs } from './ipc-security.js';
 import { registerWorkspaceIpc } from './ipc-workspace.js';
 
+let pendingIpc = 0;
+export const activeIpcCount = () => pendingIpc;
 export type IpcDependencies = {
+  updates?: import('./updates.js').UpdateService;
+  isUpdating?: () => boolean;
   store: Store; runtime: Runtime; connectors: ConnectorManager; codex: EngineRouter; memory: MemoryRouter;
   browser: BrowserManager; onboarding: OnboardingService; delegation: DelegationService; phoneCapture: PhoneCapture;
   approvals: Map<string, Approval>; approvalThreads: Map<string, string>; externalApprovalResolvers: Map<string, (value: boolean) => void>;
@@ -56,7 +60,10 @@ export function registerIpc(dependencies: IpcDependencies) {
     ipcArgumentSchema(channel);
     ipcMain.handle(channel, async (event, ...args) => {
       assertTrustedSender(event, dependencies.window(), dependencies.rendererUrl);
-      const result = await fn(...validateIpcArgs(channel, args));
+      if (dependencies.isUpdating?.() && channel !== 'snapshot') throw new Error('Aegir is restarting to update. Please wait.');
+      pendingIpc++;
+      let result: unknown;
+      try { result = await fn(...validateIpcArgs(channel, args)); } finally { pendingIpc--; }
       if (channel.startsWith('skill-') && !['skill-library', 'skill-detail', 'skill-revision-files'].includes(channel)) emit({ type: 'skills-changed' });
       return result;
     });
@@ -64,6 +71,11 @@ export function registerIpc(dependencies: IpcDependencies) {
   registerTasksIpc(handle, { store, runtime, refresh });
   registerConversationsIpc(handle, { store, runtime, refresh, attachmentRoot });
   registerIntegrationsIpc(handle, { store, runtime, refresh, onboarding, delegation, phoneCapture, connectors, memory, documentRoot, attachmentRoot });
+  handle('update-check', () => dependencies.updates?.check());
+  handle('update-download', () => dependencies.updates?.download());
+  handle('update-cancel', () => dependencies.updates?.cancel());
+  handle('update-install', () => dependencies.updates?.install());
+  handle('update-token', (token: string) => dependencies.updates?.saveToken(token));
   handle('snapshot', () => snapshot());
   const feedback = new UiFeedbackStore(join(app.getPath('userData'), 'ui-feedback.json'));
   handle('ui-feedback-list', () => feedback.list());

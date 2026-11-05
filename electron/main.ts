@@ -1,7 +1,7 @@
-import { app, BrowserWindow, Menu, nativeImage, nativeTheme, powerMonitor, shell, Tray } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, powerMonitor, shell, Tray, safeStorage, dialog } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readProviderSetup, type ProviderSetup } from '../shared/provider-setup.js';
 import type { AppEvent, Approval, Snapshot } from '../shared/types.js';
@@ -15,7 +15,11 @@ import { Store } from './db.js';
 import { DelegationService } from './delegation.js';
 import { EngineRouter, findClaudeBinary } from './engine.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
-import { registerIpc } from './ipc.js';
+import { registerIpc, activeIpcCount } from './ipc.js';
+import { UpdateService } from './updates.js';
+import { prepareInstallation, startupTransaction, pendingInstallation, launchRecovery, confirmStartup, type Installation } from './update-install.js';
+import updateConfiguration from '../config/updates.json';
+import { writeFile } from 'node:fs/promises';
 import { MemoryRouter } from './memory-provider.js';
 import { MemoryService } from './memory.js';
 import { initializeOnboarding, OnboardingService } from './onboarding.js';
@@ -25,6 +29,9 @@ import { createRuntimeServices } from './runtime-services.js';
 import { Runtime } from './runtime.js';
 import { createToolDispatcher } from './tool-dispatch.js';
 import { windowLook } from './window-look.js';
+
+const profileArgument = process.argv.find(argument => argument.startsWith('--user-data-dir='));
+if (profileArgument) app.setPath('userData', resolve(profileArgument.slice('--user-data-dir='.length)));
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rendererUrl = process.env.VITE_DEV_SERVER_URL || pathToFileURL(join(here, '../dist/index.html')).href;
@@ -41,6 +48,9 @@ let phoneTimer: NodeJS.Timeout | undefined;
 let browser: BrowserManager;
 let onboarding: OnboardingService;
 let shuttingDown = false;
+let updateBarrier = false;
+let updates: UpdateService;
+let updateRequest: Installation | undefined;
 const approvals = new Map<string, Approval>();
 const externalApprovalResolvers = new Map<string, (value: boolean) => void>();
 const approvalThreads = new Map<string, string>();
@@ -59,6 +69,7 @@ function migrateLegacyData() {
 }
 function snapshot(): Snapshot {
   return {
+    updates: updates ? { ...updates.state(), ...(updateBarrier ? { status: 'installing' as const, message: 'Finishing the update. Please wait…' } : {}) } : undefined,
     reminders: phoneCapture?.state(),
     delegation: delegation?.state(),
     onboarding: onboarding?.state(),
@@ -246,6 +257,20 @@ if (app.requestSingleInstanceLock()) {
     window?.focus();
   });
   app.whenReady().then(async () => {
+    const updateTokenIndex = process.argv.indexOf('--aegir-update-token');
+    const startupUpdate = startupTransaction(app.getPath('userData'), updateTokenIndex >= 0 ? process.argv[updateTokenIndex + 1] : undefined);
+    if (startupUpdate) await writeFile(join(startupUpdate.root, 'started.json'), JSON.stringify({ token: startupUpdate.token, pid: process.pid, executable: realpathSync(app.getPath('exe')) }), { mode: 0o600 });
+    const pendingUpdate = pendingInstallation(app.getPath('userData'));
+    if (!startupUpdate && pendingUpdate && !pendingUpdate.healthy &&
+      (existsSync(pendingUpdate.request.target + '.aegir-update-old') || existsSync(pendingUpdate.request.target + '.aegir-update-new'))) {
+      const choice = await dialog.showMessageBox({ type: 'warning', message: 'An Aegir update was interrupted', detail: 'Recover before opening your workspace. If replacement had started, recovery restores the pre-update app and database.', buttons: ['Recover and reopen', 'Quit'], defaultId: 0, cancelId: 1 });
+      if (choice.response === 0) {
+        try { await launchRecovery(pendingUpdate.request); } catch (error) { dialog.showErrorBox('Recovery paused', error instanceof Error ? error.message : 'Backups retained.'); }
+      }
+      app.exit(0); return;
+    }
+    updateBarrier = !!startupUpdate;
+    if (startupUpdate && startupUpdate.version !== app.getVersion()) throw new Error('Update startup version mismatch.');
     migrateLegacyData();
     const existingWorkspace = existsSync(join(app.getPath('userData'), 'aegir.sqlite'));
     store = new Store();
@@ -311,10 +336,48 @@ if (app.requestSingleInstanceLock()) {
     codex.setToolHandler(createToolDispatcher({ store, runtime, connectors, isShuttingDown: () => shuttingDown, approvalForExternal }));
     delegation = new DelegationService(store, connectors, refresh);
     connectors.on('change', refresh);
-    registerIpc({ store, runtime, connectors, codex, memory, browser, onboarding, delegation, phoneCapture, approvals, approvalThreads, externalApprovalResolvers, refresh, emit, snapshot, window: () => window, rendererUrl });
+    const updateActive = () => !!(phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size || onboarding.hasActiveWork || runtime.brainBridge.hasActiveWork || delegation.state().syncing || store.list('tasks').some(item => item.delegation?.publishing) || ['working', 'opening', 'approval'].includes(browser.state.status) || activeIpcCount() > 1);
+    updates = new UpdateService({ ...updateConfiguration, version: app.getVersion(), initialMessage: pendingUpdate?.result?.message, architecture: process.arch,
+      systemVersion: process.getSystemVersion(), root: join(app.getPath('userData'), 'updates'), supported: app.isPackaged && process.platform === 'darwin', changed: refresh,
+      token: () => {
+        const value = store.getSetting('secret:update-token');
+        if (!value) return '';
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('Unlock macOS Keychain to access GitHub.');
+        try { return safeStorage.decryptString(Buffer.from(value, 'base64')); } catch { throw new Error('Saved GitHub access could not be unlocked. Save your token again.'); }
+      },
+      saveToken: token => {
+        if (!token) { store.deleteSetting('secret:update-token'); return; }
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('macOS Keychain encryption is unavailable.');
+        store.setSetting('secret:update-token', safeStorage.encryptString(token).toString('base64'));
+      },
+      install: async (candidate, manifest) => {
+        if (updateActive()) throw new Error('Finish active chats, tasks, approvals, setup and background work before restarting.');
+        if (!app.isPackaged) throw new Error('Run a packaged Aegir app to test installation.');
+        updateBarrier = true;
+        let prepared: Awaited<ReturnType<typeof prepareInstallation>> | undefined;
+        try {
+          prepared = await prepareInstallation({ executable: app.getPath('exe'), helper: join(process.resourcesPath, 'aegir-updater'), userData: app.getPath('userData'), candidate, manifest });
+          await prepared.start();
+          if (updateActive()) throw new Error('Background work started while preparing the update. Wait for it to finish and try again.');
+          updateRequest = prepared.request;
+          app.quit();
+        } catch (error) { await prepared?.cancel(); updateBarrier = false; throw error; }
+      },
+    });
+    registerIpc({ updates, isUpdating: () => updateBarrier, store, runtime, connectors, codex, memory, browser, onboarding, delegation, phoneCapture, approvals, approvalThreads, externalApprovalResolvers, refresh, emit, snapshot, window: () => window, rendererUrl });
     createWindow();
     createApplicationMenu();
     createTray();
+    if (startupUpdate) {
+      if (window?.webContents.isLoadingMainFrame()) await new Promise<void>((resolve, reject) => {
+        window!.webContents.once('did-finish-load', () => resolve());
+        window!.webContents.once('did-fail-load', () => reject(new Error('Updated app could not load its window.')));
+      });
+      await window!.webContents.executeJavaScript('(async () => { if (!window.aegir) throw new Error("Updated preload is unavailable"); await window.aegir.snapshot(); })()');
+      await confirmStartup(startupUpdate);
+      updateBarrier = false;
+      refresh();
+    }
     connectors.start();
     runtime.start();
     delegation.start();
@@ -327,7 +390,7 @@ if (app.requestSingleInstanceLock()) {
         console.error('Memory migration failed:', error);
         if (store.isOpen) refresh();
       });
-    if (app.isPackaged && !store.getSetting('loginConfigured')) {
+    if (app.isPackaged && !profileArgument && !store.getSetting('loginConfigured')) {
       app.setLoginItemSettings({ openAtLogin: true });
       store.setSetting('loginConfigured', 'true');
       refresh();
@@ -352,12 +415,23 @@ if (app.requestSingleInstanceLock()) {
     phoneCapture?.stop();
     delegation?.close();
     runtime?.stop();
+    const updatesClosed = updates?.close();
     const setupClosed = onboarding?.close();
     const browserClosed = browser?.close();
     connectors?.close();
     codex?.close();
-    store?.close();
-    if (event) void Promise.allSettled([browserClosed, setupClosed]).finally(() => app.quit());
+    if (event) void (async () => {
+      try {
+        await Promise.all([browserClosed, setupClosed, updatesClosed]);
+        if (updateRequest) await store.db.backup(join(updateRequest.root, 'aegir.sqlite.backup'));
+        store?.close();
+        if (updateRequest) await writeFile(join(updateRequest.root, 'shutdown-ready'), updateRequest.token, { mode: 0o600 });
+      } catch {
+        store?.close();
+        dialog.showErrorBox('Update paused', 'Aegir could not finish a safe shutdown. The original app was retained. Open Aegir again to retry.');
+      } finally { app.quit(); }
+    })();
+    else store?.close();
   });
   app.on('activate', () => window?.show());
 } else app.quit();

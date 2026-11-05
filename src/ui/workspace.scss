@@ -694,3 +694,15 @@
   > .ws-thread-workspace { flex: 1; min-height: 0; }
   > p { padding: 16px 24px; font-size: var(--ws-text); color: var(--ds-color-muted); }
 }
+
+.update-settings-body {
+  padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-5);
+  min-width: 0;
+  > p { overflow-wrap: anywhere; }
+  .update-release-notes { white-space: pre-wrap; max-height: 220px; overflow: auto; }
+  progress { width: 100%; accent-color: var(--ds-color-lime-strong); }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; }
+  .ws-field { margin-block: 12px; }
+  .update-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+}

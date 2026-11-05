@@ -56,7 +56,7 @@ export function App() {
   }, []);
   const migratedViews = useRef(false);
   useEffect(() => {
-    if (!data || migratedViews.current) return;
+    if (!data || data.updates?.status === 'installing' || migratedViews.current) return;
     migratedViews.current = true;
     // Move the previous local presets into durable sidebar views. Stable IDs make retries idempotent.
     void (async () => {
@@ -93,6 +93,7 @@ export function App() {
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+  if (data?.updates?.status === 'installing') return <div className="loading" role="status">{data.updates.message}</div>;
   if (showSplash) return <SplashScreen onComplete={dismissSplash} />;
   if (!data) return <div className="loading">Loading Aegir…</div>;
   if (onboardingVisible && data.onboarding) return <OnboardingView data={data} onClose={() => setSetupOpen(false)} onSettings={() => { setSetupOpen(false); setRoute({ view: 'settings' }); }} />;

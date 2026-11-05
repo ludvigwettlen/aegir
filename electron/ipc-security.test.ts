@@ -33,6 +33,9 @@ it('rejects malformed approvals, draft fields, paths, unsupported fields and une
   for (const [channel, args] of [
     ['resolve-approval', ['approval', 'false']],
     ['snapshot', ['extra']],
+    ['update-install', ['/tmp/untrusted.app']],
+    ['update-token', [{ token: 'invalid' }]],
+    ['update-token', ['x'.repeat(501)]],
     ['document-read', ['thread', { path: 'secret.md' }]],
     ['gmail-draft-send', ['id', 1, { to: 'person', body: 'hello' }]],
     ['update-task', ['id', { outputDir: '/tmp/escape' }]],

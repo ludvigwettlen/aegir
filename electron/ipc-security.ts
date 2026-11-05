@@ -21,6 +21,8 @@ function endpoints(names: string, args: z.ZodType[]) {
   for (const name of names.split(' ')) schemas[name] = z.tuple(args as [z.ZodType, ...z.ZodType[]]);
 }
 endpoints('snapshot setup-check setup-codex-login setup-codex-cancel ui-feedback-list ui-feedback-copy gmail-sync browser-open browser-stop skill-library one-on-ones-sync delegation-sync sync-reminders read-clipboard-text undo-task-action', []);
+endpoints('update-check update-download update-cancel update-install', []);
+endpoints('update-token', [z.string().max(500)]);
 endpoints('brain-bridge-run', []);
 endpoints('brain-bridge-folder', [z.enum(['import', 'export', 'filing'])]);
 endpoints('brain-bridge-configure', [z.strictObject({ importEnabled: bool, importDir: text, exportEnabled: bool, exportDir: text, filingEnabled: bool, filingDir: text })]);

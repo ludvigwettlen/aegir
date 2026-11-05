@@ -1,4 +1,21 @@
 {
-  "compilerOptions": { "composite": true, "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "outDir": "dist-types", "types": ["node"] },
-  "include": ["electron/**/*.ts", "shared/**/*.ts", "vite.config.ts"]
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist-types",
+    "types": [
+      "node"
+    ],
+    "resolveJsonModule": true
+  },
+  "include": [
+    "electron/**/*.ts",
+    "shared/**/*.ts",
+    "vite.config.ts",
+    "config/**/*.json"
+  ]
 }

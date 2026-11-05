@@ -94,6 +94,7 @@ export function taskExport(tasks: Task[]) {
 export class BrainBridge {
   private stopped = false;
   private running = false;
+  get hasActiveWork() { return this.running; }
   constructor(private store: Store, private refresh: () => void) {
     store.db.exec('CREATE TABLE IF NOT EXISTS external_task_receipts(sourceKey TEXT PRIMARY KEY,taskId TEXT NOT NULL,importedAt TEXT NOT NULL)');
   }

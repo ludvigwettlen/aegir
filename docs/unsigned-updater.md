@@ -1,64 +1,86 @@
-# Unsigned updater: installation proof
+# Aegir unsigned updater
 
-Release destination: **this repository**, `ludvigwettlen/aegir`. Do not create a separate release repository. Publishing remains an explicit operation; pushing code must not publish an update. Repository visibility has not yet been verified. Private release assets require a user authentication or distribution design; never embed a maintainer token in the app.
+## User flow
 
-## Status
+Current users rebuild and install **0.1.1** once (`pnpm install`, `pnpm build`). Keep the application in a writable Applications folder; updates cannot be applied from a DMG or App Translocation location. Existing chats, tasks and settings remain under Electron userData.
 
-The first checkpoint is a standalone Swift replacement helper and disposable integration tests. It is deliberately **not bundled into Aegir or exposed in Settings yet**. It accepts a locally staged app; it does not authenticate downloads and must never be wired directly to network content. It does not launch apps, restore databases, alter quarantine, request administrator access, or change Gatekeeper settings.
+In Settings → App updates, expand GitHub access and save your own token. Then use **Check for updates → Download update → Restart to update**. Checks include prereleases, but only releases with a valid signed manifest for this Mac are considered. The previous helper-only test release is ignored. Nothing installs automatically, and active work blocks restart.
 
-Run the proof tests on macOS:
+The current private repository is **ludvigwettlen/aegir**. Browser sign-in does not grant the app access. Owners can create a fine-grained token limited to this repository with **Contents: read**. GitHub's fine-grained tokens have limitations for repository collaborators: those users may need a classic token with `repo` scope, which also grants access to their other private repositories. This broader scope must be understood when choosing it. Aegir only sends read requests. Tokens are encrypted with Electron safeStorage (macOS Keychain) and stored locally; plaintext never enters snapshots, release files, or logs. Save/remove are explicit controls. Expired access is recoverable by saving a replacement token. Browser-based OAuth would require registering an OAuth app and is not implemented.
+
+See [GitHub token limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) and [release asset permissions](https://docs.github.com/en/rest/releases/assets).
+
+## Trust and downloads
+
+`config/updates.json` contains only the repository and Ed25519 public key. The private key lives at `~/.config/aegir-release/private.pem` with owner-only permissions, outside the repository. Back it up securely. Do not regenerate it for each release; existing installations trust the embedded public key. Changing trust keys currently requires a manually installed app update.
+
+The updater lists the latest 30 releases, ignores drafts, and selects the highest newer compatible signed version. Missing manifests are ignored; invalid signatures, mismatched tags/assets, changed sizes, and malformed manifests produce errors. Only the installed architecture is accepted. API requests are restricted to this repository. Asset redirects must be HTTPS on GitHub's asset hosts; Authorization is stripped at the CDN boundary.
+
+Manifest signatures cover exact decoded payload bytes, including version, commit, architecture, minimum macOS version, ZIP asset name, size, SHA-256 and notes. ZIP downloads have size/time bounds, cancellation, checksum verification and a free-space check. Extraction rejects traversal, duplicate paths, unsupported file types and escaping links; links are created after regular files so extraction cannot follow archive-provided symlinks. The app identity, version and executable architecture are checked again before installation.
+
+This is independent of Apple Developer ID signing/notarization. No code clears quarantine, disables Gatekeeper, changes system security policy or requests administrator access. Initial installations and downloaded unsigned replacements may trigger macOS prompts or be blocked on managed Macs. Cross-machine Gatekeeper testing remains required.
+
+## Replacement, startup and recovery
+
+The standalone Swift helper is copied outside both application bundles. A per-installation file lock prevents concurrent helpers. The helper stages the new bundle next to the installed app and signals readiness. Main-process IPC rejects new work during handoff; background work is checked again after preparation. Normal shutdown stops services and creates a consistent SQLite backup through SQLite's backup API before closing the database. Only a completed shutdown authorizes replacement.
+
+The helper keeps the previous bundle, replaces it with same-directory renames, and launches the candidate through macOS Launch Services. The candidate uses the same workspace and a one-time receipt token. It opens the database and window, verifies the preload/snapshot bridge, and acknowledges startup. Background services remain paused until the helper writes a successful result. The helper then removes the old app and database backup. Download staging is removed after confirmed startup.
+
+If startup is not acknowledged within two minutes, the helper stops the candidate, verifies it has exited, and restores the previous app and pre-update database before reopening. It never restores data after admitting normal user work. If termination fails, backups are retained rather than replacing live files. Other local stores (memory providers, browser profiles, documents) are not rolled back; startup must not perform destructive changes to those stores.
+
+Transaction journals and logs live in `<userData>/updates/transaction-*`; no tokens are written there. If an unconfirmed transaction leaves app staging/backup paths, the next ordinary launch offers recovery before opening the database. A confirmed healthy update cannot be automatically rolled back. Logs/receipts remain for diagnosis; the app does not promise power-loss durability against disk corruption.
+
+A crash after moving the original bundle but before installing the candidate can leave the normal app path missing. In that case use the retained helper in the transaction folder with `request.json --recover <exited-app-pid>`, or restore the `.aegir-update-old` app path manually before opening Aegir and choosing recovery. Do not delete database backups or remove quarantine to work around an error.
+
+## Publishing a signed test release
+
+Publishing remains explicit and uses releases **in this repository**. Pushing code alone never publishes. Use a clean, verified, committed revision; the manifest records HEAD. Never sign a dirty build as though it represented that commit.
+
+1. Build the updater-enabled baseline, version 0.1.1, and have existing users install it normally once.
+2. For the test, package the same verified code with a higher version:
+
+   ```sh
+   pnpm exec electron-builder --mac dir --arm64 --publish never \
+     --config.directories.output=release/update-test \
+     --config.extraMetadata.version=0.1.2
+   ditto -c -k --sequesterRsrc --keepParent \
+     release/update-test/mac-arm64/Aegir.app release/Aegir-0.1.2-arm64.zip
+   ```
+
+3. Write plain-text release notes to a local file. Sign the manifest:
+
+   ```sh
+   node scripts/update-release.mjs manifest release/Aegir-0.1.2-arm64.zip \
+     0.1.2 arm64 release/update-notes.txt release/aegir-update-arm64.json
+   ```
+
+4. Explicitly publish a prerelease tagged **v0.1.2**, targeted at the exact source commit, containing `Aegir-0.1.2-arm64.zip` and `aegir-update-arm64.json`. Do not mark it latest stable. Review notes before publishing. Intel requires a separately built x64 app, x64 native helpers and `aegir-update-x64.json`; the initial packaged test is Apple Silicon only.
+5. Testers on 0.1.1 check/download/restart from Settings. Confirm installed 0.1.2, preserved data, restart gating, and actual macOS prompts. No helper Terminal commands should be necessary on the successful path.
+
+The one-time key-generation command is `node scripts/update-release.mjs keygen`. It refuses to replace an existing private key or public configuration. It is not part of normal publishing.
+
+## Verification commands
 
 ```sh
-./scripts/test-updater-proof.sh
+pnpm check
+pnpm test electron/updates.test.ts electron/ipc-security.test.ts
+pnpm build
+AEGIR_UPDATE_ARCHIVE=1 pnpm test electron/updates.test.ts
+node scripts/test-updater-e2e.mjs
 ```
 
-Python is only used by the developer tests. The compiled helper uses the macOS system tools and needs no Python, Node, or compiler on a user's Mac.
+The opt-in full test requires the baseline under `release/mac-arm64`, a 0.1.2 candidate under `release/updater-e2e/candidate/mac-arm64`, and the local release key. It runs the real packaged UI and native replacement using a disposable workspace and a local GitHub API fixture. Token encryption is stubbed in that disposable process; no real credentials are used. It verifies preservation of a task and successful version/startup confirmation. It does not establish live collaborator-token access or cross-machine Gatekeeper behavior. `--user-data-dir=<absolute-directory>` isolates app data and suppresses login-item registration for such test profiles.
 
-## Local verification
+The original standalone proof remains available through `pnpm test:updater-proof` for low-level replacement/recovery checks.
 
-On the development Mac: all eight disposable helper integration tests passed, TypeScript checks passed, and replacement/recovery succeeded with a temporary copy of the existing 675 MB packaged Aegir bundle. The installed app was not touched and the temporary app was not launched. This used the same existing build as both source and target; it does not establish cross-version startup, database compatibility, downloaded-app quarantine behavior, or behavior on another Mac.
+## Verification performed for this implementation
 
-## Helper protocol
+- TypeScript and the production macOS build passed.
+- Default suite: 475 passed, with opt-in checks skipped.
+- The real packaged archive extracted and cleaned up successfully, including Electron framework symlinks and app.asar.
+- A real UI-driven packaged update from 0.1.1 to 0.1.2 passed using a local GitHub fixture and disposable workspace; a task survived and the candidate confirmed startup. The final run included the startup barrier and native process checks.
+- Four native recovery checks passed, including the real two-minute failed-startup timeout, app/database restoration, healthy-startup refusal and concurrent installer locking.
+- The maintainer's existing GitHub login successfully listed this private repository's releases and downloaded an existing release asset through the same authenticated request/redirect code; its checksum matched. No token was printed or persisted by that test. Collaborator tokens remain to be verified by their owners.
+- Settings was visually inspected in the packaged app at full and compact widths.
 
-Run the helper from outside the app being replaced, with absolute resolved paths:
-
-```sh
-build/aegir-updater-proof install /resolved/path/Aegir.app /resolved/staging/Aegir.app EXITED_APP_PID
-```
-
-The PID must be the old app process. The helper waits up to 30 seconds for it to exit, stages a copy using `ditto`, then uses same-directory renames. It checks bundle identity and executable presence, but does **not** establish release authenticity. The eventual controller must verify the signed manifest, hash, archive paths, architecture, and bundle version first.
-
-Sibling transaction paths are `<target>.aegir-update-new`, `<target>.aegir-update-old`, and `<target>.aegir-update.json`. Existing transactions block a second installation. The journal records intent before replacement; the backup remains until explicit confirmation. This handles process interruption, but is not a guarantee against disk corruption or power-loss durability. Run only one helper per target; transaction locking is still required before production integration.
-
-Close all copies of Aegir before manually using either command:
-
-```sh
-build/aegir-updater-proof recover /resolved/path/Aegir.app.aegir-update.json
-build/aegir-updater-proof confirm /resolved/path/Aegir.app.aegir-update.json
-```
-
-`recover` restores the original bundle and removes staged files. `confirm` retains the new bundle and deletes the backup. Never confirm before verifying startup. These are operator-only proof commands, not renderer IPC endpoints. They do not detect running applications or repair database changes. Do not use recovery against real data after a new version has run migrations without an appropriate database recovery plan.
-
-## Required packaged-app checkpoint
-
-On a second Mac, using downloaded builds with their original quarantine metadata:
-
-1. Install the older build in `/Applications` or `~/Applications`. Record any security prompts.
-2. Download and extract the newer build to a staging folder; do not remove quarantine.
-3. Quit Aegir and run the helper from outside both app bundles with the old PID.
-4. Open the replaced app normally from Finder. Record Gatekeeper prompts and whether launch succeeds; inspect Reminders, Keychain access, connections, chats and tasks.
-5. Quit all copies and recover; verify the old app opens. Use disposable workspace data if builds differ in schema.
-6. Repeat a successful installation and explicitly confirm it.
-7. Test an unwritable location and a mounted DMG: production integration must refuse those locations with actionable guidance.
-
-The local automated fixtures exercise replacement and recovery, not Gatekeeper. Do not describe unsigned updates as seamless until this checkpoint passes. If it fails, use a download-and-manually-replace flow while investigating rather than bypassing security settings.
-
-## Remaining implementation after the checkpoint
-
-1. Release packaging from a clean verified revision, unique increasing versions, architecture-specific ZIPs, notes and commit information. Publish assets to releases in this repository, only after explicit authorization.
-2. Ed25519-signed manifest with a bundled public key, external private key, archive SHA-256/size, architecture, minimum OS, and release URL. Define canonical signed bytes, key rotation, and downgrade policy. Generate credentials explicitly; do not silently ship a temporary key.
-3. Bounded HTTPS check/download service with redirect policy, cancellation, signature/hash verification, safe archive extraction, free-space checks and bundle validation. No maintainer credentials in clients.
-4. Harden helper with single-transaction locking, controlled launcher, receipt validation, bounded startup handshake and interruption recovery. Retain original bundle until healthy startup; no rollback while the replacement process is alive.
-5. Integrate main-process active-work gating and a barrier against new work. Reuse existing shutdown cleanup. After shutdown, take a consistent SQLite backup including committed WAL contents before the new app opens the database. Persist migration compatibility and recovery state outside the database. Never silently restore a database after resumed user work.
-6. Add trusted, schema-validated IPC and typed preload methods. Settings: current version, check, notes, download progress/cancel, and explicit restart. Follow the repository's design system when implementing the UI.
-7. Packaged end-to-end tests for successful upgrades, failed startup, data preservation, permission failures, corrupted releases and interrupted replacement. Initially no automatic checks, installs or forced restarts.
+The verified baseline is built locally. The 0.1.2 candidate and release notes are staged under ignored `release/full-updater-test/`. The signed manifest and publication must follow the source commit, so the manifest identifies the exact committed source. No new release has been published yet.

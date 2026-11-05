@@ -49,6 +49,7 @@ export class OnboardingService {
       } else if (!this.busy && !this.loginId) void this.check();
     });
   }
+  get hasActiveWork() { return this.busy || !!this.loginId || !!this.installing; }
   state(): OnboardingState {
     if (this.controller.signal.aborted && this.lastState) return this.lastState;
     const saved = this.store.getSetting('onboardingStep') as SetupStep;

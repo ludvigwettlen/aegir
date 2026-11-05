@@ -1,16 +1,17 @@
 {
   "name": "aegir",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm build:reminders && tsc -b && vite build && electron-builder --mac dir",
+    "build": "pnpm build:reminders && pnpm build:updater && tsc -b && vite build && electron-builder --mac dir",
     "check": "tsc -b",
     "test:updater-proof": "./scripts/test-updater-proof.sh",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "dist": "electron-builder --mac dmg",
-    "build:reminders": "mkdir -p build && swiftc -module-cache-path build/.swift-module-cache native/reminders/main.swift -o build/aegir-reminders -framework EventKit"
+    "build:reminders": "mkdir -p build && swiftc -target \"$(uname -m)-apple-macosx14.0\" -module-cache-path build/.swift-module-cache native/reminders/main.swift -o build/aegir-reminders -framework EventKit",
+    "build:updater": "mkdir -p build && swiftc -target \"$(uname -m)-apple-macosx14.0\" -module-cache-path build/.swift-module-cache native/updater/install.swift -o build/aegir-updater"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.289",
@@ -42,6 +43,7 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "yauzl": "3.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -49,6 +51,7 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/yauzl": "3.4.0",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^44.9.3",
     "electron-builder": "^26.0.12",
@@ -78,12 +81,17 @@
       "extendInfo": {
         "NSRemindersFullAccessUsageDescription": "Capture tasks from the Reminders list you choose.",
         "NSRemindersUsageDescription": "Capture tasks from the Reminders list you choose."
-      }
+      },
+      "minimumSystemVersion": "14.0"
     },
     "extraResources": [
       {
         "from": "build/aegir-reminders",
         "to": "aegir-reminders"
+      },
+      {
+        "from": "build/aegir-updater",
+        "to": "aegir-updater"
       }
     ]
   },

@@ -11,3 +11,5 @@ build/.swift-module-cache/
 build/aegir-reminders
 
 build/aegir-updater-proof
+
+build/aegir-updater

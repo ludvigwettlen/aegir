@@ -1,3 +1,4 @@
+import { UpdateSettings } from './UpdateSettings';
 import { mainAgent } from '../../../shared/agent-mentions';
 import { DelegationSettings } from './TaskDelegation';
 import { PersonalIntegrations } from './PersonalIntegrations';
@@ -52,6 +53,7 @@ export function SettingsView({ data, run, onSkills, onSetup }: { data: Snapshot;
               <Button variant="outline" size="sm" onClick={onSetup}>{data.onboarding?.completed ? 'Review setup' : 'Continue setup'}</Button>
             </div>
           </Card>}
+          <UpdateSettings value={data.updates} />
           <PersonalIntegrations reminders={data.reminders} />
           <DelegationSettings state={data.delegation} connected={notion?.status === 'connected'} />
           <BrainBridgeSettings state={data.brainBridge} />
