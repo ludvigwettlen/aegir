@@ -32,3 +32,5 @@ import './command-palette.scss';
 import './legolas-integration.scss';
 
 import './glass.scss';
+
+import './settings.scss';

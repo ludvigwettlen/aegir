@@ -4,6 +4,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from '@usefragments/ui';
 import '../styles';
+import type { Skill, SkillDetail } from '../../../shared/skills';
 import type { AppEvent, DesktopApi, Message, Snapshot, Task } from '../../../shared/types';
 
 // Isolated visual fixture: no live account, filesystem, or application database access.
@@ -55,6 +56,9 @@ const actions = { filed: [] as { id: string; path: string; kind: string; content
 Object.assign(window, { fixtureActions: actions });
 const creation = { fail: false, delay: 0, calls: [] as { id: string; name: string }[] };
 Object.assign(window, { fixtureCreation: creation });
+// Settings controls exercise the same production components against isolated state.
+const settingsFixture = { failSkills: false, skillDelay: 0, skills: [] as Skill[], calls: [] as string[], open: () => listeners.forEach(listener => listener({ type: 'open-settings' })), refreshSkills: () => listeners.forEach(listener => listener({ type: 'skills-changed' })) };
+Object.assign(window, { settingsFixture });
 const fixture: Partial<DesktopApi> = {
   saveTaskView: async view => { if ((actions as any).failViewSave) throw new Error('Could not save filtered view'); snapshot.taskViews = [...(snapshot.taskViews ?? []).filter(item => item.id !== view.id), structuredClone(view)]; localStorage.setItem('fixtureTaskViews', JSON.stringify(snapshot.taskViews)); publish(); },
   deleteTaskView: async id => { snapshot.taskViews = (snapshot.taskViews ?? []).filter(view => view.id !== id); localStorage.setItem('fixtureTaskViews', JSON.stringify(snapshot.taskViews)); publish(); },
@@ -100,7 +104,17 @@ const fixture: Partial<DesktopApi> = {
   },
   readDocument: async (_thread, path) => { if (actions.failRead) throw new Error('Could not open document'); const file = files.find(file => file.path === path); if (!file) throw new Error('File missing'); return {...file}; },
   saveDocument: async (_threadId, path, revision, content) => { if (actions.failSave) throw new Error('Could not save document'); const file = files.find(file => file.path === path)!; if (file.revision !== revision) throw new Error('File changed on disk'); Object.assign(file, { content, revision: String(Number(file.revision) + 1) }); return {...file}; },
-  skillLibrary: async () => ({ skills: [], bindings: [], proposals: [] } as any),
+  skillLibrary: async () => {
+    if (settingsFixture.skillDelay) await new Promise(resolve => setTimeout(resolve, settingsFixture.skillDelay));
+    if (settingsFixture.failSkills) throw new Error('Skill library unavailable');
+    return { skills: structuredClone(settingsFixture.skills), routineBindings: {}, proposals: [] };
+  },
+  skillDetail: async id => ({ skill: settingsFixture.skills.find(skill => skill.id === id)!, files: [{ path: 'SKILL.md', encoding: 'utf8', content: '# Research\n\nFind good sources.' }], revisions: [], proposals: [], recentLoads: [] } as SkillDetail),
+  updateAgent: async value => { settingsFixture.calls.push('updateAgent'); Object.assign(snapshot.agents.find(agent => agent.id === value.id)!, value); publish(); },
+  setLaunchAtLogin: async enabled => { snapshot.launchAtLogin = enabled; publish(); },
+  setTypography: async value => { snapshot.typography = value; publish(); },
+  connect: async provider => { settingsFixture.calls.push('connect:' + provider); const connector = snapshot.connectors.find(item => item.id === provider); if (connector) { connector.status = 'connected'; connector.detail = 'Connected'; } publish(); },
+  disconnect: async provider => { settingsFixture.calls.push('disconnect:' + provider); const connector = snapshot.connectors.find(item => item.id === provider); if (connector) connector.status = 'disconnected'; publish(); },
   markTaskReviewed: async () => {
     actions.reviewCalls++;
     if (actions.reviewDelay) await new Promise(resolve => setTimeout(resolve, actions.reviewDelay));

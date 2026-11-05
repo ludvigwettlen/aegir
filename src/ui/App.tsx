@@ -15,7 +15,6 @@ import { ThreadsView } from './views/ThreadsView';
 import { newThread } from './command-navigation';
 import { MemoryView } from './views/MemoryView';
 import { RoutineView } from './views/RoutineView';
-import { SkillsView } from './views/SkillsView';
 import { SettingsView } from './views/SettingsView';
 import { ShortcutHints } from './views/ShortcutHints';
 import { Sidebar } from './views/Sidebar';
@@ -37,7 +36,28 @@ export function App() {
   const [showSplash, setShowSplash] = useState(true);
   const dismissSplash = useCallback(() => setShowSplash(false), []);
   const [data, setData] = useState<Snapshot | null>(null);
-  const [route, setRoute] = useState<Route>({ view: 'tasks', list: 'today' });
+  const [route, setCurrentRoute] = useState<Route>({ view: 'tasks', list: 'today' });
+  const currentRoute = useRef<Route>(route);
+  const settingsReturnRoute = useRef<Route>(route);
+  const settingsReturnFocus = useRef<HTMLElement | null>(null);
+  const setRoute = useCallback((next: Route) => {
+    const previous = currentRoute.current;
+    if ((next.view === 'settings' || next.view === 'skills') && previous.view !== 'settings' && previous.view !== 'skills') {
+      settingsReturnRoute.current = previous;
+      settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    currentRoute.current = next;
+    setCurrentRoute(next);
+  }, []);
+  const closeSettings = useCallback(() => {
+    setRoute(settingsReturnRoute.current);
+    requestAnimationFrame(() => {
+      const previous = settingsReturnFocus.current;
+      if (previous?.isConnected && previous.getClientRects().length) previous.focus();
+      else (document.querySelector<HTMLElement>('[data-keyboard-current]') || document.querySelector<HTMLElement>('[data-keyboard-pane="list"], [data-keyboard-pane="page"]'))?.focus();
+    });
+  }, [setRoute]);
+  const settingsVisible = route.view === 'settings' || route.view === 'skills';
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [listAction, setListAction] = useState<TaskListAction | null>(null);
@@ -87,12 +107,23 @@ export function App() {
       );
     }
   }, []);
-  useWorkspaceKeyboard(run, setRoute, setNotice, !showSplash && !onboardingVisible);
+  useWorkspaceKeyboard(run, setRoute, setNotice, !showSplash && !onboardingVisible && !settingsVisible);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    if (!settingsVisible || showSplash || onboardingVisible) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], .ui-feedback-shield')) return;
+      event.preventDefault();
+      closeSettings();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [settingsVisible, showSplash, onboardingVisible, closeSettings]);
   if (data?.updates?.status === 'installing') return <div className="loading" role="status">{data.updates.message}</div>;
   if (showSplash) return <SplashScreen onComplete={dismissSplash} />;
   if (!data) return <div className="loading">Loading Aegir…</div>;
@@ -105,12 +136,12 @@ export function App() {
     setRoute({ view: 'chats', draft: `@${name} ` });
   };
   return (
-    <div className="ws-shell">
+    <div className={`ws-shell ${settingsVisible ? 'ws-settings-open' : ''}`}>
       <ShortcutHints route={route} showTaskPriorities={data.showTaskPriorities !== false} />
       <CommandPalette data={data} route={route} go={setRoute} run={run} notify={setNotice}
         onNewList={() => setListAction({ kind: 'create' })} />
       <UiFeedback route={route} active={feedbackActive} onActiveChange={setFeedbackActive} />
-      <Sidebar data={data} route={route} go={setRoute} onNewThread={() => { setRoute({ view: 'chats' }); requestAnimationFrame(() => requestAnimationFrame(() => newThread(setNotice))); }} onNewList={() => setListAction({ kind: 'create' })} />
+      {!settingsVisible && <Sidebar data={data} route={route} go={setRoute} onNewThread={() => { setRoute({ view: 'chats' }); requestAnimationFrame(() => requestAnimationFrame(() => newThread(setNotice))); }} onNewList={() => setListAction({ kind: 'create' })} />}
       <div className="ws-main">
         {route.view === 'tasks' && (
           <TasksView navigationToken={route} onNavigate={list => setRoute({ view: 'tasks', list })} data={data} run={run} list={route.list} notify={setNotice} onManageList={setListAction}
@@ -141,12 +172,10 @@ export function App() {
             <MemoryView data={data} run={run} />
           </main>
         )}
-        {route.view === 'skills' && <SkillsView key={route.agentId || 'all'} initialAgent={route.agentId} data={data} run={run} />}
-        {route.view === 'settings' && (
-          <main className="full-page" data-keyboard-pane="page" tabIndex={-1}>
-            <SettingsView data={data} run={run} onSetup={() => setSetupOpen(true)} onSkills={agentId => setRoute({ view: 'skills', agentId })} />
-          </main>
-        )}
+        {settingsVisible && <SettingsView key={route.view === 'skills' ? `skills:${route.agentId || 'all'}` : 'settings'}
+          data={data} run={run} onBack={closeSettings} onSetup={() => setSetupOpen(true)}
+          initialCategory={route.view === 'skills' ? 'assistant' : 'general'} initialAgent={route.view === 'skills' ? route.agentId : undefined} />}
+
       </div>
       {data.approvals.length > 0 && <ApprovalDock approvals={data.approvals} run={run} />}
       {error && (

@@ -22,8 +22,6 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
   const [step, setStep] = useState(state.step);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [clientId, setClientId] = useState(data.mcpSettings.slackClientId);
-  const [clientSecret, setClientSecret] = useState('');
   const [account, setAccount] = useState(data.mcpSettings.composioSlackAccount || '');
   const heading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(true);
@@ -57,7 +55,6 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
   });
   const notion = data.connectors.find(item => item.id === 'notion');
   const composio = data.connectors.find(item => item.id === 'composio');
-  const slack = data.connectors.find(item => item.id === 'slack');
   const status = (dependency: SetupDependency) => <div className={`setup-status ${dependency.status === 'error' ? 'setup-status-error' : ''}`} role="status" aria-live="polite">
     <Badge tone={dependency.status === 'ready' ? 'success' : dependency.status === 'error' ? 'danger' : 'neutral'}>{labels[dependency.status]}</Badge>
     <span>{dependency.detail}</span>
@@ -159,13 +156,8 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
             </div>
             <p className="setup-help">First, connect Slack in your own Composio account. Then connect that account here. Your workspace may need an administrator’s approval.</p>
             <Button variant="link" disabled={working} onClick={() => void act(() => api.openExternal('https://composio.dev/'))}>Open Composio <ExternalLink size={14} /></Button>
-            <details className="setup-advanced"><summary>Slack setup options for your office helper</summary>
+            <details className="setup-advanced"><summary>Composio connection options</summary>
               <label>Expected Composio Slack account ID (optional)<input value={account} onChange={event => setAccount(event.target.value)} /></label>
-              <p>Alternatively, use an internal Slack app with MCP enabled and redirect URL <code>http://127.0.0.1:8765/callback/slack</code>.</p>
-              <label>Slack client ID<input value={clientId} onChange={event => setClientId(event.target.value)} /></label>
-              <label>Slack client secret<input type="password" autoComplete="off" value={clientSecret} onChange={event => setClientSecret(event.target.value)} /></label>
-              <Button variant="outline" size="sm" disabled={working || !clientId.trim() || !clientSecret.trim() || slack?.status === 'connecting'} onClick={() => void act(async () => { try { await api.connect('slack', clientId, clientSecret); } finally { setClientSecret(''); } })}>Connect office Slack app</Button>
-              <p role="status">{slack?.detail}</p>
               <p>Composio’s connection status only confirms access to Composio. Test a Slack search before relying on it. Gmail and Calendar use the separate Composio CLI at ~/.local/bin/composio; verify Gmail in Settings and Calendar in Meetings.</p>
             </details>
             <div className="setup-connection"><div><strong>Gmail & Google Calendar</strong><p>These currently need a one-time assisted setup. Your office setup helper can connect Gmail in Settings and Calendar in Meetings.</p></div><Link2 size={19} /></div>

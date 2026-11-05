@@ -33,7 +33,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows priorities by default and h
     await page.setViewportSize({ width: 900, height: 750 });
     await toggle.scrollIntoViewIfNeeded();
     await page.screenshot({ path: '/tmp/aegir-priority-setting.png' });
-    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await page.getByRole('button', { name: /Back to workspace/ }).click();
     expect(await priority.count()).toBe(0);
     expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(0);
     await page.locator('[data-task-row]').focus();
@@ -48,7 +48,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('shows priorities by default and h
     await page.keyboard.press('Escape');
     await settings(); await toggle.click();
     await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('true');
-    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await page.getByRole('button', { name: /Back to workspace/ }).click();
     await page.locator('.ws-task-options > summary').click();
     expect(await priority.inputValue()).toBe('2');
     expect(await page.getByLabel('Priority 2', { exact: true }).count()).toBe(1);

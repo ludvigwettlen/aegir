@@ -64,9 +64,10 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('supports priorities, fullscreen, 
     await page.getByRole('button', { name: 'Search tasks and commands', exact: true }).click();
     await page.getByRole('combobox', { name: 'Search tasks and commands' }).fill('Settings');
     await page.getByRole('option', { name: /^Settings/ }).click();
+    await page.getByRole('button', { name: 'Browser & review', exact: true }).click();
     await page.getByRole('button', { name: 'Enable browser review', exact: true }).click();
     await page.getByRole('button', { name: 'Disable browser review', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await page.getByRole('button', { name: /Back to workspace/ }).click();
     await page.getByRole('button', { name: 'Open pm-level-boundaries-proposal.md', exact: true }).click();
     await page.getByRole('button', { name: 'Review in browser', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as any).fixtureActions.reviews.length)).toBe(1);
