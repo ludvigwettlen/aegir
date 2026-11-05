@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "pnpm build:reminders && tsc -b && vite build && electron-builder --mac dir",
     "check": "tsc -b",
+    "test:updater-proof": "./scripts/test-updater-proof.sh",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "dist": "electron-builder --mac dmg",
     "build:reminders": "mkdir -p build && swiftc -module-cache-path build/.swift-module-cache native/reminders/main.swift -o build/aegir-reminders -framework EventKit"
