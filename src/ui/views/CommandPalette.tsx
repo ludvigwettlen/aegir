@@ -93,7 +93,7 @@ function appCommands({ data, route, go, run, notify, onNewList }: Props): Comman
     { id: 'app.undo', section: 'app', title: 'Undo last task action', icon: Undo2, keys: '⌘ Z', keywords: ['revert', 'restore'], run: () => undoTaskAction(run, notify) },
     { id: 'app.settings', section: 'app', title: 'Settings', icon: Settings, keys: '⌘ ,', keywords: ['preferences', 'connections', 'approvals', 'reminders'], run: () => go({ view: 'settings' }) },
     { id: 'app.memory', section: 'app', title: 'Search memory', icon: Search, run: () => go({ view: 'memory' }) },
-    { id: 'app.meetings', section: 'go', title: 'Go to 1:1 prep', icon: CalendarDays, keywords: ['meetings', 'calendar'], run: () => go({ view: 'one-on-ones' }) },
+    { id: 'app.meetings', section: 'go', title: 'Go to Meetings', icon: CalendarDays, keywords: ['meetings', 'calendar'], run: () => go({ view: 'one-on-ones' }) },
     { id: 'app.skills', section: 'app', title: 'Manage skills', icon: Wand2, keywords: ['library', 'skill'], run: () => go({ view: 'skills' }) },
   );
   return commands;

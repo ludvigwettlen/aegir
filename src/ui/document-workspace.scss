@@ -339,3 +339,22 @@
 @media (max-width: 1000px) {
   .ws-document-workspace-head { gap: var(--ds-space-2); }
 }
+
+.ws-document-prose .ws-heading-folded { display: none !important; }
+.ws-heading-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  margin-left: -1.2em;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: .55;
+  font: inherit;
+  cursor: pointer;
+  vertical-align: baseline;
+  &:hover, &:focus-visible { opacity: 1; }
+  &:focus-visible { outline: 2px solid currentColor; border-radius: 3px; }
+}

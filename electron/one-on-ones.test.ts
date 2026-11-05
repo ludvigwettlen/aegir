@@ -22,21 +22,26 @@ function setup() {
   cleanup.push(() => { service.stop(); store.close(); rmSync(root, { recursive: true, force: true }); });
   return { store, page, prepare, service };
 }
-describe('calendar 1:1 detection', () => {
+describe('calendar meeting detection', () => {
   it('recognizes named pairs and explicit 1:1s, ignoring rooms', () => {
     expect(calendarMeeting(event(), 'work')).toMatchObject({ personName: 'Sam Lee', personEmail: 'sam@example.com', userEmail: 'alex@example.com' });
     expect(calendarMeeting({ ...event(), summary: 'Weekly 1-1', attendees: [...event().attendees!, { email: 'room@example.com', resource: true }] }, 'work')).not.toBeNull();
     expect(calendarMeeting(event(), 'other')?.id).not.toBe(calendarMeeting(event(), 'work')?.id);
     expect(calendarMeeting(event('instance-2'), 'work')?.id).not.toBe(calendarMeeting(event(), 'work')?.id);
   });
-  it('excludes groups, declined invites, all-day events, cancellations and ambiguous titles', () => {
+  it('excludes declined invites, all-day events, cancellations and incomplete attendees', () => {
     const source = event();
     for (const changed of [
-      { status: 'cancelled' }, { attendeesOmitted: true }, { summary: 'Sales demo' }, { start: {} },
-      { attendees: [...source.attendees!, { email: 'third@example.com', responseStatus: 'declined' }] },
+      { status: 'cancelled' }, { attendeesOmitted: true }, { start: {} },
       { attendees: source.attendees!.map(person => ({ ...person, responseStatus: 'declined' })) },
       { attendees: source.attendees!.map(person => ({ ...person, self: false })) },
     ]) expect(calendarMeeting({ ...source, ...changed }, 'work')).toBeNull();
+  });
+  it('imports group meetings and ordinary two-person meetings with full attendee context', () => {
+    expect(calendarMeeting({ ...event(), summary: 'Sales demo' }, 'work')?.kind).toBe('meeting');
+    const group = calendarMeeting({ ...event(), summary: 'Project review', attendees: [...event().attendees!, { email: 'third@example.com' }] }, 'work')!;
+    expect(group.kind).toBe('meeting');
+    expect(group.attendees?.map(person => person.email)).toEqual(['sam@example.com', 'third@example.com']);
   });
   it('rejects failed or incomplete provider responses', () => {
     expect(() => parseCalendarPage('{"error":"expired"}')).toThrow('incomplete');
@@ -81,6 +86,15 @@ describe('meeting preparation lifecycle', () => {
     expect(prepare).toHaveBeenCalledOnce(); expect(page).toHaveBeenCalledOnce();
     expect(service.snapshot().meetings.find(meeting => meeting.eventId === 'far')?.status).toBe('pending');
   });
+  it('requires opt-in for group preparation and preserves that choice across sync', async () => {
+    const { service, page, prepare } = setup();
+    page.mockResolvedValue({ items: [{ ...event(), summary: 'Project review', attendees: [...event().attendees!, { email: 'third@example.com' }] }] });
+    await service.tick(); expect(prepare).not.toHaveBeenCalled();
+    const id = service.snapshot().meetings[0].id;
+    service.update(id, { autoPrepare: true }); await service.sync();
+    expect(service.snapshot().meetings[0].autoPrepare).toBe(true);
+    await service.tick(); expect(prepare).toHaveBeenCalledOnce();
+  });
   it('preserves existing agenda on failure and prevents stale editor writes', async () => {
     const { service, prepare } = setup(); await service.sync(); const id = service.snapshot().meetings[0].id;
     await service.prepare(id); const agenda = service.snapshot().meetings[0].agenda;
@@ -97,6 +111,22 @@ describe('meeting preparation lifecycle', () => {
     expect(prepare).toHaveBeenCalledOnce(); expect(service.snapshot().meetings[0]).toMatchObject({ agenda: 'My edited agenda', agendaEdited: true, status: 'stale' });
     await service.prepare(id);
     expect(service.snapshot().meetings[0]).toMatchObject({ previousAgenda: 'My edited agenda', agendaEdited: false, status: 'ready' });
+  });
+  it('allows manual preparation of another meeting while preventing duplicate runs', async () => {
+    const { service, page, prepare } = setup();
+    page.mockResolvedValue({ items: [event(), event('second')] });
+    await service.sync();
+    const [first, second] = service.snapshot().meetings;
+    const finishes: ((text: string) => void)[] = [];
+    prepare.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
+    const firstRun = service.prepare(first.id);
+    await service.prepare(first.id);
+    const secondRun = service.prepare(second.id);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(service.snapshot().meetings.every(meeting => meeting.status === 'preparing')).toBe(true);
+    finishes.forEach(finish => finish('# Prepared agenda'));
+    await Promise.all([firstRun, secondRun]);
+    expect(service.snapshot().meetings.every(meeting => meeting.status === 'ready')).toBe(true);
   });
   it('rejects late generation after the meeting changes or shutdown', async () => {
     const { service, prepare, store, page } = setup(); await service.sync(); const id = service.snapshot().meetings[0].id;

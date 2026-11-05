@@ -166,9 +166,9 @@ export function OnboardingView({ data, onClose, onSettings }: { data: Snapshot; 
               <label>Slack client secret<input type="password" autoComplete="off" value={clientSecret} onChange={event => setClientSecret(event.target.value)} /></label>
               <Button variant="outline" size="sm" disabled={working || !clientId.trim() || !clientSecret.trim() || slack?.status === 'connecting'} onClick={() => void act(async () => { try { await api.connect('slack', clientId, clientSecret); } finally { setClientSecret(''); } })}>Connect office Slack app</Button>
               <p role="status">{slack?.detail}</p>
-              <p>Composio’s connection status only confirms access to Composio. Test a Slack search before relying on it. Gmail and Calendar use the separate Composio CLI at ~/.local/bin/composio; verify Gmail in Settings and Calendar in 1:1 prep.</p>
+              <p>Composio’s connection status only confirms access to Composio. Test a Slack search before relying on it. Gmail and Calendar use the separate Composio CLI at ~/.local/bin/composio; verify Gmail in Settings and Calendar in Meetings.</p>
             </details>
-            <div className="setup-connection"><div><strong>Gmail & Google Calendar</strong><p>These currently need a one-time assisted setup. Your office setup helper can connect Gmail in Settings and Calendar in 1:1 prep.</p></div><Link2 size={19} /></div>
+            <div className="setup-connection"><div><strong>Gmail & Google Calendar</strong><p>These currently need a one-time assisted setup. Your office setup helper can connect Gmail in Settings and Calendar in Meetings.</p></div><Link2 size={19} /></div>
             <Button variant="link" disabled={locked} onClick={() => leave(true)}>Open connection settings <ArrowRight size={14} /></Button>
             </>}
             <div className="setup-note"><strong>{ready ? 'Your essentials are ready.' : 'A couple of essentials still need attention.'}</strong>

@@ -19,17 +19,19 @@ export function calendarMeeting(event: CalendarEvent, account: string): OneOnOne
   // Count every human invitee, including declined guests: a group meeting does not
   // become a 1:1 merely because other attendees declined.
   const humans = (event.attendees || []).filter(person => !person.resource && !person.email?.endsWith('@resource.calendar.google.com'));
-  if (humans.length !== 2 || humans.some(person => person.responseStatus === 'declined')) return null;
+
   const self = humans.find(person => person.self);
-  const peer = humans.find(person => !person.self);
-  if (!self?.email || !peer?.email) return null;
+  const guests = humans.filter(person => !person.self && person.responseStatus !== 'declined');
+  const peer = guests[0];
+  if (!self?.email || self.responseStatus === 'declined' || !peer?.email) return null;
   const title = event.summary?.trim() || '';
   const namedOneOnOne = /\b(?:1\s*[:\-–/]\s*1|1\s*(?:on|to)\s*1|one[ -]on[ -]one)\b/i.test(title);
   const pair = title.split(/\s*(?:\/|<>|↔)\s*/);
   const namedPair = pair.length === 2 && pair.every(part => /^[\p{L}][\p{L}\p{M} .'-]{0,45}$/u.test(part));
-  if (!namedOneOnOne && !namedPair) return null;
+  const kind = humans.length === 2 && (namedOneOnOne || namedPair) ? 'one-on-one' as const : 'meeting' as const;
   const base = {
-    id: digest([account, event.id]), account, eventId: event.id, title,
+    kind, attendees: guests.filter(person => person.email).map(person => ({ name: person.displayName || person.email!, email: person.email!.toLowerCase() })),
+    id: digest([account, event.id]), account, eventId: event.id, title: title || 'Untitled meeting',
     personName: peer.displayName || peer.email.split('@')[0].replace(/[._]/g, ' '),
     personEmail: peer.email.toLowerCase(), userEmail: self.email.toLowerCase(),
     startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(),

@@ -292,8 +292,9 @@ function registerIpc() {
     if (enabled) void runtime.oneOnOnes.tick();
   });
   handle('one-on-ones-sync', () => runtime.oneOnOnes.sync());
+  handle('meeting-conversation', (id: string) => runtime.meetingConversation(id));
   handle('one-on-ones-prepare', (id: string) => runtime.oneOnOnes.prepare(id));
-  handle('one-on-ones-update', (id: string, change: { agenda?: string; hidden?: boolean }, expected?: string) => runtime.oneOnOnes.update(id, change, expected));
+  handle('one-on-ones-update', (id: string, change: { agenda?: string; hidden?: boolean; autoPrepare?: boolean }, expected?: string) => runtime.oneOnOnes.update(id, change, expected));
   handle('thread-messages', (threadId: string, before?: string) =>
     store.messagePage(threadId, before),
   );

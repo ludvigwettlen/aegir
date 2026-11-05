@@ -3,6 +3,10 @@ export type OneOnOneMeeting = {
   personName: string; personEmail: string; userEmail: string;
   startsAt: string; endsAt: string; sourceUrl: string; description: string;
   revision: string; active: boolean; hidden: boolean;
+  threadId?: string;
+  attendees?: { name: string; email: string }[];
+  kind?: 'one-on-one' | 'meeting';
+  autoPrepare?: boolean;
   agendaEdited?: boolean; previousAgenda?: string;
   agenda: string; preparedAt: string | null;
   /** Legacy local notes are retained for compatibility but no longer used for prep. */

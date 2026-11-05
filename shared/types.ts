@@ -228,8 +228,9 @@ export interface DesktopApi extends SkillsApi {
   sendSlackDraft(id: string, revision: number, fields: import('./slack-messages.js').SlackFields): Promise<void>;
   configureOneOnOnes(account: string, enabled: boolean): Promise<void>;
   syncOneOnOnes(): Promise<void>;
+  meetingConversation(id: string): Promise<string>;
   prepareOneOnOne(id: string): Promise<void>;
-  updateOneOnOne(id: string, change: { agenda?: string; hidden?: boolean }, expectedAgenda?: string): Promise<void>;
+  updateOneOnOne(id: string, change: { agenda?: string; hidden?: boolean; autoPrepare?: boolean }, expectedAgenda?: string): Promise<void>;
 
   listDocuments(threadId: string): Promise<import('./documents').WorkspaceDocumentEntry[]>;
   /** Document APIs accept a task ID for personal tasks, or a conversation ID after handoff. */

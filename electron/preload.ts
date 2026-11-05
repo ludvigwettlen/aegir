@@ -37,6 +37,7 @@ const api: DesktopApi = {
   sendSlackDraft: (id, revision, fields) => ipcRenderer.invoke('slack-draft-send', id, revision, fields),
   configureOneOnOnes: (account, enabled) => ipcRenderer.invoke('one-on-ones-configure', account, enabled),
   syncOneOnOnes: () => ipcRenderer.invoke('one-on-ones-sync'),
+  meetingConversation: id => ipcRenderer.invoke('meeting-conversation', id),
   prepareOneOnOne: id => ipcRenderer.invoke('one-on-ones-prepare', id),
   updateOneOnOne: (id, change, expected) => ipcRenderer.invoke('one-on-ones-update', id, change, expected),
   setTypography: value => ipcRenderer.invoke('set-typography', value),

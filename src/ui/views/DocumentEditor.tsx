@@ -11,6 +11,7 @@ import { hasUnsupportedMarkdown, markdownPath, type DocumentReference, type Work
 import { api } from './common';
 import { DocumentLinkSource } from '../document-links';
 import { DocumentTable } from '../document-tables';
+import { DocumentHeadingFolding } from '../document-folding';
 import { DocumentHeadingMarkers } from '../document-headings';
 import { DocumentComment, DocumentCommentParagraph } from '../document-comments';
 import { DocumentComments } from './DocumentComments';
@@ -113,7 +114,7 @@ export const DocumentEditor = forwardRef<DocumentEditorHandle, {
   const saveRef = useRef(save); saveRef.current = save;
   useImperativeHandle(ref, () => ({ save: () => saveRef.current() }));
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, DocumentTypography, DocumentComment, DocumentCommentParagraph, TaskList, TaskItem.configure({ nested: true }),
+    extensions: [StarterKit.configure({ link: { openOnClick: false }, underline: false }), Markdown, TableKit.configure({ table: false }), DocumentTable, DocumentHeadingMarkers, DocumentHeadingFolding, DocumentTypography, DocumentComment, DocumentCommentParagraph, TaskList, TaskItem.configure({ nested: true }),
       DocumentImage.configure({ loadImage: src => api.readDocumentImage(threadId, initial.path, src), importImage, onError: setImageError }),
       DocumentLinkSource.configure({ openLink: href => {
         const path = markdownPath(href);

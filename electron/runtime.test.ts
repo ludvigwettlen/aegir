@@ -734,6 +734,47 @@ describe('runtime', () => {
     expect(runtime.oneOnOnes.snapshot().meetings[0]).toMatchObject({ status: 'ready', notes: 'Discuss career growth' });
   });
 
+  it('streams meeting preparation into a persistent conversation and continues with its context', async () => {
+    let linked = '';
+    const { store, runtime, runs } = setup(async (input, id, rt) => {
+      if (input.kind === 'prep') {
+        linked = rt.appThreadFor(id)!;
+        expect(linked).toBeTruthy();
+        input.onDelta('Researching meeting context');
+        expect(store.messagesForThread(linked).at(-1)).toMatchObject({ content: 'Researching meeting context', status: 'streaming' });
+        await expect(rt.sendMessage(linked, 'Overlap')).rejects.toThrow('already working');
+        return '# Suggested agenda\nDiscuss the launch.';
+      }
+      expect(input.prompt).toContain('Discuss the launch.');
+      expect(input.prompt).toContain('Current meeting and saved agenda');
+      expect(input.prompt).toContain('Focus on risks');
+      return 'Here are the launch risks.';
+    });
+    const meeting = calendarMeeting({ id: 'chat-prep', summary: 'Launch review', start: { dateTime: new Date(Date.now() + 3600000).toISOString() }, end: { dateTime: new Date(Date.now() + 5400000).toISOString() }, attendees: [{ self: true, email: 'alex@example.com' }, { email: 'sam@example.com' }] }, 'work')!;
+    store.db.prepare('INSERT INTO one_on_one_meetings VALUES (?,?)').run(meeting.id, JSON.stringify(meeting));
+    runtime.oneOnOnes.configure('work', false);
+    await runtime.oneOnOnes.prepare(meeting.id);
+    expect(runtime.oneOnOnes.get(meeting.id).threadId).toBe(linked);
+    expect(runtime.meetingConversation(meeting.id)).toBe(linked);
+    expect(store.messagesForThread(linked).at(-1)).toMatchObject({ status: 'complete', content: '# Suggested agenda\nDiscuss the launch.' });
+    await runtime.sendMessage(linked, 'Focus on risks');
+    expect(store.messagesForThread(linked).at(-1)?.content).toBe('Here are the launch risks.');
+    await runtime.oneOnOnes.prepare(meeting.id);
+    expect(runtime.oneOnOnes.get(meeting.id).threadId).toBe(linked);
+    expect(runs).toHaveLength(3);
+  });
+  it('opens older prepared agendas without inventing a research transcript', () => {
+    const { store, runtime } = setup();
+    const meeting = calendarMeeting({ id: 'legacy-prep', summary: 'Launch review', start: { dateTime: new Date(Date.now() + 3600000).toISOString() }, end: { dateTime: new Date(Date.now() + 5400000).toISOString() }, attendees: [{ self: true, email: 'alex@example.com' }, { email: 'sam@example.com' }] }, 'work')!;
+    meeting.agenda = 'An existing saved agenda';
+    store.db.prepare('INSERT INTO one_on_one_meetings VALUES (?,?)').run(meeting.id, JSON.stringify(meeting));
+    const threadId = runtime.meetingConversation(meeting.id);
+    expect(store.messagesForThread(threadId).at(-1)?.content).toContain('original research conversation was not stored');
+    expect(store.messagesForThread(threadId).at(-1)?.content).toContain(meeting.agenda);
+    expect(runtime.meetingConversation(meeting.id)).toBe(threadId);
+    expect(store.messagesForThread(threadId)).toHaveLength(2);
+  });
+
   it('applies a routine change an agent proposed in chat', async () => {
     const { store, runtime } = setup(async (_input, id, rt) => {
       const routine = store.routines()[0];

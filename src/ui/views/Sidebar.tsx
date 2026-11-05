@@ -113,7 +113,7 @@ export function Sidebar({
       <div className="ws-nav-label"><span>FILTERED VIEWS</span><button aria-label="New filtered view" title="New filtered view" onClick={() => go({ view: 'tasks', list: 'all' })}><Plus size={13} /></button></div>
       {(data.taskViews ?? []).map(view => <Item key={view.id} active={isList(`view:${view.id}`)} onClick={() => go({ view: 'tasks', list: `view:${view.id}` })} icon={<List size={16} />} label={view.name} count={tasksForSavedView(view, data.tasks, new Date(), data.showTaskPriorities !== false).length} />)}
       <div className="ws-nav-label">MEETINGS</div>
-      <Item active={route.view === 'one-on-ones'} onClick={() => go({ view: 'one-on-ones' })} icon={<Users size={16} />} label="1:1 prep" />
+      <Item active={route.view === 'one-on-ones'} onClick={() => go({ view: 'one-on-ones' })} icon={<Users size={16} />} label="Meetings" />
       <div className="ws-nav-label"><span>CHATS</span><button aria-label="New thread" title="New thread" onClick={onNewThread}><Plus size={13} /></button></div>
       <Item active={route.view === 'chats'} onClick={() => go({ view: 'chats' })} icon={<MessageSquare size={16} />} label="All threads" count={chats.length} />
       <div className="ws-nav-label">ROUTINES</div>

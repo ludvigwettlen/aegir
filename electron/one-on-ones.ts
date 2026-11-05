@@ -8,7 +8,7 @@ export class OneOnOnes {
   private stopped = false;
   private lastAttempt = 0;
   private preparing = new Set<string>();
-  constructor(private store: Store, private prepareAgenda: Prepare, private refresh: () => void, private readPage = readCalendarPage) {
+  constructor(private store: Store, private prepareAgenda: Prepare, private refresh: () => void, private readPage = readCalendarPage, private conversationBusy: (threadId: string) => boolean = () => false) {
     store.db.exec('CREATE TABLE IF NOT EXISTS one_on_one_meetings(id TEXT PRIMARY KEY, data TEXT NOT NULL)');
     for (const meeting of this.all()) if (meeting.status === 'preparing') this.save({ ...meeting, status: 'failed', error: 'Preparation was interrupted. Try again.' });
   }
@@ -16,7 +16,7 @@ export class OneOnOnes {
     return (this.store.db.prepare('SELECT data FROM one_on_one_meetings').all() as { data: string }[]).map(row => JSON.parse(row.data));
   }
   private save(meeting: OneOnOneMeeting) { this.store.db.prepare('INSERT OR REPLACE INTO one_on_one_meetings VALUES (?,?)').run(meeting.id, JSON.stringify(meeting)); }
-  private get(id: string) {
+  get(id: string) {
     const row = this.store.db.prepare('SELECT data FROM one_on_one_meetings WHERE id=?').get(id) as { data: string } | undefined;
     if (!row) throw new Error('Meeting not found');
     return JSON.parse(row.data) as OneOnOneMeeting;
@@ -41,7 +41,7 @@ export class OneOnOnes {
     const { account } = this.snapshot();
     if (!account) throw new Error('Choose a calendar account first.');
     this.syncing = true; this.lastAttempt = now.getTime(); this.refresh();
-    const from = now.toISOString(), until = new Date(now.getTime() + 7 * 86400000).toISOString();
+    const from = now.toISOString(), until = new Date(now.getTime() + 21 * 86400000).toISOString();
     try {
       const meetings: OneOnOneMeeting[] = []; const tokens = new Set<string>(); let token: string | undefined;
       for (let page = 0; ; page++) {
@@ -65,7 +65,7 @@ export class OneOnOnes {
         for (const meeting of meetings) {
           const previous = old.get(meeting.id);
           if (!previous) this.save(meeting);
-          else this.save({ ...meeting, hidden: previous.hidden, agenda: previous.agenda, notes: previous.notes, preparedAt: previous.preparedAt, agendaEdited: previous.agendaEdited, previousAgenda: previous.previousAgenda,
+          else this.save({ ...meeting, hidden: previous.hidden, threadId: previous.threadId, autoPrepare: previous.autoPrepare, agenda: previous.agenda, notes: previous.notes, preparedAt: previous.preparedAt, agendaEdited: previous.agendaEdited, previousAgenda: previous.previousAgenda,
             status: previous.revision === meeting.revision ? previous.status : previous.agenda ? 'stale' : 'pending',
             error: previous.revision === meeting.revision ? previous.error : '' });
         }
@@ -76,17 +76,21 @@ export class OneOnOnes {
       throw error;
     } finally { this.syncing = false; if (!this.stopped && this.store.isOpen) this.refresh(); }
   }
-  update(id: string, change: { agenda?: string; hidden?: boolean }, expected?: string) {
+  update(id: string, change: { agenda?: string; hidden?: boolean; autoPrepare?: boolean }, expected?: string) {
     const meeting = this.get(id);
-    if (typeof change !== 'object' || !change || Object.keys(change).some(key => !['agenda', 'hidden'].includes(key))) throw new Error('Invalid meeting change');
+    if (typeof change !== 'object' || !change || Object.keys(change).some(key => !['agenda', 'hidden', 'autoPrepare'].includes(key))) throw new Error('Invalid meeting change');
     if (change.agenda !== undefined && (typeof change.agenda !== 'string' || change.agenda.length > 100000)) throw new Error('Meeting text is too long');
+    if (change.autoPrepare !== undefined && typeof change.autoPrepare !== 'boolean') throw new Error('Invalid automatic preparation setting');
     if (change.hidden !== undefined && typeof change.hidden !== 'boolean') throw new Error('Invalid hidden state');
     if (change.agenda !== undefined && (this.preparing.has(id) || meeting.agenda !== expected)) throw new Error('The agenda changed. Reload before saving your edits.');
     this.save({ ...meeting, ...change, ...(change.agenda !== undefined ? { agendaEdited: true } : {}) }); this.refresh();
   }
+  attachConversation(id: string, threadId: string) {
+    this.save({ ...this.get(id), threadId }); this.refresh();
+  }
+  forThread(threadId: string) { return this.all().find(meeting => meeting.threadId === threadId); }
   async prepare(id: string) {
     if (this.stopped || !this.store.isOpen || this.preparing.has(id)) return;
-    if (this.preparing.size) throw new Error('Another agenda is being prepared. Try again when it finishes.');
     const meeting = this.get(id);
     if (!meeting.active || meeting.hidden || Date.parse(meeting.endsAt) <= Date.now()) throw new Error('This meeting is no longer upcoming.');
     this.preparing.add(id); this.save({ ...meeting, status: 'preparing', error: '' }); this.refresh();
@@ -109,7 +113,7 @@ export class OneOnOnes {
       try { await this.sync(); } catch { return; }
     }
     if (this.stopped || !this.store.isOpen || this.snapshot().error) return;
-    const next = this.snapshot().meetings.find(meeting => !meeting.hidden && !meeting.agendaEdited && ['pending', 'stale'].includes(meeting.status) && Date.parse(meeting.startsAt) < Date.now() + 36 * 3600000 && Date.parse(meeting.endsAt) > Date.now());
+    const next = this.snapshot().meetings.find(meeting => !(meeting.threadId && this.conversationBusy(meeting.threadId)) && !meeting.hidden && (meeting.autoPrepare ?? meeting.kind !== 'meeting') && !meeting.agendaEdited && ['pending', 'stale'].includes(meeting.status) && Date.parse(meeting.startsAt) < Date.now() + 36 * 3600000 && Date.parse(meeting.endsAt) > Date.now());
     if (next) await this.prepare(next.id).catch(() => {});
   }
   stop() { this.stopped = true; }
