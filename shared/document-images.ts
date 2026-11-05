@@ -1,10 +1,11 @@
+import { remoteImageSource } from './remote-images.js';
 export const documentImageLimit = 10 * 1024 * 1024;
 export const documentImageAccept = 'image/png,image/jpeg,image/gif,image/webp,image/avif';
 
 export function imageSourceKind(src: string): 'remote' | 'local' | null {
   if (!src || /[\x00-\x1f]/.test(src)) return null;
   if (/^https?:\/\//i.test(src)) {
-    try { const url = new URL(src); return url.username || url.password ? null : 'remote'; } catch { return null; }
+    return remoteImageSource(src) ? 'remote' : null;
   }
   if (/^file:\/\/\//i.test(src)) return 'local';
   if (/^[a-z][a-z\d+.-]*:/i.test(src) || src.startsWith('//')) return null;

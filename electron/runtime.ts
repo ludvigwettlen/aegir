@@ -1,61 +1,34 @@
-import { isRetiredAgentChat } from '../shared/conversations.js';
-import { taskLabels, normalizeLabels } from '../shared/task-labels.js';
-import { captureInstructions, readCapture } from './task-capture.js';
-import { isoDate } from '../shared/tasks.js';
-import { BrainBridge } from './brain-bridge.js';
-import { ClaudeDrafts, claudeDraftTools, claudeDraftInstructions } from './claude-drafts.js';
-import { attachmentContext, type Attachment } from '../shared/attachments.js';
-import { SlackMessages, slackMessageInstructions } from './slack-messages.js';
-import { GmailService, gmailInstructions } from './gmail.js';
-import type { threadSummary } from './gmail-api.js';
-import { OneOnOnes } from './one-on-ones.js';
-import type { OneOnOneMeeting } from '../shared/one-on-ones.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { createDocument } from './documents.js';
-import type {
-  Agent,
-  AppEvent,
-  Group,
-  Message,
-  Routine,
-  RoutineRun,
-  Task,
-  Thread,
-} from '../shared/types.js';
-import type { Store } from './db.js';
+import { mainAgent } from '../shared/agent-mentions.js';
+import { attachmentContext, type Attachment } from '../shared/attachments.js';
+import { isRetiredAgentChat } from '../shared/conversations.js';
+import { modelTierForRole } from '../shared/model-policy.js';
+import type { OneOnOneMeeting } from '../shared/one-on-ones.js';
+import { readProviderSetup } from '../shared/provider-setup.js';
+import { describeSchedule, isDue } from '../shared/routines.js';
+import type { SkillProposal } from '../shared/skills.js';
+import { normalizeLabels, taskLabels } from '../shared/task-labels.js';
+import { isoDate } from '../shared/tasks.js';
+import type { Agent, AppEvent, Group, Message, Routine, RoutineRun, Task, Thread, } from '../shared/types.js';
+import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
+import { cleanRoutineChange, cleanTaskProposalChange, connectorToolsFor, logText, memoryRecallTool, memoryTool, mentionedRoutines, proposeRoutineTool, slug, suggestTaskTool, taskProposalInstructions, taskProposalTools, taskReadTools, taskSourceKey, taskStatuses, type RunKind, } from './agent-tools.js';
+import { BrowserManager, browserInstructions } from './browser.js';
+import { claudeDraftInstructions, claudeDraftTools } from './claude-drafts.js';
 import type { ModelProvider, Tool } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
+import type { Store } from './db.js';
+import { createDocument } from './documents.js';
+import type { threadSummary } from './gmail-api.js';
+import { gmailInstructions } from './gmail.js';
 import type { MemoryService } from './memory.js';
-import { discoveryPolicy, suggestionReviewInstructions, suggestionHistory, parseSuggestionReview } from './task-discovery.js';
-import { readProviderSetup } from '../shared/provider-setup.js';
-import { modelTierForRole } from '../shared/model-policy.js';
-import { describeSchedule, isDue } from '../shared/routines.js';
-import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
-import { BrowserManager, browserInstructions } from './browser.js';
-import { SkillRegistry, type SkillSession } from './skills.js';
+import type { RuntimeServices, RuntimeServicesFactory } from './runtime-services.js';
 import { handleSkillTool, skillTools } from './skill-tools.js';
-import type { SkillProposal } from '../shared/skills.js';
-import { mainAgent } from '../shared/agent-mentions.js';
+import { type SkillSession } from './skills.js';
+import { slackMessageInstructions } from './slack-messages.js';
+import { captureInstructions, readCapture } from './task-capture.js';
+import { discoveryPolicy, parseSuggestionReview, suggestionHistory, suggestionReviewInstructions } from './task-discovery.js';
 import { cleanThreadTitle, threadTitleInstructions, threadTitleTool } from './thread-title.js';
-import {
-  cleanRoutineChange,
-  cleanTaskProposalChange,
-  connectorToolsFor,
-  logText,
-  memoryRecallTool,
-  memoryTool,
-  mentionedRoutines,
-  proposeRoutineTool,
-  slug,
-  suggestTaskTool,
-  taskSourceKey,
-  taskReadTools,
-  taskProposalTools,
-  taskProposalInstructions,
-  taskStatuses,
-  type RunKind,
-} from './agent-tools.js';
 
 type Context = {
   kind: RunKind;
@@ -72,12 +45,12 @@ type Context = {
 
 // Runs agents in threads (chat and handed-off tasks) and routines, and keeps the mapping from Codex threads back to them.
 export class Runtime {
-  readonly skills: SkillRegistry;
-  readonly oneOnOnes: OneOnOnes;
-  readonly gmail: GmailService;
-  readonly brainBridge: BrainBridge;
-  readonly claudeDrafts: ClaudeDrafts;
-  readonly slackMessages: SlackMessages;
+  readonly skills: RuntimeServices['skills'];
+  readonly oneOnOnes: RuntimeServices['oneOnOnes'];
+  readonly gmail: RuntimeServices['gmail'];
+  readonly brainBridge: RuntimeServices['brainBridge'];
+  readonly claudeDrafts: RuntimeServices['claudeDrafts'];
+  readonly slackMessages: RuntimeServices['slackMessages'];
   private active = new Map<string, Context>(); // Codex thread id → what it is running for
   private runningThreads = new Map<string, { cancelled: boolean }>();
   private runningRoutines = new Set<string>();
@@ -104,14 +77,16 @@ export class Runtime {
     private refresh: () => void,
     private emit: (event: AppEvent) => void,
     private paths: { outputRoot: string; routineCwd: string },
+    services: RuntimeServicesFactory,
     private browser?: BrowserManager,
   ) {
-    this.brainBridge = new BrainBridge(store, refresh);
-    this.claudeDrafts = new ClaudeDrafts(store, codex, refresh);
-    this.slackMessages = new SlackMessages(store, refresh);
-    this.gmail = new GmailService(store, (email, threads) => this.reviewEmailReplies(email, threads), refresh);
-    this.oneOnOnes = new OneOnOnes(store, meeting => this.prepareOneOnOne(meeting), refresh, undefined, threadId => this.runningThreads.has(threadId));
-    this.skills = new SkillRegistry(store.db, join(paths.routineCwd, 'skills'), id => !!store.get('agents', id), id => store.routine(id)?.agentId);
+    const features = services({
+      reviewEmailReplies: (email, threads) => this.reviewEmailReplies(email, threads),
+      prepareOneOnOne: meeting => this.prepareOneOnOne(meeting),
+      isThreadRunning: id => this.runningThreads.has(id),
+    });
+    this.skills = features.skills; this.gmail = features.gmail; this.oneOnOnes = features.oneOnOnes;
+    this.brainBridge = features.brainBridge; this.claudeDrafts = features.claudeDrafts; this.slackMessages = features.slackMessages;
     for (const proposal of this.skills.proposals())
       store.ensureSkillProposalMessage(proposal, this.skills.get(proposal.skillId).name);
   }

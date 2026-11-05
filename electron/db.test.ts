@@ -300,7 +300,7 @@ describe('store', () => {
     const thread = store.createThread(group.id, task.title, 'task', task.id);
     const first = store.addMessage(thread.id, null, 'user', 'Keep this context');
     store.updateTask(task.id, { threadId: thread.id });
-    const link = store.addTaskLink(task.id, 'obsidian://open?vault=Work&file=Report');
+    const link = store.addTaskLink(task.id, 'https://example.com/reports/prepare');
     store.deleteTask(task.id, true);
     expect(store.get('tasks', task.id)).toBeUndefined();
     expect(store.messagesForThread(thread.id)).toEqual([]);

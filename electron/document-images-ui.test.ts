@@ -17,8 +17,8 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('loads, inserts, pastes and dr
     response.setHeader('Content-Type', 'text/html');
     response.end(`<!doctype html><html><head>${csp}</head><body><div id="root"></div><script type="module" src="/src/ui/testing/document-images.tsx"></script></body></html>`);
   });
-  let png: Buffer;
-  server.middlewares.use('/remote.png', (_req, response) => { response.setHeader('Content-Type', 'image/png'); response.end(png); });
+  let png: Buffer; let remoteRequests = 0;
+  server.middlewares.use('/remote.png', (_req, response) => { remoteRequests++; response.setHeader('Content-Type', 'image/png'); response.end(png); });
   server.middlewares.use('/image-api', async (request, response) => {
     try {
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
@@ -32,7 +32,7 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('loads, inserts, pastes and dr
   try {
     await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage({ viewport: { width: 1000, height: 820 } }); page.setDefaultTimeout(5000);
-    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
     const data = await page.evaluate(() => {
       const canvas = document.createElement('canvas'); canvas.width = 520; canvas.height = 200;
       const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#edf8d2'; ctx.fillRect(0, 0, 520, 200);
@@ -74,9 +74,15 @@ it.skipIf(process.env.AEGIR_EDITOR_SMOKE !== '1')('loads, inserts, pastes and dr
     await form.getByLabel('Image URL or relative path').fill(`${server.resolvedUrls!.local[0]}remote.png`);
     await form.getByLabel('Description (alt text)').fill('Remote [example]');
     await form.getByRole('button', { name: 'Insert image', exact: true }).click();
+    await page.getByRole('button', { name: 'Load remote image', exact: true }).waitFor();
+    expect(remoteRequests).toBe(0);
+    await page.getByRole('button', { name: 'Load remote image', exact: true }).click();
     await page.getByRole('img', { name: 'Remote [example]', exact: true }).waitFor();
     expect(await source()).not.toContain('/image');
     await saved(); await load();
+    await page.getByRole('button', { name: 'Load remote image', exact: true }).waitFor();
+    expect(await page.getByRole('img', { name: 'Remote [example]', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Load remote image', exact: true }).click();
     await page.getByRole('img', { name: 'Remote [example]', exact: true }).waitFor();
     const beforeCancel = await source();
     await page.getByRole('button', { name: 'Insert image', exact: true }).click();

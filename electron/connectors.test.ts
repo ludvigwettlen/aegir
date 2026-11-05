@@ -91,3 +91,22 @@ it('keeps startup and settings available when saved credentials cannot be decryp
     listen.mockRestore();
   }
 });
+
+it('exposes only reviewed reads and never overrides explicit mutation metadata', async () => {
+  const store = { getSetting: () => undefined } as unknown as Store;
+  const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue(undefined);
+  const list = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [
+    { name: 'notion-fetch', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+    { name: 'notion-search', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } },
+    { name: 'notion-get-users', inputSchema: { type: 'object' } },
+    { name: 'notion-get-and-delete', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } },
+  ] });
+  const manager = new ConnectorManager(store);
+  try {
+    await manager.connect('notion');
+    expect(manager.listTools().map(tool => [tool.name, tool.readOnly])).toEqual([
+      ['notion__notion-fetch', false], ['notion__notion-search', false],
+      ['notion__notion-get-users', true], ['notion__notion-get-and-delete', false],
+    ]);
+  } finally { manager.close(); connect.mockRestore(); list.mockRestore(); }
+});

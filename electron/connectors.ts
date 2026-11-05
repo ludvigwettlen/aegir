@@ -1,3 +1,4 @@
+import { connectorReadOnly } from './tool-authorization.js';
 import { createServer, type Server } from 'node:http';
 import { EventEmitter } from 'node:events';
 import { shell, safeStorage } from 'electron';
@@ -164,8 +165,7 @@ export class ConnectorManager extends EventEmitter {
         discovered.push(...listing.tools); cursor = listing.nextCursor;
       } while (cursor);
       const tools: ToolInfo[] = provider === 'composio' ? composioTools(discovered, this.store.getSetting('composioSlackAccount') || '') : discovered.map(tool => {
-        const base = tool.name.replace(/^(notion[-_]|slack[-_])/, '');
-        return { name: tool.name, description: tool.description || '', inputSchema: tool.inputSchema as Record<string, unknown>, readOnly: tool.annotations?.readOnlyHint === true || /^(get|list|search|retrieve|read|fetch|query|find|inspect|lookup|preview|download)/i.test(base) };
+        return { name: tool.name, description: tool.description || '', inputSchema: tool.inputSchema as Record<string, unknown>, readOnly: connectorReadOnly(provider, tool.name, tool.annotations) };
       });
       if (this.generations.get(provider) !== generation) { await client.close(); return; }
       if (provider === 'composio' && !tools.some(tool => tool.name === 'SLACK_READ_TOOLS')) throw new Error('Composio execution tool unavailable');

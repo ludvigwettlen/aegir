@@ -1,3 +1,4 @@
+import { remoteImageLabel, remoteImageSource } from '../../shared/remote-images';
 import Image, { type ImageOptions } from '@tiptap/extension-image';
 import type { Editor } from '@tiptap/react';
 import { closeHistory } from '@tiptap/pm/history';
@@ -69,8 +70,8 @@ export const DocumentImage = Image.extend<Options>({
       const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry image'; retry.hidden = true;
       retry.addEventListener('mousedown', event => event.preventDefault());
       dom.append(img, status, retry);
-      let current = node; let generation = 0; let destroyed = false;
-      const fail = () => { img.hidden = true; status.hidden = false; status.textContent = `Could not load image${current.attrs.alt ? `: ${current.attrs.alt}` : ''}`; retry.hidden = false; dom.dataset.state = 'error'; };
+      let current = node; let generation = 0; let destroyed = false; let allowedSource: string | null = null;
+      const fail = () => { img.hidden = true; status.hidden = false; status.textContent = `Could not load image${current.attrs.alt ? `: ${current.attrs.alt}` : ''}`; retry.textContent = 'Retry image'; retry.hidden = false; dom.dataset.state = 'error'; };
       const load = async () => {
         const request = ++generation;
         img.onload = null; img.onerror = null; img.removeAttribute('src'); img.hidden = true;
@@ -80,18 +81,25 @@ export const DocumentImage = Image.extend<Options>({
         try {
           const kind = imageSourceKind(src);
           if (!kind) throw new Error('Unsupported image source');
-          const resolved = kind === 'remote' ? src : await this.options.loadImage(src);
+          const remote = remoteImageSource(src);
+          if (kind === 'remote' && allowedSource !== remote) {
+            status.textContent = `${remoteImageLabel(src)}${current.attrs.alt ? `: ${current.attrs.alt}` : ''}`;
+            retry.textContent = 'Load remote image'; retry.hidden = false; dom.dataset.state = 'blocked';
+            return;
+          }
+          const resolved = kind === 'remote' ? remote! : await this.options.loadImage(src);
           if (destroyed || request !== generation) return;
           img.onload = () => { if (request !== generation) return; img.hidden = false; status.hidden = true; retry.hidden = true; dom.dataset.state = 'loaded'; };
           img.onerror = () => { if (request === generation) fail(); };
           img.src = resolved;
         } catch { if (!destroyed && request === generation) fail(); }
       };
-      retry.addEventListener('click', load); void load();
+      retry.addEventListener('click', () => { allowedSource = remoteImageSource(String(current.attrs.src || '')); void load(); }); void load();
       return { dom,
         update(next) {
           if (next.type !== current.type) return false;
           const changed = next.attrs.src !== current.attrs.src || next.attrs.alt !== current.attrs.alt || next.attrs.title !== current.attrs.title;
+          if (next.attrs.src !== current.attrs.src) allowedSource = null;
           current = next; if (changed) void load(); return true;
         },
         selectNode() { dom.classList.add('ProseMirror-selectednode'); },

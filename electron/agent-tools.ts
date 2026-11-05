@@ -1,15 +1,16 @@
+import { connectorDecision, type RunKind } from './tool-authorization.js';
 import { normalizeLabels } from '../shared/task-labels.js';
 import { createHash } from 'node:crypto';
 import type { Agent, Routine, RoutineChange, Task, TaskChange } from '../shared/types.js';
 import type { Tool } from './codex.js';
 import { validSchedule } from '../shared/routines.js';
 
-export type RunKind = 'chat' | 'task' | 'routine' | 'prep';
+export type { RunKind } from './tool-authorization.js';
 
 // Tasks and routines only see read-only connector tools. Browser grants are
 // separate and enforced by BrowserManager for attended chat/task responses.
 export function connectorToolsFor(kind: RunKind, tools: Tool[]): Tool[] {
-  return kind === 'chat' ? tools : tools.filter(tool => tool.readOnly);
+  return tools.filter(tool => connectorDecision(kind, tool.readOnly) !== 'deny');
 }
 
 export function memoryTool(agent: Agent): Tool {

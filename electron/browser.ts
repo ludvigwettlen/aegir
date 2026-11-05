@@ -1,3 +1,4 @@
+import { browserAllowed } from './tool-authorization.js';
 import type { BrowserState } from '../shared/browser.js';
 import type { Tool } from './codex.js';
 import type { BrowserBackend } from './browser-backend.js';
@@ -45,7 +46,7 @@ export class BrowserManager {
   }
 
   async tools(kind: string): Promise<Tool[]> {
-    if (!this.state.enabled || kind === 'routine') return [];
+    if (!this.state.enabled || !browserAllowed(kind)) return [];
     try {
       if (!this.definitions) {
         const { tools } = await (await this.backend()).listTools();
@@ -87,7 +88,7 @@ export class BrowserManager {
 
   async call(id: string, threadId: string, kind: string, name: string, args: Record<string, unknown>) {
     if (this.disposed || !this.state.enabled) throw new Error('Browser access is off');
-    if (kind !== 'chat' && kind !== 'task') throw new Error('Browser control is unavailable in unattended routines');
+    if (!browserAllowed(kind)) throw new Error('Browser control is unavailable in unattended routines');
     if (this.stopped.has(id)) throw new Error('Browser control was stopped or declined for this response');
     this.validate(name, args);
     if (this.session && this.session.id !== id) throw new Error('Another agent is using the browser. Try again after that response finishes.');

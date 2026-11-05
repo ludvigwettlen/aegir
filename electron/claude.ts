@@ -1,3 +1,4 @@
+import { nativeToolDecision, nativeMcpReadOnly } from './tool-authorization.js';
 import { CallGate, type GatedCall, type GatedOutcome } from './gated.js';
 import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
@@ -14,8 +15,6 @@ import { ToolResult } from './tool-result.js';
 import { setupCommand } from './setup-install.js';
 
 const PREFIX = 'mcp__aegir__';
-const sends = /(?:^|__|_)(?:send|post_message|schedule_message)(?:_|$)/i;
-const writeTools = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 export function claudeEnvironment() {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: [join(homedir(), '.local/bin'), join(homedir(), '.bun/bin'), '/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || '/usr/bin:/bin'].join(':') };
   delete env.CLAUDECODE; delete env.CLAUDE_CODE_ENTRYPOINT;
@@ -40,11 +39,7 @@ export function writablePath(root: string, path: string): boolean {
 }
 
 export function claudeToolPolicy(name: string, args: Record<string, unknown>, input: Pick<RunInput, 'cwd' | 'sandbox' | 'kind'>, readOnly = false): 'allow' | 'deny' | 'ask' {
-  if (sends.test(name)) return 'deny'; // Sending remains an explicit draft-card action.
-  if (['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'ToolSearch'].includes(name)) return 'allow';
-  if (writeTools.has(name)) return input.sandbox === 'workspace-write' && typeof args.file_path === 'string' && writablePath(input.cwd, args.file_path) ? 'allow' : 'deny';
-  if (name.startsWith('mcp__') && readOnly) return 'allow';
-  return input.kind === 'chat' || (name === 'Bash' && input.kind === 'task') ? 'ask' : 'deny';
+  return nativeToolDecision(name, { kind: input.kind, readOnly, writable: input.sandbox === 'workspace-write' && typeof args.file_path === 'string' && writablePath(input.cwd, args.file_path) });
 }
 
 export class ClaudeProvider extends EventEmitter implements EngineProvider {
@@ -110,7 +105,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
           // Enforce app policy before the user's pre-approved Claude permissions can allow a call.
           if (event.mcp_server?.source === 'sdk' && name.startsWith(PREFIX) && tools.has(name.slice(PREFIX.length))) return {};
           const servers: McpServerStatus[] = name.startsWith('mcp__') ? await session!.mcpServerStatus() : [];
-          const readOnly = servers.some(s => s.tools?.some(t => `mcp__${s.name}__${t.name}` === name && t.annotations?.readOnly === true && t.annotations?.destructive !== true));
+          const readOnly = servers.some(s => s.tools?.some(t => `mcp__${s.name}__${t.name}` === name && nativeMcpReadOnly(s.name, t.name, t.annotations)));
           let decision = claudeToolPolicy(name, args, input, readOnly);
           if (decision === 'ask') decision = await this.ask(id, name, args, abort.signal) ? 'allow' : 'deny';
           return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: decision === 'deny' ? 'This action is outside this Aegir run’s permissions. Send messages through a reviewed draft card.' : undefined } };

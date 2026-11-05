@@ -89,11 +89,21 @@ Choose **New document** in a task or its Files picker to create an empty Markdow
 The UI is documented in [the design system](docs/design-system.md).
 Current follow-up work is tracked in [TODO.md](TODO.md). Shared agent behavior and the Hermes comparison are documented in [the instruction review](docs/agent-instructions-review.md).
 
+## Security boundaries
+
+Connector reads use reviewed allowlists; write/destructive metadata overrides allowlist membership. Unknown tools require approval in chat and are excluded from tasks and unattended runs. Claude-native MCP tools follow the same rules. Browser control remains a separate, explicit grant for attended chat/task responses.
+
+Chat and task web links accept HTTP/HTTPS URLs without embedded credentials. App protocol links are rejected. User-attached local files have a separate path validation and opening flow. Remote images in chat and documents require **Load remote image** before any request; reopening the view or changing the source requires consent again.
+
+The renderer uses Electron's sandbox and context isolation, with Node integration disabled. Desktop IPC accepts only the expected window's main frame at the exact application URL, then validates each endpoint's arguments. Feature handlers live in `electron/ipc-*.ts`, tool policy and dispatch in `electron/tool-authorization.ts` and `electron/tool-dispatch.ts`, and Runtime service construction in `electron/runtime-services.ts`.
+
+Release notes: [Security and modularity — 5 November 2026](docs/releases/2026-11-05-security-and-modularity.md).
+
 ## Verification
 
 `pnpm test` uses Electron’s Node runtime so SQLite matches the app after a build. The packaged app requires macOS 13 or later.
 
-`pnpm check` runs TypeScript validation. `pnpm test` covers the store migration, hand-off and routine runs against a fake Codex, the read-only tool policy, routine schedules and change validation, quick-add parsing and task lists. `pnpm build` compiles and packages the macOS app.
+`pnpm check` runs TypeScript validation. `pnpm test` covers the store migration, hand-off and routine runs against a fake Codex, the read-only tool policy, routine schedules and change validation, quick-add parsing and task lists. `pnpm build` compiles and packages the macOS app. After building, `AEGIR_ELECTRON_SMOKE=1 pnpm test electron/ipc-smoke.test.ts` checks the real sandboxed preload and IPC boundary with disposable app data. `AEGIR_UI_SMOKE=1 pnpm test electron/remote-images-ui.test.ts` and `AEGIR_EDITOR_SMOKE=1 pnpm test electron/document-images-ui.test.ts` check image consent in chat and documents.
 
 Tests should protect observable outcomes, permission boundaries, data preservation, and distinct failure paths. Avoid locking prompt wording or seed counts. Assertions for asynchronous failures must run outside error-catching application callbacks so a swallowed assertion cannot produce a passing test.
 

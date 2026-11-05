@@ -1,3 +1,4 @@
+import { RemoteImage } from './RemoteImage';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ReactNode } from 'react';
@@ -13,6 +14,7 @@ export function ChatMarkdown({ content, onOpenLink, onOpenDocument }: { content:
       const url = href ? normalizeTaskLink(href) : null;
       return url ? <a href={url} onClick={event => { event.preventDefault(); onOpenLink(url); }}>{children}</a> : <span>{children}</span>;
     },
+    img: ({ src, alt, title }) => <RemoteImage src={src} alt={alt} title={title} />,
     table: ({ children }: { children?: ReactNode }) => <div className="ws-markdown-table"><table>{children}</table></div>,
   }}>{content}</Markdown></div>;
 }

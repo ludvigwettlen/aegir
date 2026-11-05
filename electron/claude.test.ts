@@ -20,8 +20,8 @@ function input(): RunInput {
 type Options = NonNullable<Parameters<typeof query>[0]['options']>;
 function fixture(script: (options: Options) => AsyncGenerator<any>) {
   let options!: Options;
-  const statuses = vi.fn(async () => [{ name: 'notes', tools: [
-    { name: 'search', annotations: { readOnly: true } },
+  const statuses = vi.fn(async () => [{ name: 'Slack', tools: [
+    { name: 'slack_search', annotations: { readOnly: true } },
     { name: 'update', annotations: { readOnly: false } },
     { name: 'send_message', annotations: { readOnly: true } },
   ] }]);
@@ -56,9 +56,9 @@ it('streams output and isolates lightweight classification from native tools and
 it('enforces read-only routines even when user permissions would allow a tool, and asks once in chat', async () => {
   const decisions: any[] = [];
   const f = fixture(async function* (options) {
-    decisions.push(await permission(options, 'mcp__notes__search'));
-    decisions.push(await permission(options, 'mcp__notes__send_message'));
-    decisions.push(await permission(options, 'mcp__notes__update'));
+    decisions.push(await permission(options, 'mcp__Slack__slack_search'));
+    decisions.push(await permission(options, 'mcp__Slack__send_message'));
+    decisions.push(await permission(options, 'mcp__Slack__update'));
     decisions.push(await permission(options, 'Bash', { command: 'pwd' }));
     yield completed;
   });
@@ -69,7 +69,7 @@ it('enforces read-only routines even when user permissions would allow a tool, a
   f.provider.on('approval', approval => { approvals.push(approval.method); f.provider.resolveApproval(approval.id, true); });
   await f.provider.run({ ...input(), kind: 'chat', sandbox: 'read-only' });
   expect(decisions.map(d => d.hookSpecificOutput.permissionDecision)).toEqual(['allow', 'deny', 'allow', 'allow']);
-  expect(approvals).toEqual(['claude:mcp__notes__update', 'claude:Bash']);
+  expect(approvals).toEqual(['claude:mcp__Slack__update', 'claude:Bash']);
   expect(f.options.settingSources).toEqual(['user']);
 });
 

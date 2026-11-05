@@ -11,7 +11,7 @@ export const skillTools: Tool[] = [
   tool('create', 'Save a verified reusable skill in your own library. Files must include SKILL.md with YAML name and description. Prefer improving an existing skill.', { files: fileSchema }, ['files'], false),
   ...['update', 'propose_change'].map(name => tool(name, name === 'update' ? 'Update your own agent-created skill. For other skills use propose_change. Send the complete text package; existing binary assets are preserved.' : 'Propose a revision to a shared or user-authored skill for user review. Send the complete text package; existing binary assets are preserved.', { id: { type: 'string' }, expectedRevision: { type: 'string' }, reason: { type: 'string' }, files: fileSchema }, ['id', 'expectedRevision', 'reason', 'files'], false)),
 ];
-export function handleSkillTool(registry: SkillRegistry, session: SkillSession, name: string, args: Record<string, unknown>) {
+export function handleSkillTool(registry: Pick<SkillRegistry, 'create' | 'get' | 'proposals' | 'propose' | 'read' | 'update'>, session: SkillSession, name: string, args: Record<string, unknown>) {
   const actor = { agentId: session.agentId, runId: session.runId };
   if (name === 'proposals') {
     if (args.id !== undefined && (typeof args.id !== 'string' || !session.entries.has(args.id))) throw new Error('Skill is not available to this agent');

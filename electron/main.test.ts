@@ -12,6 +12,8 @@ const fixture = vi.hoisted(() => ({
   started: vi.fn(),
   toolHandler: null as any,
   context: null as any,
+  window: null as any,
+  preferences: null as any,
   controller: null as AbortController | null,
   handlers: new Map<string, (...args: any[]) => any>(),
   call: vi.fn(async () => ({ saved: true })),
@@ -32,11 +34,12 @@ vi.mock('electron', async () => {
   });
   class BrowserWindow extends EventEmitter {
     webContents = Object.assign(new EventEmitter(), {
-      send: fixture.send, isDestroyed: () => false, setWindowOpenHandler: () => {},
+      send: fixture.send, isDestroyed: () => false, setWindowOpenHandler: () => {}, mainFrame: { url: '' },
     });
+    constructor(options: any) { super(); fixture.window = this; fixture.preferences = options.webPreferences; }
     isDestroyed() { return false; }
-    async loadFile() {}
-    async loadURL() {}
+    async loadFile(path: string) { this.webContents.mainFrame.url = (await import('node:url')).pathToFileURL(path).href; }
+    async loadURL(url: string) { this.webContents.mainFrame.url = url; }
   }
   class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} }
   return {
@@ -90,6 +93,7 @@ describe('application shutdown', () => {
     const close = vi.spyOn(Store.prototype, 'close');
     await import('./main.js');
     await vi.waitFor(() => expect(fixture.codex).toBeTruthy());
+    expect(fixture.preferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false });
     expect(fixture.started).not.toHaveBeenCalled(); // Fresh installs require a setup choice.
     fixture.codex.emit('status');
     fixture.connectors.emit('change');
@@ -108,7 +112,14 @@ describe('application shutdown', () => {
       if (end === 'stop') fixture.controller.abort();
       if (end === 'complete') { fixture.context = null; fixture.controller.abort(); }
       if (end === 'replace') fixture.context = { kind: 'chat' };
-      await fixture.handlers.get('resolve-approval')!({}, id, true);
+      if (end === 'approve') {
+        const resolve = fixture.handlers.get('resolve-approval')!;
+        const sender = fixture.window.webContents;
+        await expect(resolve({ sender, senderFrame: { url: sender.mainFrame.url } }, id, true)).rejects.toThrow('Untrusted');
+        await expect(resolve({ sender, senderFrame: sender.mainFrame }, id, 'false')).rejects.toThrow('Invalid arguments');
+        expect(fixture.call).not.toHaveBeenCalled();
+      }
+      await fixture.handlers.get('resolve-approval')!({ sender: fixture.window.webContents, senderFrame: fixture.window.webContents.mainFrame }, id, true);
       if (end === 'approve') {
         expect(await result).toEqual({ saved: true });
         expect(fixture.call).toHaveBeenCalledTimes(1);

@@ -801,7 +801,7 @@ export class Store {
     if (!this.get('tasks', taskId)) throw new Error('Task not found');
     const latest = value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).at(-1) || '';
     const url = normalizeTaskAttachment(latest, homedir());
-    if (!url) throw new Error('Paste an absolute file path, ~/ path, URL, or app deep link');
+    if (!url) throw new Error('Paste an absolute file path, ~/ path, or HTTP/HTTPS URL');
     const previous = this.taskLinks(taskId)[0];
     if (previous?.url === url) return previous;
     const link = { id: randomUUID(), taskId, url, createdAt: now() };
