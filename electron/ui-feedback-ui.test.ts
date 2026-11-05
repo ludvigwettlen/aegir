@@ -13,7 +13,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('selects without activating contro
     await page.goto(`${server.resolvedUrls!.local[0]}feedback-fixture`);
     // A browser can dispatch clicks even where Electron's native drag regions eat them.
     // Guard the native region and portal placement as well as the interaction flow.
-    expect(await page.locator('.ws-sidebar').evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
+    expect(await page.locator('.ws-sidebar').evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-app-region'))).toBe('drag');
     expect(await page.locator('.ui-feedback-launcher').evaluate(el => el.parentElement === document.body)).toBe(true);
     await page.getByRole('button', { name: 'UI comments', exact: true }).click();
     expect(await page.locator('.ws-shell').evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-app-region'))).toBe('no-drag');

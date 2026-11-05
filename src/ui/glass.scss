@@ -3,11 +3,13 @@
 .ws-shell {
   gap: 8px; padding: 8px; box-sizing: border-box;
   background: var(--ds-color-window); -webkit-app-region: drag;
-  > :not(.ws-sidebar) { -webkit-app-region: no-drag; }
+  // Fixed document headers are direct children too; preserve their native drag regions.
+  > :not(.ws-sidebar, .ws-document-workspace-head, .ws-editing-head) { -webkit-app-region: no-drag; }
 }
 .ws-main { border-radius: var(--ds-radius-panel); background: var(--ds-color-surface); box-shadow: var(--ds-shadow-pane); overflow: hidden; }
 .ws-sidebar {
-  -webkit-app-region: no-drag;
+  // Sidebar children opt out in workspace.scss; the empty titlebar stays draggable.
+  -webkit-app-region: drag;
   padding-top: 56px; border: 0; border-radius: var(--ds-radius-pane);
   background: var(--ds-color-sidebar); box-shadow: var(--ds-glass-edge), var(--ds-shadow-pane);
 }

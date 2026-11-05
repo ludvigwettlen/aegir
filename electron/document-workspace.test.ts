@@ -32,6 +32,9 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('opens task documents directly and
     expect(await page.locator('.ws-task-list').isVisible()).toBe(false);
     expect(await page.locator('.ws-sidebar').isVisible()).toBe(false);
     expect(await composer.isVisible()).toBe(false);
+    // Verify native Electron hit regions: browser clicks alone cannot catch a disabled titlebar.
+    expect(await page.getByRole('banner', { name: 'Window header' }).evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-app-region'))).toBe('drag');
+    expect(await page.getByRole('button', { name: 'Switch document', exact: true }).evaluate(el => getComputedStyle(el).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
     expect(await page.getByRole('button', { name: 'Outline and notes', exact: true }).getAttribute('aria-expanded')).toBe('false');
     await prose.press('F6');
     await expect.poll(() => composer.evaluate(element => element === document.activeElement)).toBe(true);
