@@ -43,5 +43,5 @@ it('rejects malformed approvals, draft fields, paths, unsupported fields and une
     ['configure-reminders', [1, 'Reminders']],
     ['connect', ['unknown']],
   ] as [string, unknown[]][]) expect(() => validateIpcArgs(channel, args)).toThrow('Invalid arguments');
-  for (const channel of ['unregistered', 'toString', '__proto__']) expect(() => validateIpcArgs(channel, [])).toThrow('no argument schema');
+  for (const channel of ['unregistered', 'toString', '__proto__', 'delegation-configure', 'delegation-people', 'delegation-publish', 'delegation-sync', 'delegation-status']) expect(() => validateIpcArgs(channel, [])).toThrow('no argument schema');
 });

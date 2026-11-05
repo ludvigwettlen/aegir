@@ -10,7 +10,6 @@ import { BrowserManager } from './browser.js';
 import { chatTranscript } from './chat-transcript.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
-import { DelegationService } from './delegation.js';
 import { readDocument } from './documents.js';
 import { EngineRouter } from './engine.js';
 import { registerConversationsIpc } from './ipc-conversations.js';
@@ -31,14 +30,14 @@ export type IpcDependencies = {
   updates?: import('./updates.js').UpdateService;
   isUpdating?: () => boolean;
   store: Store; runtime: Runtime; connectors: ConnectorManager; codex: EngineRouter; memory: MemoryRouter;
-  browser: BrowserManager; onboarding: OnboardingService; delegation: DelegationService; phoneCapture: PhoneCapture;
+  browser: BrowserManager; onboarding: OnboardingService; phoneCapture: PhoneCapture;
   approvals: Map<string, Approval>; approvalThreads: Map<string, string>; externalApprovalResolvers: Map<string, (value: boolean) => void>;
   refresh: () => void; emit: (event: AppEvent) => void; snapshot: () => Snapshot; window: () => BrowserWindow | null; rendererUrl: string;
 };
 export type IpcHandle = (channel: string, fn: (...args: any[]) => unknown) => void;
 
 export function registerIpc(dependencies: IpcDependencies) {
-  const { store, runtime, connectors, codex, memory, browser, onboarding, delegation, phoneCapture,
+  const { store, runtime, connectors, codex, memory, browser, onboarding, phoneCapture,
     approvals, approvalThreads, externalApprovalResolvers, refresh, emit, snapshot } = dependencies;
   // Document workspaces accept a task ID before handoff, or the existing conversation ID.
   const documentRoot = (workspaceId: string) => {
@@ -70,7 +69,7 @@ export function registerIpc(dependencies: IpcDependencies) {
   };
   registerTasksIpc(handle, { store, runtime, refresh });
   registerConversationsIpc(handle, { store, runtime, refresh, attachmentRoot });
-  registerIntegrationsIpc(handle, { store, runtime, refresh, onboarding, delegation, phoneCapture, connectors, memory, documentRoot, attachmentRoot });
+  registerIntegrationsIpc(handle, { store, runtime, refresh, onboarding, phoneCapture, connectors, memory, documentRoot, attachmentRoot });
   handle('update-check', () => dependencies.updates?.check());
   handle('update-download', () => dependencies.updates?.download());
   handle('update-cancel', () => dependencies.updates?.cancel());

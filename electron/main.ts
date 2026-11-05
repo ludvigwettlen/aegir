@@ -12,7 +12,6 @@ import { ClaudeProvider } from './claude.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
-import { DelegationService } from './delegation.js';
 import { EngineRouter, findClaudeBinary } from './engine.js';
 import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
 import { registerIpc, activeIpcCount } from './ipc.js';
@@ -43,7 +42,6 @@ let connectors: ConnectorManager;
 let memory: MemoryRouter;
 let runtime: Runtime;
 let phoneCapture: PhoneCapture;
-let delegation: DelegationService;
 let phoneTimer: NodeJS.Timeout | undefined;
 let browser: BrowserManager;
 let onboarding: OnboardingService;
@@ -71,7 +69,6 @@ function snapshot(): Snapshot {
   return {
     updates: updates ? { ...updates.state(), ...(updateBarrier ? { status: 'installing' as const, message: 'Finishing the update. Please wait…' } : {}) } : undefined,
     reminders: phoneCapture?.state(),
-    delegation: delegation?.state(),
     onboarding: onboarding?.state(),
     brainBridge: runtime?.brainBridge?.state(),
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
@@ -334,9 +331,8 @@ if (app.requestSingleInstanceLock()) {
       refresh();
     });
     codex.setToolHandler(createToolDispatcher({ store, runtime, connectors, isShuttingDown: () => shuttingDown, approvalForExternal }));
-    delegation = new DelegationService(store, connectors, refresh);
     connectors.on('change', refresh);
-    const updateActive = () => !!(phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size || onboarding.hasActiveWork || runtime.brainBridge.hasActiveWork || delegation.state().syncing || store.list('tasks').some(item => item.delegation?.publishing) || ['working', 'opening', 'approval'].includes(browser.state.status) || activeIpcCount() > 1);
+    const updateActive = () => !!(phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size || onboarding.hasActiveWork || runtime.brainBridge.hasActiveWork || ['working', 'opening', 'approval'].includes(browser.state.status) || activeIpcCount() > 1);
     updates = new UpdateService({ ...updateConfiguration, version: app.getVersion(), initialMessage: pendingUpdate?.result?.message, architecture: process.arch,
       systemVersion: process.getSystemVersion(), root: join(app.getPath('userData'), 'updates'), supported: app.isPackaged && process.platform === 'darwin', changed: refresh,
       token: () => {
@@ -364,7 +360,7 @@ if (app.requestSingleInstanceLock()) {
         } catch (error) { await prepared?.cancel(); updateBarrier = false; throw error; }
       },
     });
-    registerIpc({ updates, isUpdating: () => updateBarrier, store, runtime, connectors, codex, memory, browser, onboarding, delegation, phoneCapture, approvals, approvalThreads, externalApprovalResolvers, refresh, emit, snapshot, window: () => window, rendererUrl });
+    registerIpc({ updates, isUpdating: () => updateBarrier, store, runtime, connectors, codex, memory, browser, onboarding, phoneCapture, approvals, approvalThreads, externalApprovalResolvers, refresh, emit, snapshot, window: () => window, rendererUrl });
     createWindow();
     createApplicationMenu();
     createTray();
@@ -380,7 +376,6 @@ if (app.requestSingleInstanceLock()) {
     }
     connectors.start();
     runtime.start();
-    delegation.start();
     if (store.getSetting('providerSetup')) void memory
       .migrateLegacy()
       .then(() => {
@@ -413,7 +408,6 @@ if (app.requestSingleInstanceLock()) {
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
     if (phoneTimer) clearInterval(phoneTimer);
     phoneCapture?.stop();
-    delegation?.close();
     runtime?.stop();
     const updatesClosed = updates?.close();
     const setupClosed = onboarding?.close();

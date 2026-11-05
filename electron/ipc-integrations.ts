@@ -6,8 +6,8 @@ import { readClaudeRoutines } from './claude-schedule.js';
 import { readDocument } from './documents.js';
 import type { IpcDependencies, IpcHandle } from './ipc.js';
 
-export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<IpcDependencies, 'store' | 'runtime' | 'refresh' | 'onboarding' | 'delegation' | 'phoneCapture' | 'connectors' | 'memory'> & { documentRoot: (id: string) => string; attachmentRoot: (id: string) => string }) {
-  const { store, runtime, refresh, onboarding, delegation, phoneCapture, connectors, memory, documentRoot, attachmentRoot } = dependencies;
+export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<IpcDependencies, 'store' | 'runtime' | 'refresh' | 'onboarding' | 'phoneCapture' | 'connectors' | 'memory'> & { documentRoot: (id: string) => string; attachmentRoot: (id: string) => string }) {
+  const { store, runtime, refresh, onboarding, phoneCapture, connectors, memory, documentRoot, attachmentRoot } = dependencies;
 
   handle('brain-bridge-configure', value => runtime.brainBridge.configure(value));
 
@@ -84,16 +84,6 @@ export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<Ip
   handle('one-on-ones-prepare', (id: string) => runtime.oneOnOnes.prepare(id));
 
   handle('one-on-ones-update', (id: string, change: { agenda?: string; hidden?: boolean; autoPrepare?: boolean }, expected?: string) => runtime.oneOnOnes.update(id, change, expected));
-
-  handle('delegation-configure', (database: string) => delegation.configure(database));
-
-  handle('delegation-people', (query: string) => delegation.people(query));
-
-  handle('delegation-publish', (id: string, input: import('../shared/delegation.js').DelegationInput) => delegation.delegate(id, input));
-
-  handle('delegation-sync', () => delegation.sync());
-
-  handle('delegation-status', (id: string, status: import('../shared/delegation.js').DelegationStatus) => delegation.setStatus(id, status));
 
   let claudeRead: ReturnType<typeof readClaudeRoutines> | null = null;
 

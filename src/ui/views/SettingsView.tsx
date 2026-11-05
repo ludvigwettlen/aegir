@@ -1,6 +1,5 @@
 import { UpdateSettings } from './UpdateSettings';
 import { mainAgent } from '../../../shared/agent-mentions';
-import { DelegationSettings } from './TaskDelegation';
 import { PersonalIntegrations } from './PersonalIntegrations';
 import { BrainBridgeSettings } from './BrainBridgeSettings';
 import { GmailSettings } from './GmailSettings';
@@ -18,7 +17,7 @@ const categories = [
   { id: 'appearance', title: 'Appearance', description: 'Make Aegir comfortable to read and work in.', keywords: 'fonts typography text size scratchpad markdown', icon: Palette },
   { id: 'assistant', title: 'Assistant & skills', description: 'Choose how your assistant works with you.', keywords: 'name instructions skill library import proposed changes', icon: Bot },
   { id: 'connections', title: 'Connections', description: 'The apps and sources your assistant can work with.', keywords: 'Slack Composio Claude Code Notion Gmail email', icon: Link },
-  { id: 'tasks', title: 'Tasks & delegation', description: 'Capture, organize, and share your work.', keywords: 'Reminders Apple list Notion database people assignments external Claude routines', icon: ListTodo },
+  { id: 'tasks', title: 'Tasks', description: 'Capture and organize your work.', keywords: 'Reminders Apple list external Claude routines', icon: ListTodo },
   { id: 'memory', title: 'Memory & workflows', description: 'Choose where context lives and how work flows.', keywords: 'brain filing folders intake import export Obsidian Legolas', icon: StickyNote },
   { id: 'browser', title: 'Browser & review', description: 'A workspace for browsing and reviewing documents.', keywords: 'Chrome logins human-review permissions editor comments', icon: Globe },
   { id: 'updates', title: 'Updates & setup', description: 'Keep Aegir up to date and review your setup.', keywords: 'version GitHub token providers onboarding', icon: CircleHelp },
@@ -264,7 +263,7 @@ export function SettingsView({ data, run, onBack, onSetup, initialAgent, initial
           </Card>
 <GmailSettings state={data.gmail} /></div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'tasks'}><PersonalIntegrations reminders={data.reminders} />
-<DelegationSettings state={data.delegation} connected={notion?.status === 'connected'} /></div>
+</div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'memory'}><BrainBridgeSettings state={data.brainBridge} /></div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'browser'}><Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">
             <div className="panel-heading">

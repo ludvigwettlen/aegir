@@ -20,7 +20,7 @@ const schemas: Record<string, z.ZodType> = Object.create(null);
 function endpoints(names: string, args: z.ZodType[]) {
   for (const name of names.split(' ')) schemas[name] = z.tuple(args as [z.ZodType, ...z.ZodType[]]);
 }
-endpoints('snapshot setup-check setup-codex-login setup-codex-cancel ui-feedback-list ui-feedback-copy gmail-sync browser-open browser-stop skill-library one-on-ones-sync delegation-sync sync-reminders read-clipboard-text undo-task-action', []);
+endpoints('snapshot setup-check setup-codex-login setup-codex-cancel ui-feedback-list ui-feedback-copy gmail-sync browser-open browser-stop skill-library one-on-ones-sync sync-reminders read-clipboard-text undo-task-action', []);
 endpoints('update-check update-download update-cancel update-install', []);
 endpoints('update-token', [z.string().max(500)]);
 endpoints('brain-bridge-run', []);
@@ -40,7 +40,7 @@ endpoints('slack-draft-update slack-draft-send', [id, revision, slack]);
 endpoints('slack-draft-targets', [z.enum(['people', 'channels']), text, text.optional(), id.optional()]);
 endpoints('browser-enabled browser-review-enabled set-show-task-priorities launch-at-login', [bool]);
 endpoints('set-typography', [z.strictObject({ system: id, editor: id, systemScale: z.number().finite(), editorSize: z.number().finite(), scratchpadSize: z.number().finite() })]);
-endpoints('search-task-content start-thread capture-task delegation-configure delegation-people memory-instructions search-memories open-external', [text]);
+endpoints('search-task-content start-thread capture-task memory-instructions search-memories open-external', [text]);
 endpoints('document-list skill-detail skill-export meeting-conversation one-on-ones-prepare copy-chat-transcript stop-thread close-thread mark-task-reviewed delete-task-list delete-task open-task-link remove-task-link stop-task open-task-output run-routine run-events delete-task-view', [id]);
 endpoints('document-create document-read document-show-in-finder browser-review-start attachment-open rename-task-list hand-off', [id, text]);
 endpoints('document-image-read', [id, id, text]);
@@ -63,9 +63,6 @@ endpoints('update-agent', [agent.extend({ id, createdAt: text })]);
 endpoints('create-task', [z.strictObject({ ...taskFields, title: id })]);
 endpoints('save-task-view', [z.strictObject({ id, name: id, scope: id, filter: z.strictObject({ label: text, labels: labels.optional(), labelMode: z.enum(['all', 'any']).optional(), status: text, priority: text, sort: z.enum(['default', 'due', 'priority', 'title', 'newest']) }) })]);
 endpoints('send-message', [id, text, z.array(id).max(10).optional()]);
-const person = z.strictObject({ id, name: text, email: text.optional() });
-endpoints('delegation-publish', [id, z.strictObject({ assignee: person, taggedPeople: z.array(person).max(100), brief: text })]);
-endpoints('delegation-status', [id, z.enum(['Assigned', 'Accepted', 'In progress', 'Blocked', 'Ready for review', 'Done', 'Cancelled'])]);
 endpoints('configure-reminders', [bool, text]);
 endpoints('create-task-list', [text]);
 endpoints('update-task', [id, z.strictObject({ ...taskFields, status: taskStatus.optional(), priority: z.union([z.literal(1), z.literal(2), z.literal(3), z.null()]).optional(), snoozedUntil: text.nullable().optional() })]);

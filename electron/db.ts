@@ -390,11 +390,7 @@ export class Store {
   }
   private decodeTask(row: Task): Task {
     const raw = row.labels as unknown;
-    const delegation = this.db.prepare('SELECT data FROM task_delegations WHERE taskId=?').get(row.id) as { data: string } | undefined;
-    return { ...row, ...(delegation ? { delegation: JSON.parse(delegation.data) } : {}), labels: typeof raw === 'string' ? JSON.parse(raw) : taskLabels(row) };
-  }
-  saveDelegation(taskId: string, value: import('../shared/delegation.js').Delegation) {
-    this.db.prepare('INSERT INTO task_delegations(taskId,data) VALUES (?,?) ON CONFLICT(taskId) DO UPDATE SET data=excluded.data').run(taskId, JSON.stringify(value));
+    return { ...row, labels: typeof raw === 'string' ? JSON.parse(raw) : taskLabels(row) };
   }
   createAgent(input: Pick<Agent, 'name' | 'role' | 'color' | 'instructions'>): Agent {
     const row: Agent = { id: randomUUID(), ...input, createdAt: now() };

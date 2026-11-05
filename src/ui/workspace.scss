@@ -630,33 +630,6 @@
 .ws-filter-fields > * { flex-shrink: 0; }
 .ws-task-list-clip > .ws-task-list { min-width: 0; }
 
-// Shared human handoffs use the same compact controls as task metadata.
-.ws-task-delegation { border-top: 1px solid var(--ds-color-line); padding: var(--ds-space-2) 0; margin-top: var(--ds-space-2); font-size: calc(12px * var(--ds-text-scale, 1));
-  p { margin: var(--ds-space-2) 0; overflow-wrap: anywhere; }
-  small { color: var(--ds-color-muted); }
-}
-.ws-delegation-heading, .ws-delegation-status, .ws-person-chips { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ds-space-1); }
-.ws-person-label { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ds-color-lime-ink); font-size: calc(11px * var(--ds-text-scale, 1)); }
-.ws-delegation-dialog { width: min(500px, calc(100vw - 40px)); }
-.ws-delegation-dialog form, .ws-delegation-settings { display: grid; gap: var(--ds-space-3); }
-.ws-delegation-settings { padding: 0 var(--ds-space-5) var(--ds-space-5); }
-.ws-delegation-dialog label, .ws-delegation-settings label, .ws-delegation-status label { display: grid; gap: var(--ds-space-1); color: var(--ds-color-muted); font-size: calc(12px * var(--ds-text-scale, 1)); }
-.ws-delegation-dialog input, .ws-delegation-dialog textarea, .ws-delegation-settings input, .ws-delegation-status select { box-sizing: border-box; width: 100%; min-width: 0; padding: var(--ds-space-2); color: var(--ds-color-ink); background: var(--ds-color-surface); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); font: inherit;
-  &:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
-}
-.ws-people-results { display: grid; max-height: 180px; overflow-y: auto;
-  button { justify-content: space-between; gap: var(--ds-space-2); white-space: normal; text-align: left; overflow-wrap: anywhere; }
-  small { color: var(--ds-color-muted); }
-}
-.ws-person-chips { margin-top: var(--ds-space-1); button { max-width: 100%; white-space: normal; } }
-.ws-delegation-preview { padding: var(--ds-space-3); border-radius: var(--ds-radius-control); background: var(--ds-color-lime-soft); font-size: calc(12px * var(--ds-text-scale, 1)); p { margin: var(--ds-space-2) 0 0; overflow-wrap: anywhere; } }
-.ws-delegation-progress { white-space: pre-wrap; }
-.ws-delegation-dialog { display: flex; flex-direction: column; overflow: hidden;
-  > .ws-move-title, > p { flex-shrink: 0; }
-  form { min-height: 0; overflow-y: auto; padding: 2px; }
-}
-.ws-delegation-heading button { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
-
 /* Meetings: week overview above the selected agenda. */
 .one-on-ones { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(230px, 46%) minmax(0, 1fr); }
 .one-on-one-list { border-right: 0; border-bottom: 1px solid var(--ds-color-line); overflow-y: auto; }
