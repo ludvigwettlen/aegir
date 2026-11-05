@@ -290,9 +290,13 @@ if (app.requestSingleInstanceLock()) {
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
     const outputRoot = join(app.getPath('documents'), 'Aegir');
+    // Runs outside a task start in an empty folder, so native file reads cannot reach the database or other app data.
+    const agentCwd = join(app.getPath('userData'), 'agent-cwd');
+    mkdirSync(agentCwd, { recursive: true });
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
-      routineCwd: app.getPath('userData'),
+      routineCwd: agentCwd,
+      conversationFiles: join(app.getPath('userData'), 'conversation-files'),
     }, createRuntimeServices(store, codex, refresh, app.getPath('userData')), browser);
     onboarding = new OnboardingService(store, codexProvider, mnemosyne, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url), undefined, undefined, {
       apply: setup => {

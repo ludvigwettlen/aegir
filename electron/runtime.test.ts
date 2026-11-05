@@ -30,7 +30,7 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   const codex = { run: async (input: RunInput) => { runs.push(input); const id = `codex-${++n}`; input.onThreadStarted?.(id); const text = await script(input, id, runtime); return { threadId: id, text, status: 'completed' }; }, stop: async () => {} } as unknown as CodexProvider;
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
   const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
-  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, createRuntimeServices(store, codex, () => {}, dir), browser);
+  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir, conversationFiles: join(dir, 'conversation-files') }, createRuntimeServices(store, codex, () => {}, dir), browser);
   cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
   return { store, runtime, runs, memory, reopen: () => new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, createRuntimeServices(store, codex, () => {}, dir)) };
 }
@@ -243,6 +243,16 @@ describe('runtime', () => {
     store.updateTask(task.id, { notes: 'Updated background' });
     await runtime.sendMessage(store.get('tasks', task.id)!.threadId!, 'Continue');
     expect(runs.at(-1)?.prompt).toContain('Updated background');
+  });
+
+  it('lets a chat read only its own attachment folder beyond the shared working directory', async () => {
+    const { store, runtime, runs } = setup();
+    const chat = store.createThread(store.groups()[0].id, 'Attachments');
+    await runtime.sendMessage(chat.id, 'Summarize the attached file');
+    expect(runs.at(-1)).toMatchObject({ kind: 'chat', sandbox: 'read-only', readDirs: [join(runs.at(-1)!.cwd, 'conversation-files', chat.id)] });
+    const task = store.createTask({ title: 'Research' });
+    await runtime.handOff(task.id, 'Work on it');
+    expect(runs.at(-1)?.readDirs).toBeUndefined();
   });
 
   it.each(['chat', 'task'] as const)('edits and dismisses proposals with undo and preserved provenance in a %s run', async kind => {

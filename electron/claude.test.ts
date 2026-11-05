@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { query, Query } from '@anthropic-ai/claude-agent-sdk';
@@ -60,17 +60,42 @@ it('enforces read-only routines even when user permissions would allow a tool, a
     decisions.push(await permission(options, 'mcp__Slack__send_message'));
     decisions.push(await permission(options, 'mcp__Slack__update'));
     decisions.push(await permission(options, 'Bash', { command: 'pwd' }));
+    decisions.push(await permission(options, 'WebFetch', { url: 'https://example.com/' }));
+    decisions.push(await permission(options, 'Read', { file_path: join(homedir(), '.ssh/id_ed25519') }));
     yield completed;
   });
   await f.provider.run({ ...input(), kind: 'routine', sandbox: 'read-only' });
-  expect(decisions.map(d => d.hookSpecificOutput.permissionDecision)).toEqual(['allow', 'deny', 'deny', 'deny']);
+  expect(decisions.map(d => d.hookSpecificOutput.permissionDecision)).toEqual(['allow', 'deny', 'deny', 'deny', 'deny', 'deny']);
+  expect(f.options.tools).toEqual(['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash', 'ToolSearch']);
   decisions.length = 0;
   const approvals: string[] = [];
   f.provider.on('approval', approval => { approvals.push(approval.method); f.provider.resolveApproval(approval.id, true); });
   await f.provider.run({ ...input(), kind: 'chat', sandbox: 'read-only' });
-  expect(decisions.map(d => d.hookSpecificOutput.permissionDecision)).toEqual(['allow', 'deny', 'allow', 'allow']);
-  expect(approvals).toEqual(['claude:mcp__Slack__update', 'claude:Bash']);
+  expect(decisions.map(d => d.hookSpecificOutput.permissionDecision)).toEqual(['allow', 'deny', 'allow', 'allow', 'allow', 'deny']);
+  expect(approvals).toEqual(['claude:mcp__Slack__update', 'claude:Bash', 'claude:WebFetch']);
+  expect(f.options.tools).toEqual(['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash', 'WebSearch', 'WebFetch', 'ToolSearch']);
   expect(f.options.settingSources).toEqual(['user']);
+});
+
+it('limits native file reads to the run folders and shared attachment folders, including symlink escapes', () => {
+  const run = input();
+  const shared = mkdtempSync(join(tmpdir(), 'aegir-shared-')); roots.push(shared);
+  mkdirSync(join(run.cwd, 'drafts'));
+  symlinkSync(tmpdir(), join(run.cwd, 'escape'));
+  expect(claudeToolPolicy('Read', { file_path: join(run.cwd, 'drafts/notes.md') }, run)).toBe('allow');
+  expect(claudeToolPolicy('Read', { file_path: 'drafts/notes.md' }, run)).toBe('allow');
+  expect(claudeToolPolicy('Read', { file_path: join(tmpdir(), 'other.md') }, run)).toBe('deny');
+  expect(claudeToolPolicy('Read', { file_path: 'escape/secret.md' }, run)).toBe('deny');
+  expect(claudeToolPolicy('Read', { file_path: join(shared, 'pack.pdf') }, run)).toBe('deny');
+  expect(claudeToolPolicy('Read', { file_path: join(shared, 'pack.pdf') }, { ...run, readDirs: [shared] })).toBe('allow');
+  expect(claudeToolPolicy('Read', {}, run)).toBe('deny');
+  expect(claudeToolPolicy('Grep', { pattern: 'budget' }, run)).toBe('allow');
+  expect(claudeToolPolicy('Grep', { pattern: 'budget', path: run.cwd }, run)).toBe('allow');
+  expect(claudeToolPolicy('Grep', { pattern: 'budget', path: '/' }, run)).toBe('deny');
+  expect(claudeToolPolicy('Glob', { pattern: '**/*.md' }, run)).toBe('allow');
+  expect(claudeToolPolicy('Glob', { pattern: '/**/*.pem' }, run)).toBe('deny');
+  expect(claudeToolPolicy('Glob', { pattern: '../**' }, run)).toBe('deny');
+  expect(claudeToolPolicy('Glob', { pattern: '*', path: shared }, run)).toBe('deny');
 });
 
 it('limits native file writes to the task folder, including new paths and symlink escapes', () => {

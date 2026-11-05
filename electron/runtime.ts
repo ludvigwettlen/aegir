@@ -76,7 +76,7 @@ export class Runtime {
     private memory: Pick<MemoryService, 'recall' | 'remember'>,
     private refresh: () => void,
     private emit: (event: AppEvent) => void,
-    private paths: { outputRoot: string; routineCwd: string },
+    private paths: { outputRoot: string; routineCwd: string; conversationFiles?: string },
     services: RuntimeServicesFactory,
     private browser?: BrowserManager,
   ) {
@@ -314,9 +314,12 @@ export class Runtime {
         this.refresh();
         return false;
       }
+      // Chats may read their attachments from the task's folder or this conversation's own folder, and nothing else outside cwd.
+      const attachmentDir = task?.outputDir || (this.paths.conversationFiles ? join(this.paths.conversationFiles, thread.id) : undefined);
       const result = await this.codex.run({
         kind,
         cwd: kind === 'task' && task?.outputDir ? task.outputDir : this.paths.routineCwd,
+        readDirs: kind === 'chat' && attachmentDir ? [attachmentDir] : undefined,
         sandbox: kind === 'task' ? 'workspace-write' : 'read-only',
         instructions: `${this.instructionsFor(kind, agent)}\n${skillContext.instructions}\n${tools.some(tool => tool.name.startsWith('browser__')) ? browserInstructions : ''}\n${suggestTitle ? threadTitleInstructions : ''}`,
         prompt,

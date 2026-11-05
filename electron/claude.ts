@@ -1,9 +1,9 @@
-import { nativeToolDecision, nativeMcpReadOnly } from './tool-authorization.js';
+import { attendedRun, nativeToolDecision, nativeMcpReadOnly } from './tool-authorization.js';
 import { CallGate, type GatedCall, type GatedOutcome } from './gated.js';
 import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, join } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, join, sep } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { query, type McpServerStatus, type Query } from '@anthropic-ai/claude-agent-sdk';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -24,22 +24,41 @@ export function exposedToolName(name: string) {
   const clean = name.replace(/[^a-zA-Z0-9_-]/g, '_');
   return PREFIX.length + clean.length <= 64 ? clean : `${clean.slice(0, 64 - PREFIX.length - 9)}_${createHash('sha256').update(name).digest('hex').slice(0, 8)}`;
 }
-export function writablePath(root: string, path: string): boolean {
+/** `path` (resolved against `root`) relative to the real `root`, following symlinks through the nearest existing ancestor; null when unresolvable. */
+function relativeToRoot(root: string, path: string): string | null {
   try {
+    const realRoot = realpathSync(root);
     const target = resolve(root, path);
     let existing = target;
     while (true) {
-      try {
-        const actual = resolve(realpathSync(existing), relative(existing, target));
-        const rel = relative(realpathSync(root), actual);
-        return !!rel && rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(rel);
-      } catch { const parent = dirname(existing); if (parent === existing) return false; existing = parent; }
+      try { return relative(realRoot, resolve(realpathSync(existing), relative(existing, target))); }
+      catch { const parent = dirname(existing); if (parent === existing) return null; existing = parent; }
     }
-  } catch { return false; }
+  } catch { return null; }
+}
+const insideRoot = (rel: string | null) => rel !== null && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+export function writablePath(root: string, path: string): boolean {
+  const rel = relativeToRoot(root, path);
+  return !!rel && insideRoot(rel);
+}
+/** Reads may target a run folder itself or anything beneath one; `path` is resolved against the run's working directory. */
+export function readablePath(roots: string[], cwd: string, path: string): boolean {
+  const target = resolve(cwd, path);
+  return roots.some(root => insideRoot(relativeToRoot(root, target)));
+}
+function readableTarget(name: string, args: Record<string, unknown>, cwd: string, roots: string[]): boolean {
+  if (name === 'Read') return typeof args.file_path === 'string' && readablePath(roots, cwd, args.file_path);
+  if (name !== 'Grep' && name !== 'Glob') return false;
+  if (args.path !== undefined && typeof args.path !== 'string') return false;
+  if (!readablePath(roots, cwd, args.path || '.')) return false;
+  // A glob pattern can name an absolute path or climb out of its directory; keep it relative and inside.
+  return name === 'Grep' || (typeof args.pattern === 'string' && !/^[/~\\]/.test(args.pattern) && !/(^|[/\\])\.\.([/\\]|$)/.test(args.pattern));
 }
 
-export function claudeToolPolicy(name: string, args: Record<string, unknown>, input: Pick<RunInput, 'cwd' | 'sandbox' | 'kind'>, readOnly = false): 'allow' | 'deny' | 'ask' {
-  return nativeToolDecision(name, { kind: input.kind, readOnly, writable: input.sandbox === 'workspace-write' && typeof args.file_path === 'string' && writablePath(input.cwd, args.file_path) });
+export function claudeToolPolicy(name: string, args: Record<string, unknown>, input: Pick<RunInput, 'cwd' | 'sandbox' | 'kind' | 'readDirs'>, readOnly = false): 'allow' | 'deny' | 'ask' {
+  return nativeToolDecision(name, { kind: input.kind, readOnly,
+    readable: readableTarget(name, args, input.cwd, [input.cwd, ...(input.readDirs ?? [])]),
+    writable: input.sandbox === 'workspace-write' && typeof args.file_path === 'string' && writablePath(input.cwd, args.file_path) });
 }
 
 export class ClaudeProvider extends EventEmitter implements EngineProvider {
@@ -93,7 +112,7 @@ export class ClaudeProvider extends EventEmitter implements EngineProvider {
         systemPrompt: input.instructions, persistSession: false, includePartialMessages: true, abortController: abort,
         // Native task folders are not trusted settings sources. Connections come from the user's installation.
         settingSources: quick ? [] : ['user'], strictMcpConfig: quick,
-        tools: quick ? [] : ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash', 'WebSearch', 'WebFetch', 'ToolSearch'],
+        tools: quick ? [] : ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash', ...(attendedRun(input.kind) ? ['WebSearch', 'WebFetch'] : []), 'ToolSearch'],
         mcpServers: quick ? {} : { aegir: { type: 'sdk', name: 'aegir', instance: server as never } },
         model: input.modelTier === 'lightweight' ? 'sonnet' : undefined,
         permissionMode: 'default', maxTurns: quick ? 4 : 80,
