@@ -29,7 +29,7 @@ import './onboarding.scss';
 
 import './command-palette.scss';
 
-import './legolas-integration.scss';
+import './task-workspace.scss';
 
 import './glass.scss';
 

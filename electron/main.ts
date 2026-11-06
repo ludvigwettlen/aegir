@@ -284,7 +284,6 @@ if (app.requestSingleInstanceLock()) {
     runtime = new Runtime(store, codex, connectors, memory, refresh, emit, {
       outputRoot,
       routineCwd: agentCwd,
-      conversationFiles: join(app.getPath('userData'), 'conversation-files'),
     }, createRuntimeServices(store, refresh, app.getPath('userData')), browser);
     onboarding = new OnboardingService(store, codexProvider, mnemosyne, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url));
     codex.on('status', refresh);

@@ -297,9 +297,9 @@ The conversation composer offers an Attach files button and accepts file drops t
 Settings includes a Document review card with an explicit browser-review toggle, off by default. Enabling it exposes Review in browser in task document headers while preserving built-in review as the default. The action saves first, shows pending/error states, and requests the installed human-review tool through the task's agent. It does not automatically mirror documents or commit them. Existing save conflicts protect edits made while the browser review runs.
 
 
-### Legolas Glass appearance with Aegir typography
+### Glass appearance and typography
 
-The workspace now uses the agreed Legolas Glass direction: an 8 px window frame around a translucent rounded sidebar and a solid rounded working pane, a neutral macOS-style palette, and lime accents. The composer, palette, pickers, comment companion and transient panels use shared translucent fill, blur, edge and shadow tokens. The composer overlaps the conversation tail with matching bottom clearance so the final message stays readable. Document-only and fullscreen-task layouts retain their Aegir behavior.
+The workspace now uses a glass treatment with an 8 px window frame around a translucent rounded sidebar and a solid rounded working pane, a neutral macOS-style palette, and lime accents. The composer, palette, pickers, comment companion and transient panels use shared translucent fill, blur, edge and shadow tokens. The composer overlaps the conversation tail with matching bottom clearance so the final message stays readable. Document-only and fullscreen-task layouts retain their Aegir behavior.
 
 On macOS, the native under-window material shows the blurred desktop through the window frame and sidebar; browser fixtures and other platforms use a neutral solid frame. Reduce transparency disables both native vibrancy and CSS glass, including when the OS preference changes. Text itself is never blurred. Drag regions cover the frame and existing headers; controls and content remain interactive. The app remains light themed.
 
@@ -325,7 +325,7 @@ The action disables while saving. A failure uses the existing error announcement
 
 Send saves current edits before starting a five-second main-process countdown. During `queued`, fields are frozen and a live status counts down with an Undo button; Undo restores editing. `sending` has no cancellation action. `sent` and `sent-manually` are terminal, read-only states. Manual completion explicitly says Aegir did not send the message. Failed preflight returns to editing with an error; uncertain delivery stays locked and requires checking the service. Closing/restarting cancels queued work; an interrupted actual send becomes uncertain. Keyboard actions use ordinary buttons; the countdown has no animation and works with reduced motion. The footer wraps at compact widths.
 
-Claude cards use the same controls and explicitly label their connection. Claude Slack destinations and original threads are verified through supported native tools; Superhuman cards show verified external recipients/subject. External email changes block sending instead of overwriting a newer draft. Unsupported tool/response contracts show a connection error. Neither card silently changes its delivery provider when setup changes.
+Drafts saved through the former Claude integration appear as read-only records in their original conversations.
 
 ### Snooze and retained task details
 
@@ -335,13 +335,13 @@ When date, list, status or snooze changes move an open non-completed task outsid
 
 ### Capture, planning and saved task views (26 October 2026)
 
-AI capture sits beside manual quick add. It uses the selected engine without tools or connections and presents an editable title/notes preview before creating a task. The original note remains until creation succeeds; model and save failures use the existing error announcement. Explicit typed labels, dates and recurrence are preserved. Preparing/saving disables repeated actions and editing; Cancel closes the preview. Changing task views discards the preview, and a late model result cannot attach itself to another view.
+AI capture sits beside manual quick add. It uses Codex without tools or connections and presents an editable title/notes preview before creating a task. The original note remains until creation succeeds; model and save failures use the existing error announcement. Explicit typed labels, dates and recurrence are preserved. Preparing/saving disables repeated actions and editing; Cancel closes the preview. Changing task views discards the preview, and a late model result cannot attach itself to another view.
 
 Today in task properties and Set deadline to today in the palette set the deadline to the current local date and clear snooze. The action preserves lists, priorities and repetition, participates in Undo, and uses the existing deadline behavior to update a repeating task’s recurrence anchor. It does not toggle or clear a deadline on a second click.
 
 Filter and sort is a disclosure above each task list. Label, status and optional priority combine within the current list; sorting offers default, deadline, priority, title and newest. Non-default sorting shows a flat Tasks group so group headings do not obscure the requested order. Missing deadlines/priorities sort last. Unsaved filters persist per list in local browser storage. Named views now persist in the app database and are available in the sidebar, as described below. A search navigation can clear incompatible filters to reveal its target. Hiding priorities also suspends priority filters/sorts. Empty filtered results explicitly say so.
 
-Personal integrations in Settings exposes opt-in Apple Reminders capture with a named list, Save and Check now. It explains reminder completion and alert preservation before enabling. Status, loading and errors appear as text. External Claude routines load only on Refresh and show name, schedule, enabled state, description and recent run results in disclosures; management stays in Claude. Both features are independent of the engine choice. Native Reminders access requires the bundled macOS EventKit helper and OS permission.
+Personal integrations in Settings exposes opt-in Apple Reminders capture with a named list, Save and Check now. It explains reminder completion and alert preservation before enabling. Status, loading and errors appear as text. Native Reminders access requires the bundled macOS EventKit helper and OS permission.
 
 These controls use surface/ink/line/focus and control-radius tokens. Labels and fields wrap at compact widths; fields have explicit names and focus outlines. There is no added animation. Existing document and conversation controls retain their keyboard context.
 
@@ -397,4 +397,4 @@ The Back to workspace button and Escape return to the preceding task list, chat,
 
 The full `SkillsView` appears directly beneath the assistant, including search, ownership filters, create/import, editing, history and proposal review. It loads on first visiting the category and stays mounted during category changes. Its loading, empty, populated and retryable failure states stay visible without a Manage skills disclosure. At wide sizes its list/detail layout has a bounded 680 px height with internal scrolling; at 1100 px and below it stacks the list above the editor, bounds the list's scrolling and lets the page scroll. Long descriptions wrap. At the app's compact 900 px width the settings rail remains available, cards and actions wrap, and text scaling follows the application setting. No animation is introduced.
 
-Connections offers Slack through Composio and explains that Claude Code's Slack connector is managed in Claude Code and used with the Claude assistant. It does not imply a connected Claude account or fabricate connector status. The internal Slack app credential fields and connect action are removed from settings and onboarding. Composio account/key fields are under a native disclosure; its connect/reconnect/disconnect actions and status remain available. This presentation change does not erase existing credentials or migrate connector storage.
+Connections offers Slack through Composio. The Composio account and key fields are under a disclosure alongside connect, reconnect, and disconnect controls and connection status.

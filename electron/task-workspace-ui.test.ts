@@ -3,7 +3,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('supports priorities, fullscreen, attachments, comment batches and opt-in review without replacing the editor', async () => {
   const server = await createServer({ configFile: false, esbuild: { jsx: 'automatic' }, optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/release/**'] } }, appType: 'custom' });
-  server.middlewares.use('/integration-test', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div><script type="module" src="/src/ui/testing/legolas-integration.tsx"></script>'); });
+  server.middlewares.use('/integration-test', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<div id="root"></div><script type="module" src="/src/ui/testing/task-workspace.tsx"></script>'); });
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
     await server.listen(); browser = await chromium.launch({ channel: 'chrome', headless: true });

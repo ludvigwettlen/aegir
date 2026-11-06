@@ -7,7 +7,7 @@ import { searchWords } from '../shared/task-search.js';
 
 describe('searching the documents in task folders', () => {
   it('says which words each task folder holds, quotes the document holding the most, and reads a file again once it changes', () => {
-    const root = mkdtempSync(join(tmpdir(), 'legolas-document-search-'));
+    const root = mkdtempSync(join(tmpdir(), 'aegir-document-search-'));
     try {
       const memo = join(root, 'memo');
       mkdirSync(join(memo, 'drafts'), { recursive: true });
