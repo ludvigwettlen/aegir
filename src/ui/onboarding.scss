@@ -46,24 +46,9 @@ body:has(.setup-page) { min-width: 0; }
     .setup-intro h1 br { display: none; }
     .setup-intro h1 { margin-bottom: 12px; }
     .setup-intro > p, .setup-footnote { display: none; }
-    ol { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 20px 0 0; }
+    ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 20px 0 0; }
     nav button { flex-direction: column; align-items: flex-start; padding: 10px; }
     nav small { display: none; }
     nav strong { font-size: 11px; }
   }
 }
-.setup-presets { border: 0; padding: 0; margin: var(--ds-space-5) 0; display: grid; gap: var(--ds-space-3);
-  legend { margin-bottom: var(--ds-space-2); font-weight: 600; }
-  label { display: flex; align-items: flex-start; gap: var(--ds-space-3); padding: var(--ds-space-4); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); cursor: pointer;
-    &:has(:checked) { background: var(--ds-color-lime-soft); border-color: var(--ds-color-lime-line); }
-    &:focus-within { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
-    input { flex: none; width: auto; margin-top: 4px; }
-    span { display: grid; gap: var(--ds-space-1); }
-    small { color: var(--ds-color-muted); }
-  }
-}
-.setup-brain { display: grid; gap: var(--ds-space-3);
-  label { display: grid; gap: var(--ds-space-1); }
-  input { width: 100%; min-width: 0; }
-}
-.setup-brain-path { overflow-wrap: anywhere; }

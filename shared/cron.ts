@@ -1,4 +1,4 @@
-// Plain-language descriptions of the five-field cron expressions Claude Code scheduled tasks use.
+// Plain-language descriptions of the five-field cron expressions.
 // Anything outside the common shapes falls back to the raw expression.
 const dayNames = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
 const pad = (value: number) => String(value).padStart(2, '0');
@@ -37,5 +37,3 @@ export function describeCron(expression: string): string {
   const times = and(hours.flatMap(h => minutes.map(m => `${pad(h)}:${pad(m)}`)));
   return `${weekday === 'daily' ? 'Daily' : weekday === 'weekdays' ? 'Weekdays' : weekday} at ${times}`;
 }
-
-export const claudeRoutineName = (name: string) => name.replace(/^cron-/, '');

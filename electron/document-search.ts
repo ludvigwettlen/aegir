@@ -3,7 +3,7 @@ import type { ContentMatch, Task } from '../shared/types.js';
 import { fold, snippetFor } from '../shared/task-search.js';
 import { listDocuments, readDocument, workspaceFile } from './documents.js';
 
-// Find a task looks in the Markdown documents in each task's folder too: the drafts, memos and prep notes Claude wrote,
+// Find a task looks in the Markdown documents in each task's folder too: the drafts, memos and prep notes the assistant wrote,
 // the same files the task panel lists. Each file's text is kept, folded, until it changes on disk, so typing does not
 // read every document again. Read-only.
 const MAX_BYTES = 2 * 1024 * 1024;

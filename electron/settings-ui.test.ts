@@ -18,7 +18,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('organizes full-window settings, r
     expect(await page.locator('.settings-workspace').evaluate(el => el.getBoundingClientRect().width)).toBe(1440);
     await page.getByRole('switch', { name: 'Start at login', exact: true }).click();
     await expect.poll(() => page.getByRole('switch', { name: 'Start at login', exact: true }).getAttribute('aria-checked')).toBe('true');
-    for (const name of ['Appearance', 'Assistant & skills', 'Connections', 'Tasks', 'Memory & workflows', 'Browser & review', 'Updates & setup']) {
+    for (const name of ['Appearance', 'Assistant & skills', 'Connections', 'Tasks', 'Browser & review', 'Updates & setup']) {
       await page.getByRole('button', { name, exact: true }).click();
       await page.getByRole('heading', { name, exact: true, level: 1 }).waitFor();
     }
@@ -29,7 +29,6 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('organizes full-window settings, r
     await page.getByRole('searchbox', { name: 'Search settings' }).fill('nonexistent-setting');
     await page.getByText('No settings found.', { exact: false }).waitFor();
     await page.getByRole('button', { name: 'Connections', exact: true }).click();
-    await page.getByText('Slack via Claude Code', { exact: true }).waitFor();
     expect(await page.getByPlaceholder('Slack Client ID').count()).toBe(0);
     expect(await page.getByText('Open Slack app settings', { exact: false }).count()).toBe(0);
     const composio = page.locator('.connector-row').filter({ hasText: 'Slack via Composio' });
@@ -58,7 +57,7 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('organizes full-window settings, r
     await page.locator('.settings-agent strong').filter({ hasText: 'Updated assistant' }).waitFor();
     await page.screenshot({ path: '/tmp/aegir-settings-implemented.png' });
     await page.setViewportSize({ width: 900, height: 750 });
-    for (const name of ['General', 'Appearance', 'Assistant & skills', 'Connections', 'Tasks', 'Memory & workflows', 'Browser & review', 'Updates & setup']) {
+    for (const name of ['General', 'Appearance', 'Assistant & skills', 'Connections', 'Tasks', 'Browser & review', 'Updates & setup']) {
       await page.getByRole('button', { name, exact: true }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await page.locator('.settings-body').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);

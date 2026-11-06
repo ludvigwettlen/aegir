@@ -4,34 +4,17 @@ import { ThemeProvider } from '@usefragments/ui';
 import '../styles';
 import type { DesktopApi, Snapshot } from '../../../shared/types';
 import type { OnboardingState } from '../../../shared/onboarding';
-import { defaultProviderSetup, providerSetup } from '../../../shared/provider-setup';
-const fresh = new URLSearchParams(location.search).has('fresh');
 const memoryPage = new URLSearchParams(location.search).get('memory');
 const fixture = {
   failMemory: true, rejectSwitch: false, installed: [] as string[], connected: [] as string[], closed: false,
-  state: { showOnLaunch: true, completed: false, step: fresh ? 'setup' : 'codex', choiceRequired: fresh, setup: defaultProviderSetup(), busy: false, codex: { status: 'missing', detail: 'Codex needs setup.' }, memory: { status: 'missing', detail: 'Memory needs setup.' } } as OnboardingState,
+  state: { showOnLaunch: true, completed: false, step: 'codex', busy: false, codex: { status: 'missing', detail: 'Codex needs setup.' }, memory: { status: 'missing', detail: 'Memory needs setup.' } } as OnboardingState,
   update: () => {},
   loginComplete: () => { fixture.state = { ...fixture.state, codex: { status: 'ready', detail: 'Signed in as colleague@example.com.' } }; fixture.update(); },
 };
 Object.assign(window, { fixture });
-if (memoryPage === 'brain') fixture.state.setup = providerSetup({ preset: 'legolas', brainDir: '/brain', brainId: 'host', sourceId: 'default' });
 window.aegir = {
-  searchMemories: async () => [{ id: 'one', scope: memoryPage === 'brain' ? 'brain' : 'shared', content: 'A remembered decision', sourceUrl: null, createdAt: '' }],
-  checkSetup: async () => {
-    if (fixture.state.setup?.preset === 'legolas') {
-      fixture.state = { ...fixture.state, codex: { status: 'ready', detail: 'Claude Code is signed in.' },
-        memory: fixture.failMemory ? { status: 'missing', detail: 'Memory is not ready yet.', diagnostic: 'The selected gbrain source is not registered to this folder.' } : { status: 'ready', detail: 'gbrain is ready.' } };
-      fixture.update();
-    }
-    return fixture.state;
-  },
-  selectSetup: async choice => {
-    if (fixture.rejectSwitch) throw new Error('Stop active agents before switching setup.');
-    fixture.state = { ...fixture.state, setup: providerSetup(choice), step: 'codex', choiceRequired: false, completed: false,
-      codex: { status: 'missing', detail: 'Check your AI.' }, memory: { status: 'missing', detail: 'Check memory.' } };
-    fixture.update(); return fixture.state;
-  },
-  chooseBrainFolder: async () => '/Users/test/Work notes/brain',
+  searchMemories: async () => [{ id: 'one', scope: 'shared', content: 'A remembered decision', sourceUrl: null, createdAt: '' }],
+  checkSetup: async () => fixture.state,
   installSetupComponent: async kind => {
     fixture.installed.push(kind);
     fixture.state = { ...fixture.state, busy: true, [kind]: { status: 'working', detail: 'Downloading and preparing your installation…' } }; fixture.update();

@@ -1,4 +1,3 @@
-import { BrainFileButton } from './BrainFileButton';
 import { attachmentLimits, type Attachment } from '../../../shared/attachments';
 import { SlackDraftCard } from './SlackDraftCard';
 import { EmailDraftCard } from './EmailDraftCard';
@@ -225,7 +224,7 @@ export function ThreadView({
             void (async () => { try { if (documentEditor.current && !await documentEditor.current.save()) return; await api.reviewInBrowser(thread.id, document.path); } catch (cause) { setFileError(String(cause)); } finally { setReviewing(false); } })();
           }}>{reviewing ? 'Starting review…' : 'Review in browser'}</Button>}
           workspaceHeader={{ title: documentTitleControl, backLabel: 'Back to list', busy: opening,
-            actions: <>{data.brainBridge?.filingEnabled && <BrainFileButton workspaceId={thread.id} path={document.path} kind="document" disabled={busy || opening} beforeFile={async () => !documentEditor.current || await documentEditor.current.save()} />}{newDocument}<Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button></> }} />
+            actions: <>{newDocument}<Button variant="ghost" size="sm" data-document-chat aria-pressed={showChat} onClick={toggleChat}><MessageSquare size={15} aria-hidden="true" />Chat</Button></> }} />
       </>}
       </div>
       {showFiles && <DocumentPicker files={files} loading={loadingFiles} error={fileError} opening={opening} threadId={thread.id} currentPath={document?.path}
@@ -246,6 +245,15 @@ export function ThreadView({
 }
 
 function MessageRow({ message, data, run, onOpenDocument }: { message: Message; data: Snapshot; run: Run; onOpenDocument: (path: string) => void }) {
+  const draft = message.meta;
+  if ((draft?.type === 'slack-draft' || draft?.type === 'email-draft') && draft.deliveryProvider === 'claude') {
+    return <div className="ws-message">
+      <p>Archived {draft.type === 'email-draft' ? 'email' : 'Slack'} draft · {draft.state}</p>
+      {draft.type === 'email-draft'
+        ? <><p>To: {draft.to}</p>{draft.cc && <p>Cc: {draft.cc}</p>}{draft.bcc && <p>Bcc: {draft.bcc}</p>}<p>{draft.subject}</p><pre>{draft.body}</pre></>
+        : <><p>{draft.destinationName || draft.destination}</p><pre>{draft.text}</pre></>}
+    </div>;
+  }
   if (message.meta?.type === 'slack-draft') return <SlackDraftCard id={message.id} draft={message.meta} />;
   if (message.meta?.type === 'email-draft') return <EmailDraftCard id={message.id} draft={message.meta} />;
   if (message.meta?.type === 'skill-change')
@@ -285,7 +293,7 @@ function MessageRow({ message, data, run, onOpenDocument }: { message: Message; 
             </span>
           )}
         </div>
-        {message.meta?.type === 'attachments' && <div className="ws-attachment-list" aria-label="Message attachments">{message.meta.files.map(file => <span key={file.path}><Button variant="ghost" size="sm" onClick={() => void run(() => api.openAttachment(message.threadId, file.path))}><Paperclip size={13} />{file.name} · {Math.ceil(file.size / 1024)} KB · Show in Finder</Button>{data.brainBridge?.filingEnabled && <BrainFileButton workspaceId={message.threadId} path={file.path} kind="attachment" />}</span>)}</div>}
+        {message.meta?.type === 'attachments' && <div className="ws-attachment-list" aria-label="Message attachments">{message.meta.files.map(file => <span key={file.path}><Button variant="ghost" size="sm" onClick={() => void run(() => api.openAttachment(message.threadId, file.path))}><Paperclip size={13} />{file.name} · {Math.ceil(file.size / 1024)} KB · Show in Finder</Button></span>)}</div>}
         <CopyMessageButton content={message.content} />
       </div>
     </article>

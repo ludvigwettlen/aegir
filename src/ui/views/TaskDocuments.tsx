@@ -1,4 +1,3 @@
-import { BrainFileButton } from './BrainFileButton';
 import { FilePlus2, FileText } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { documentTitle, type WorkspaceDocument, type WorkspaceDocumentEntry } from '../../../shared/documents';
@@ -9,7 +8,7 @@ import { CreateDocumentDialog, DocumentFileLabel, DocumentPicker } from './Docum
 import { api } from './common';
 
 /** Personal tasks have documents without needing an agent conversation. */
-export function TaskDocuments({ task, children, brainFilingEnabled }: { task: Task; children: ReactNode; brainFilingEnabled?: boolean }) {
+export function TaskDocuments({ task, children }: { task: Task; children: ReactNode }) {
   const [document, setDocument] = useState<WorkspaceDocument | null>(null);
   const [files, setFiles] = useState<WorkspaceDocumentEntry[]>([]);
   const [showFiles, setShowFiles] = useState(false);
@@ -55,7 +54,6 @@ export function TaskDocuments({ task, children, brainFilingEnabled }: { task: Ta
   const returnFocus = () => workspace.current?.querySelector<HTMLElement>('[data-document-files]')?.focus();
   const startCreate = () => { setShowFiles(false); setShowCreate(true); };
   const actions = <>
-    {brainFilingEnabled && document && <BrainFileButton workspaceId={task.id} path={document.path} kind="document" disabled={opening} beforeFile={async () => !editor.current || await editor.current.save()} />}
     <Button variant="ghost" size="sm" data-document-files disabled={opening} onClick={() => { setShowFiles(true); if (task.outputDir) void refreshFiles(); }}><FileText size={14} aria-hidden="true" />Files</Button>
     <Button variant="ghost" size="sm" disabled={opening} onClick={startCreate}><FilePlus2 size={14} aria-hidden="true" />New document</Button>
   </>;

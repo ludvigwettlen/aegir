@@ -12,7 +12,6 @@ import { BrowserManager } from './browser.js';
 import { calendarMeeting } from './one-on-one-calendar.js';
 import { taskSourceKey } from './agent-tools.js';
 import type { Task } from '../shared/types.js';
-import { providerSetup } from '../shared/provider-setup.js';
 import { readDocument, saveDocument } from './documents.js';
 
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }));
@@ -30,9 +29,9 @@ function setup(script: (input: RunInput, codexThreadId: string, runtime: Runtime
   const codex = { run: async (input: RunInput) => { runs.push(input); const id = `codex-${++n}`; input.onThreadStarted?.(id); const text = await script(input, id, runtime); return { threadId: id, text, status: 'completed' }; }, stop: async () => {} } as unknown as CodexProvider;
   const connectors = { listTools: () => [{ name: 'slack__search', description: '', inputSchema: {}, readOnly: true }, { name: 'slack__post', description: '', inputSchema: {}, readOnly: false }], states: {} } as unknown as ConnectorManager;
   const memory = { recall: async () => '', remember: async () => ({ id: 'm' }) } as unknown as MemoryService;
-  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir, conversationFiles: join(dir, 'conversation-files') }, createRuntimeServices(store, codex, () => {}, dir), browser);
+  runtime = new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir, conversationFiles: join(dir, 'conversation-files') }, createRuntimeServices(store, () => {}, dir), browser);
   cleanup.push(() => { runtime.stop(); if (store.isOpen) store.close(); rmSync(dir, { recursive: true, force: true }); });
-  return { store, runtime, runs, memory, reopen: () => new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, createRuntimeServices(store, codex, () => {}, dir)) };
+  return { store, runtime, runs, memory, reopen: () => new Runtime(store, codex, connectors, memory, () => {}, () => {}, { outputRoot: join(dir, 'out'), routineCwd: dir }, createRuntimeServices(store, () => {}, dir)) };
 }
 
 describe('runtime', () => {
@@ -57,30 +56,6 @@ describe('runtime', () => {
     const second = runtime.createTaskDocument(task.id, 'Another draft');
     expect(second.path).toBe('Another draft.md');
     expect(store.get('tasks', task.id)?.status).toBe('review');
-  });
-  it('preserves routines and Gmail/calendar while routing Legolas discovery and connections externally', async () => {
-    const { store, runtime, runs } = setup();
-    store.setSetting('providerSetup', JSON.stringify(providerSetup({ preset: 'legolas', brainDir: '/brain', brainId: 'host', sourceId: 'default' })));
-    const discovery = store.routines().find(r => r.id === store.getSetting('discoveryRoutineId'))!;
-    const routine = store.createRoutine({ name: 'My routine', instructions: 'Summarize context', agentId: discovery.agentId, schedule: { every: 'day' }, enabled: true });
-    store.db.prepare('UPDATE routines SET createdAt=?').run(new Date(Date.now() - 3 * 86400_000).toISOString());
-    const before = store.routines();
-    const gmail = vi.spyOn(runtime.gmail, 'tick').mockResolvedValue(undefined);
-    const calendar = vi.spyOn(runtime.oneOnOnes, 'tick').mockResolvedValue(undefined);
-    await expect(runtime.runRoutine(discovery.id, 'manual')).rejects.toThrow('external discovery');
-    expect(store.routines()).toEqual(before);
-    const run = vi.spyOn(runtime, 'runRoutine').mockResolvedValue(undefined);
-    runtime.tick();
-    expect(run).toHaveBeenCalledWith(routine.id, 'schedule');
-    expect(run).not.toHaveBeenCalledWith(discovery.id, expect.anything());
-    expect(gmail).toHaveBeenCalledOnce(); expect(calendar).toHaveBeenCalledOnce();
-    store.setSetting('setupAutomationPaused', 'true');
-    runtime.tick();
-    expect(gmail).toHaveBeenCalledOnce(); expect(run).toHaveBeenCalledOnce();
-    run.mockRestore();
-    await runtime.runRoutine(routine.id, 'manual');
-    expect(runs.at(-1)?.tools.some(t => t.name === 'slack__search')).toBe(false);
-    expect(runs.at(-1)?.tools.some(t => t.name.startsWith('memory__'))).toBe(true);
   });
   it('publishes a skill review card in its source chat and includes the saved outcome in later context', async () => {
     let receipt: unknown;

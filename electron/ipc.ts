@@ -69,7 +69,7 @@ export function registerIpc(dependencies: IpcDependencies) {
   };
   registerTasksIpc(handle, { store, runtime, refresh });
   registerConversationsIpc(handle, { store, runtime, refresh, attachmentRoot });
-  registerIntegrationsIpc(handle, { store, runtime, refresh, onboarding, phoneCapture, connectors, memory, documentRoot, attachmentRoot });
+  registerIntegrationsIpc(handle, { store, runtime, refresh, onboarding, phoneCapture, connectors, memory });
   handle('update-check', () => dependencies.updates?.check());
   handle('update-download', () => dependencies.updates?.download());
   handle('update-cancel', () => dependencies.updates?.cancel());

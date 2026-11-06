@@ -895,7 +895,7 @@ function TaskDetail({
           compact
         />
       ) : (
-        <TaskDocuments key={task.id} task={task} brainFilingEnabled={data.brainBridge?.filingEnabled}>
+        <TaskDocuments key={task.id} task={task}>
           {header}
           <div className="ws-row-actions">
             {task.status === 'proposed' ? (

@@ -23,14 +23,8 @@ function endpoints(names: string, args: z.ZodType[]) {
 endpoints('snapshot setup-check setup-codex-login setup-codex-cancel ui-feedback-list ui-feedback-copy gmail-sync browser-open browser-stop skill-library one-on-ones-sync sync-reminders read-clipboard-text undo-task-action', []);
 endpoints('update-check update-download update-cancel update-install', []);
 endpoints('update-token', [z.string().max(500)]);
-endpoints('brain-bridge-run', []);
-endpoints('brain-bridge-folder', [z.enum(['import', 'export', 'filing'])]);
-endpoints('brain-bridge-configure', [z.strictObject({ importEnabled: bool, importDir: text, exportEnabled: bool, exportDir: text, filingEnabled: bool, filingDir: text })]);
-endpoints('brain-bridge-file', [id, id, z.enum(['document', 'attachment'])]);
-endpoints('setup-brain-folder claude-routines', []);
-endpoints('setup-select', [z.strictObject({ preset: z.enum(['aegir', 'legolas']), brainDir: text, brainId: id, sourceId: id })]);
 endpoints('setup-install', [z.enum(['codex', 'memory'])]);
-endpoints('setup-save', [z.enum(['setup', 'codex', 'memory', 'connections']), z.enum(['continue', 'later', 'finish'])]);
+endpoints('setup-save', [z.enum(['codex', 'memory', 'connections']), z.enum(['continue', 'later', 'finish'])]);
 endpoints('ui-feedback-add', [feedbackInputSchema]);
 endpoints('ui-feedback-resolve resolve-approval skill-resolve set-routine-enabled resolve-routine-change', [id, bool]);
 endpoints('gmail-configure', [text, text, bool]);

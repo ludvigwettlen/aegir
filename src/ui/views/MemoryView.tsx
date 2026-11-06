@@ -10,7 +10,6 @@ const date = (value: string) =>
     : '';
 
 export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
-  const brain = data.onboarding?.setup?.memory === 'gbrain';
   const [instructions, setInstructions] = useState(data.memoryInstructions);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Memory[]>([]);
@@ -24,7 +23,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
         title="Memory"
         description="Search the durable context your agents carry forward."
       />
-      {data.legacyMemoryCount > 0 && !brain && (
+      {data.legacyMemoryCount > 0 && (
         <Card variant="outline" padding="md" as="section">
           <p>
             {data.legacyMemoryCount} earlier memor
@@ -38,7 +37,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
           <div className="panel-heading">
             <div>
               <h2>Search memories</h2>
-              <p>{brain ? 'Results come from your selected gbrain source. Edit or delete memories in Obsidian; new memories wait in inbox/aegir-memories.md for your brain workflow to index them.' : 'Results come directly from Mnemosyne’s shared and agent banks.'}</p>
+              <p>{'Results come directly from Mnemosyne’s shared and agent banks.'}</p>
             </div>
             <MemoryStick size={19} />
           </div>
@@ -71,7 +70,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
                   item={item}
                   run={run}
                   onChanged={refreshResults}
-                  editable={!brain}
+                  editable
                 />
               ))}
             </div>
@@ -84,7 +83,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
               <p>
                 {searched
                   ? 'Try a different phrase.'
-                  : brain ? 'Search your selected Obsidian brain through gbrain.' : 'Search across shared and agent memories stored in Mnemosyne.'}
+                  : 'Search across shared and agent memories stored in Mnemosyne.'}
               </p>
             </div>
           )}
@@ -110,7 +109,7 @@ export function MemoryView({ data, run }: { data: Snapshot; run: Run }) {
             Save instructions
           </Button>
           <div className="subtle-note">
-            <CircleHelp size={14} /> {brain ? 'Memories are appended to your selected brain inbox. Existing Mnemosyne memories are kept separately.' : 'Memories are stored in Mnemosyne. If it is unavailable, memory operations report an error.'}
+            <CircleHelp size={14} /> {'Memories are stored in Mnemosyne. If it is unavailable, memory operations report an error.'}
           </div>
         </Card>
       </div>

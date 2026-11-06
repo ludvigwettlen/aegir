@@ -3,17 +3,20 @@ import type { Store } from './db.js';
 import type { CodexProvider } from './codex.js';
 import type { MemoryService } from './memory.js';
 import { installDependency, setupCommand } from './setup-install.js';
-import { defaultProviderSetup, providerSetup, readProviderSetup, type SetupChoice, type ProviderSetup } from '../shared/provider-setup.js';
 
 type Settings = Pick<Store, 'getSetting' | 'setSetting'>;
 type Codex = Pick<CodexProvider, 'readAccount' | 'login' | 'cancelLogin' | 'checkModelAccess' | 'close' | 'on'>;
-const steps: SetupStep[] = ['setup', 'codex', 'memory', 'connections'];
+const steps: SetupStep[] = ['codex', 'memory', 'connections'];
 export function initializeOnboarding(store: Settings, existingWorkspace: boolean) {
-  // Only migrate installations predating provider selection. A fresh user who
-  // defers the choice must not be silently opted into Aegir on the next launch.
-  if (!store.getSetting('providerSetupInitialized')) {
-    if (existingWorkspace && !store.getSetting('providerSetup')) store.setSetting('providerSetup', JSON.stringify(defaultProviderSetup()));
-    store.setSetting('providerSetupInitialized', 'true');
+  if (!store.getSetting('codexOnlySetupInitialized')) {
+    const previous = store.getSetting('providerSetup');
+    if (previous && /"preset"\s*:\s*"legolas"/.test(previous)) {
+      store.setSetting('onboardingStep', 'codex');
+      store.setSetting('onboardingDismissed', 'false');
+      store.setSetting('onboardingCompleted', 'false');
+      store.setSetting('setupAutomationPaused', 'true');
+    }
+    store.setSetting('codexOnlySetupInitialized', 'true');
   }
   if (store.getSetting('onboardingInitialized')) return;
   store.setSetting('onboardingInitialized', 'true');
@@ -34,10 +37,9 @@ export class OnboardingService {
   private loginTimer: ReturnType<typeof setTimeout> | undefined;
   constructor(private store: Settings, private codex: Codex, private memory: Pick<MemoryService, 'binary'>,
     private root: string, private changed: () => void, private openExternal: (url: string) => Promise<unknown>,
-    private install = installDependency, private command = setupCommand,
-    private providers?: { apply: (setup: ProviderSetup) => void; checkClaude: (signal: AbortSignal) => Promise<string>; checkBrain: (signal: AbortSignal) => Promise<string> }) {
+    private install = installDependency, private command = setupCommand) {
     codex.on('account-change', (result?: { success?: boolean; error?: string; loginId?: string }) => {
-      if (this.controller.signal.aborted || this.setup.engine !== 'codex') return;
+      if (this.controller.signal.aborted) return;
       if (result?.success === false) {
         if (!this.loginId || (result.loginId && result.loginId !== this.loginId)) return;
         this.clearLogin();
@@ -54,37 +56,12 @@ export class OnboardingService {
     if (this.controller.signal.aborted && this.lastState) return this.lastState;
     const saved = this.store.getSetting('onboardingStep') as SetupStep;
     this.lastState = { showOnLaunch: this.store.getSetting('onboardingDismissed') !== 'true', completed: this.store.getSetting('onboardingCompleted') === 'true',
-      step: !this.store.getSetting('providerSetup') ? 'setup' : steps.includes(saved) ? saved : 'codex', busy: this.busy,
-      setup: this.setup, choiceRequired: !this.store.getSetting('providerSetup'),
+      step: steps.includes(saved) ? saved : 'codex', busy: this.busy,
       codex: { ...this.codexState }, memory: { ...this.memoryState } };
     return this.lastState;
   }
-  private get setup() { return readProviderSetup(this.store.getSetting('providerSetup')); }
-  select(choice: SetupChoice) {
-    if (this.busy || this.loginId || this.controller.signal.aborted) throw new Error('Finish or cancel the current setup step before changing setup.');
-    const next = providerSetup(choice);
-    if (!this.providers) throw new Error('Provider switching is unavailable.');
-    if (JSON.stringify(next) !== this.store.getSetting('providerSetup')) {
-      // apply validates idle state, persists the selection, and replaces the active adapters synchronously.
-      this.providers.apply(next);
-      this.store.setSetting('onboardingCompleted', 'false');
-      this.store.setSetting('setupAutomationPaused', 'true');
-      this.codexState = { status: 'unchecked', detail: `Check ${next.engine === 'claude' ? 'Claude Code' : 'Codex'} to continue.` };
-      this.memoryState = { status: 'unchecked', detail: 'Check the selected memory setup.' };
-    }
-    this.store.setSetting('onboardingStep', 'codex');
-    this.changed(); return this.state();
-  }
   private clearLogin() { clearTimeout(this.loginTimer); this.loginId = null; }
   private async checkCodex() {
-    if (this.setup.engine === 'claude') {
-      this.codexState = { status: 'checking', detail: 'Checking Claude Code and its account…' }; this.changed();
-      try {
-        if (!this.providers) throw new Error('Claude provider unavailable.');
-        this.codexState = { status: 'ready', detail: await this.providers.checkClaude(this.controller.signal) };
-      } catch (error) { this.codexState = { status: 'missing', detail: 'Install and sign in to Claude Code, then check again. Your Codex setup is kept.', diagnostic: message(error) }; }
-      return;
-    }
     this.codexState = { status: 'checking', detail: 'Checking Codex and your account…' }; this.changed();
     try {
       const result = await this.codex.readAccount();
@@ -101,11 +78,6 @@ export class OnboardingService {
   private async checkMemory() {
     this.memoryState = { status: 'checking', detail: 'Checking local memory…' }; this.changed();
     try {
-      if (this.setup.memory === 'gbrain') {
-        if (!this.providers) throw new Error('Brain provider unavailable.');
-        this.memoryState = { status: 'ready', detail: await this.providers.checkBrain(this.controller.signal) };
-        return;
-      }
       const output = await this.command(this.memory.binary(), ['recall', 'Aegir setup availability', '1', '--json'], {
         signal: this.controller.signal, timeout: 60_000,
         env: { ...process.env, MNEMOSYNE_BANK: 'aegir-shared', MNEMOSYNE_DEFAULT_SCOPE: 'global' },
@@ -115,7 +87,6 @@ export class OnboardingService {
     } catch (error) { this.memoryState = { status: 'missing', detail: 'Memory is not ready yet. Set it up below, or check again.', diagnostic: message(error) }; }
   }
   check(): Promise<OnboardingState> {
-    if (!this.store.getSetting('providerSetup')) return Promise.resolve(this.state());
     if (this.checking) return this.checking;
     if (this.busy || this.loginId || this.controller.signal.aborted) return Promise.resolve(this.state());
     this.busy = true;
@@ -128,7 +99,6 @@ export class OnboardingService {
   }
   async installComponent(kind: 'codex' | 'memory') {
     if (kind !== 'codex' && kind !== 'memory') throw new Error('Unknown setup component.');
-    if (this.setup.engine !== 'codex') throw new Error('Use your existing Claude Code and gbrain installations for Legolas setup.');
     if (this.busy || this.loginId) throw new Error('Please wait for the current setup step.');
     this.busy = true;
     const update = (detail: string) => { this[kind === 'codex' ? 'codexState' : 'memoryState'] = { status: 'working', detail }; this.changed(); };
@@ -147,7 +117,6 @@ export class OnboardingService {
     return this.state();
   }
   async signIn() {
-    if (this.setup.engine !== 'codex') throw new Error('Sign in through your Claude Code installation, then check again.');
     if (this.busy || this.loginId) throw new Error('Please finish or cancel the current setup step.');
     this.busy = true;
     this.codexState = { status: 'working', detail: 'Opening ChatGPT sign-in…' }; this.changed();
@@ -177,7 +146,7 @@ export class OnboardingService {
   save(step: SetupStep, action: 'continue' | 'later' | 'finish') {
     if (!steps.includes(step) || !['continue', 'later', 'finish'].includes(action)) throw new Error('Invalid setup action.');
     if (this.busy || this.loginId) throw new Error('Please wait for setup, or cancel sign-in first.');
-    if (action === 'finish' && (!this.store.getSetting('providerSetup') || this.codexState.status !== 'ready' || this.memoryState.status !== 'ready')) throw new Error(`Connect ${this.setup.engine === 'claude' ? 'Claude Code' : 'Codex'} and set up memory before finishing. You can also choose Set up later.`);
+    if (action === 'finish' && (this.codexState.status !== 'ready' || this.memoryState.status !== 'ready')) throw new Error('Connect Codex and set up memory before finishing. You can also choose Set up later.');
     this.store.setSetting('onboardingStep', step);
     if (action !== 'continue') this.store.setSetting('onboardingDismissed', 'true');
     if (action === 'finish') { this.store.setSetting('onboardingCompleted', 'true'); this.store.setSetting('setupAutomationPaused', 'false'); }

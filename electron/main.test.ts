@@ -97,7 +97,7 @@ describe('application shutdown', () => {
     await import('./main.js');
     await vi.waitFor(() => expect(fixture.codex).toBeTruthy());
     expect(fixture.preferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false });
-    expect(fixture.started).not.toHaveBeenCalled(); // Fresh installs require a setup choice.
+    expect(fixture.started).not.toHaveBeenCalled(); // Fresh installs wait for the onboarding check.
     fixture.codex.emit('status');
     fixture.connectors.emit('change');
     expect(reads).toHaveBeenCalled();

@@ -110,9 +110,6 @@ export type RoutineRun = {
   startedAt: string;
   endedAt: string | null;
 };
-export type ClaudeRun = { startedAt: string; endedAt: string | null; status: 'completed' | 'failed' | 'needs_action' | 'unknown'; detail: string; needsAction: string | null };
-export type ClaudeRoutine = { id: string; name: string; description: string; schedule: string; cron: string | null; enabled: boolean; lastRunAt: string | null; runs: ClaudeRun[] };
-export type ClaudeRoutines = { tasks: ClaudeRoutine[]; source: string | null };
 export type RemindersState = { enabled: boolean; list: string; detail: string; syncing: boolean; lastSyncAt: string | null };
 export type RunEvent = {
   id: string;
@@ -154,7 +151,6 @@ export type MessagePage = { messages: Message[]; before: string | null };
 export type Snapshot = {
   updates?: import('./updates.js').UpdateState;
   reminders?: RemindersState;
-  brainBridge?: import('./brain-bridge.js').BrainBridgeState;
   onboarding?: import('./onboarding.js').OnboardingState;
   gmail?: import('./gmail.js').GmailState;
   oneOnOnes?: import('./one-on-ones.js').OneOnOneState;
@@ -195,17 +191,10 @@ export interface DesktopApi extends SkillsApi {
   saveUpdateToken(token: string): Promise<void>;
 
   captureTask(text: string): Promise<{ title: string; notes: string; label: string | null; labels?: string[]; dueAt: string | null; recurrence?: TaskRecurrence }>;
-  claudeRoutines(): Promise<ClaudeRoutines>;
   configureReminders(enabled: boolean, list: string): Promise<void>;
   syncReminders(): Promise<void>;
   readonly windowVibrancy?: boolean;
   checkSetup(): Promise<import('./onboarding.js').OnboardingState>;
-  selectSetup(choice: import('./provider-setup.js').SetupChoice): Promise<import('./onboarding.js').OnboardingState>;
-  configureBrainBridge(value: import('./brain-bridge.js').BrainBridgeConfig): Promise<import('./brain-bridge.js').BrainBridgeState>;
-  runBrainBridge(): Promise<import('./brain-bridge.js').BrainBridgeState>;
-  chooseBridgeFolder(purpose: 'import' | 'export' | 'filing'): Promise<string | null>;
-  fileToBrain(workspaceId: string, path: string, kind: 'document' | 'attachment'): Promise<string>;
-  chooseBrainFolder(): Promise<string | null>;
   installSetupComponent(kind: 'codex' | 'memory'): Promise<import('./onboarding.js').OnboardingState>;
   signInCodex(): Promise<import('./onboarding.js').OnboardingState>;
   cancelCodexSignIn(): Promise<import('./onboarding.js').OnboardingState>;

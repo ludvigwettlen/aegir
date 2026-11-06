@@ -44,8 +44,6 @@ it.skipIf(process.env.AEGIR_UI_SMOKE !== '1')('reviews AI capture, filters and s
     await page.getByRole('combobox', { name: 'Search tasks and commands' }).fill('Settings');
     await page.getByRole('option', { name: /^Settings/ }).click();
     await page.getByRole('button', { name: 'Tasks', exact: true }).click();
-    await page.getByRole('button', { name: 'Refresh external routines', exact: true }).click();
-    await page.getByText('Morning brief', { exact: false }).waitFor();
     await page.getByLabel('Reminders list', { exact: true }).fill('Phone capture');
     await page.getByLabel('Enable capture', { exact: true }).check();
     await page.getByRole('button', { name: 'Save capture settings', exact: true }).click();

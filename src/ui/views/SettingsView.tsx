@@ -1,10 +1,9 @@
 import { UpdateSettings } from './UpdateSettings';
 import { mainAgent } from '../../../shared/agent-mentions';
 import { PersonalIntegrations } from './PersonalIntegrations';
-import { BrainBridgeSettings } from './BrainBridgeSettings';
 import { GmailSettings } from './GmailSettings';
 import { TypographySettings } from './TypographySettings';
-import { ArrowLeft, Bot, CircleHelp, Globe, Link, ListTodo, Palette, Search, Settings, ShieldCheck, SquareArrowOutUpRight, StickyNote, X } from 'lucide-react';
+import { ArrowLeft, Bot, CircleHelp, Globe, Link, ListTodo, Palette, Search, Settings, ShieldCheck, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { modelTierForRole } from '../../../shared/model-policy';
 import type { Agent, Snapshot } from '../../../shared/types';
@@ -16,9 +15,8 @@ const categories = [
   { id: 'general', title: 'General', description: 'Everyday preferences for your workspace.', keywords: 'startup login priorities', icon: Settings },
   { id: 'appearance', title: 'Appearance', description: 'Make Aegir comfortable to read and work in.', keywords: 'fonts typography text size scratchpad markdown', icon: Palette },
   { id: 'assistant', title: 'Assistant & skills', description: 'Choose how your assistant works with you.', keywords: 'name instructions skill library import proposed changes', icon: Bot },
-  { id: 'connections', title: 'Connections', description: 'The apps and sources your assistant can work with.', keywords: 'Slack Composio Claude Code Notion Gmail email', icon: Link },
-  { id: 'tasks', title: 'Tasks', description: 'Capture and organize your work.', keywords: 'Reminders Apple list external Claude routines', icon: ListTodo },
-  { id: 'memory', title: 'Memory & workflows', description: 'Choose where context lives and how work flows.', keywords: 'brain filing folders intake import export Obsidian Legolas', icon: StickyNote },
+  { id: 'connections', title: 'Connections', description: 'The apps and sources your assistant can work with.', keywords: 'Slack Composio Notion Gmail email', icon: Link },
+  { id: 'tasks', title: 'Tasks', description: 'Capture and organize your work.', keywords: 'Reminders Apple list capture', icon: ListTodo },
   { id: 'browser', title: 'Browser & review', description: 'A workspace for browsing and reviewing documents.', keywords: 'Chrome logins human-review permissions editor comments', icon: Globe },
   { id: 'updates', title: 'Updates & setup', description: 'Keep Aegir up to date and review your setup.', keywords: 'version GitHub token providers onboarding', icon: CircleHelp },
 ] as const;
@@ -118,8 +116,8 @@ export function SettingsView({ data, run, onBack, onSetup, initialAgent, initial
                   <small>
                     {agent.role} ·{' '}
                     {modelTierForRole(agent.role) === 'default'
-                      ? data.onboarding?.setup?.engine === 'claude' ? 'Claude Code default model' : 'Codex default model'
-                      : data.onboarding?.setup?.engine === 'claude' ? 'Claude Sonnet' : 'Lightweight model'}
+                      ? 'Codex default model'
+                      : 'Lightweight model'}
                   </small>
                 </div>
                 <Button
@@ -226,7 +224,6 @@ export function SettingsView({ data, run, onBack, onSetup, initialAgent, initial
               </div>
               <p>Agents check the expected account against Composio’s connection status. Known Slack read actions are available to tasks and routines; other Slack actions require approval in chat. Manage Slack accounts in Composio.</p>
             </details>
-            <div className="connector-row"><span className="connector-icon slack">#</span><div><strong>Slack via Claude Code</strong><small className="connector-detail">Connect Slack in Claude Code to use its connector with your Claude assistant.</small></div></div>
             <div className="connector-row">
               <span className="connector-icon notion">N</span>
               <div>
@@ -264,7 +261,6 @@ export function SettingsView({ data, run, onBack, onSetup, initialAgent, initial
 <GmailSettings state={data.gmail} /></div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'tasks'}><PersonalIntegrations reminders={data.reminders} />
 </div>
-<div className="settings-category" hidden={!!query.trim() || category !== 'memory'}><BrainBridgeSettings state={data.brainBridge} /></div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'browser'}><Card className="content-panel settings-panel browser-settings" variant="outline" padding="none" as="section">
             <div className="panel-heading">
               <div>
@@ -301,7 +297,7 @@ export function SettingsView({ data, run, onBack, onSetup, initialAgent, initial
           </Card></div>
 <div className="settings-category" hidden={!!query.trim() || category !== 'updates'}><UpdateSettings value={data.updates} />
 {onSetup && <Card className="content-panel settings-panel" variant="outline" padding="none" as="section">
-            <div className="panel-heading"><div><h2>Getting started</h2><p>Current setup: {data.onboarding?.choiceRequired ? 'Not selected yet' : data.onboarding?.setup?.preset === 'legolas' ? 'Legolas · Claude Code and Obsidian brain' : 'Aegir · Codex and built-in memory'}. Review setup to change providers or check your connections.</p></div>
+            <div className="panel-heading"><div><h2>Getting started</h2><p>Review your Codex, memory, and connection setup.</p></div>
               <Button variant="outline" size="sm" onClick={onSetup}>{data.onboarding?.completed ? 'Review setup' : 'Continue setup'}</Button>
             </div>
           </Card>}</div>

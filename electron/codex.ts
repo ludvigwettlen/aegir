@@ -17,7 +17,6 @@ export type ToolHandler = (provider: string, tool: string, args: Record<string, 
 // readDirs: folders beyond cwd that native file reads may use, such as a chat's attachment folder.
 export type RunInput = { threadId?: string; kind?: 'chat' | 'task' | 'routine' | 'prep'; cwd: string; readDirs?: string[]; instructions: string; prompt: string; tools: Tool[]; modelTier?: ModelTier; sandbox?: 'read-only' | 'workspace-write'; onDelta: (delta: string) => void; onThreadStarted?: (threadId: string) => void; onItem?: (item: Record<string, unknown>) => void };
 export interface ModelProvider {
-  sendGated?(calls: import('./gated.js').GatedCall[], read?: (response: unknown) => unknown): Promise<import('./gated.js').GatedOutcome>;
   run(input: RunInput): Promise<{ threadId: string; text: string; status: string }>;
   stop(threadId: string): Promise<void>;
 }

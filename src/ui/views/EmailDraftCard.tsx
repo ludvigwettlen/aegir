@@ -44,7 +44,7 @@ export function EmailDraftCard({ id, draft }: { id: string; draft: EmailDraft })
         <input value={fields[key]} onChange={event => edit(key, event.target.value)} placeholder={key === 'to' ? 'name@example.com' : undefined} /></label>)}
       <label>Message<textarea aria-label="Message" rows={9} value={fields.body} onChange={event => edit('body', event.target.value)} /></label>
     </fieldset>
-    <p role="status">{saved.state === 'draft' ? (dirty ? 'Unsaved edits · local recovery enabled' : 'Saved in Aegir · clicking Send approves this email') : ({ queued: '', 'sent-manually': '', 'awaiting-approval': 'This older approval is pending. Reopen Aegir to return it to a draft.', sending: 'Sending…', sent: saved.deliveryProvider === 'claude' ? 'Superhuman confirmed sending.' : 'Gmail confirmed sending.', uncertain: 'Delivery is unconfirmed. Check Gmail Sent before composing another email.' })[saved.state]}</p>
+    <p role="status">{saved.state === 'draft' ? (dirty ? 'Unsaved edits · local recovery enabled' : 'Saved in Aegir · clicking Send approves this email') : ({ queued: '', 'sent-manually': '', 'awaiting-approval': 'This older approval is pending. Reopen Aegir to return it to a draft.', sending: 'Sending…', sent: 'Gmail confirmed sending.', uncertain: 'Delivery is unconfirmed. Check Gmail Sent before composing another email.' })[saved.state]}</p>
     {(error || saved.error) && <p role="alert">{error || saved.error}</p>}
     {conflict && <Button variant="outline" size="sm" onClick={() => {
       localStorage.removeItem(`email-draft:${id}:${saved.revision}`); setFields(fieldsOf(draft)); setSaved(draft); setError('');

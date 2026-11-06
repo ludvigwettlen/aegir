@@ -562,22 +562,6 @@
 }
 .ws-repeat-help { border-top: 1px solid var(--ds-color-line); padding-top: var(--ds-space-3); color: var(--ds-color-muted); font-size: calc(12px * var(--ds-text-scale, 1)); }
 
-.brain-bridge-body {
-  padding: var(--ds-space-5); color: var(--ds-color-ink);
-  fieldset { min-width: 0; border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); padding: var(--ds-space-4); margin: 0 0 var(--ds-space-4); }
-  legend { font-weight: 600; padding: 0 var(--ds-space-2); }
-  fieldset:disabled { opacity: .65; }
-  label { display: grid; gap: var(--ds-space-2); font-size: 12px; }
-  input:not([type=checkbox]) { width: 100%; min-width: 0; box-sizing: border-box; padding: var(--ds-space-2); border: 1px solid var(--ds-color-line); border-radius: var(--ds-radius-control); background: var(--ds-color-surface); color: var(--ds-color-ink); }
-  input:focus-visible { outline: 2px solid var(--ds-color-focus); outline-offset: 2px; }
-  .brain-bridge-toggle { display: flex; align-items: center; margin-bottom: var(--ds-space-3); }
-  p { color: var(--ds-color-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-  [role=alert] { color: var(--ds-color-danger); white-space: pre-line; }
-}
-.brain-bridge-folder { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--ds-space-2); label { flex: 1 1 240px; } }
-.brain-bridge-actions { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
-.brain-file-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); min-width: 0; [role=status], [role=alert] { font-size: 12px; overflow-wrap: anywhere; max-width: 100%; } [role=alert] { color: var(--ds-color-danger); } }
-
 .ws-task-retained { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4); background: var(--ds-color-surface); color: var(--ds-color-muted); border-bottom: 1px solid var(--ds-color-line); font-size: 12px; }
 .ws-task-detail-clip { display: flex; flex-direction: column; min-width: 0; }
 .ws-task-detail-clip > .ws-task-detail { flex: 1; min-height: 0; height: auto; }

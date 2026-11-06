@@ -15,23 +15,3 @@ export function connectorDecision(kind: RunKind | undefined, readOnly: boolean):
   return readOnly ? 'allow' : kind === 'chat' ? 'ask' : 'deny';
 }
 export function browserAllowed(kind: string) { return kind === 'chat' || kind === 'task'; }
-/** Chats and handed-off tasks have a person who sees and answers approval cards; routines and meeting prep do not. */
-export function attendedRun(kind?: RunKind) { return kind === 'chat' || kind === 'task'; }
-const sends = /(?:^|__|_)(?:send|post_message|schedule_message)(?:_|$)/i;
-/** Claude Code's native tools. `readable` means the caller confined a Read/Grep/Glob target to the run's own folders. */
-export function nativeToolDecision(name: string, options: { kind?: RunKind; writable: boolean; readable: boolean; readOnly: boolean }): ToolDecision {
-  if (sends.test(name)) return 'deny';
-  if (name === 'ToolSearch') return 'allow';
-  if (['Read', 'Grep', 'Glob'].includes(name)) return options.readable ? 'allow' : 'deny';
-  // Fetching a model-chosen URL can carry data out of the run, so a person approves it; unattended runs get no web access.
-  if (name === 'WebFetch') return attendedRun(options.kind) ? 'ask' : 'deny';
-  if (name === 'WebSearch') return attendedRun(options.kind) ? 'allow' : 'deny';
-  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return options.writable ? 'allow' : 'deny';
-  if (name.startsWith('mcp__')) return connectorDecision(options.kind, options.readOnly);
-  return options.kind === 'chat' || (name === 'Bash' && options.kind === 'task') ? 'ask' : 'deny';
-}
-
-export function nativeMcpReadOnly(server: string, tool: string, annotations?: { readOnly?: boolean; destructive?: boolean }): boolean {
-  const provider = /^(?:claude_ai_)?slack$/i.test(server) ? 'slack' : /^(?:claude_ai_)?notion$/i.test(server) ? 'notion' : '';
-  return connectorReadOnly(provider, tool, { readOnlyHint: annotations?.readOnly, destructiveHint: annotations?.destructive });
-}

@@ -3,17 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readProviderSetup, type ProviderSetup } from '../shared/provider-setup.js';
 import type { AppEvent, Approval, Snapshot } from '../shared/types.js';
 import { readTypography } from '../shared/typography.js';
 import { createBrowserBackend } from './browser-backend.js';
 import { BrowserManager } from './browser.js';
-import { ClaudeProvider } from './claude.js';
 import { CodexProvider } from './codex.js';
 import { ConnectorManager } from './connectors.js';
 import { Store } from './db.js';
-import { EngineRouter, findClaudeBinary } from './engine.js';
-import { findGbrainBinary, GbrainMemoryService } from './gbrain-memory.js';
+import { EngineRouter } from './engine.js';
 import { registerIpc, activeIpcCount } from './ipc.js';
 import { UpdateService } from './updates.js';
 import { prepareInstallation, startupTransaction, pendingInstallation, launchRecovery, confirmStartup, type Installation } from './update-install.js';
@@ -70,7 +67,6 @@ function snapshot(): Snapshot {
     updates: updates ? { ...updates.state(), ...(updateBarrier ? { status: 'installing' as const, message: 'Finishing the update. Please wait…' } : {}) } : undefined,
     reminders: phoneCapture?.state(),
     onboarding: onboarding?.state(),
-    brainBridge: runtime?.brainBridge?.state(),
     oneOnOnes: runtime?.oneOnOnes?.snapshot(),
     gmail: runtime?.gmail?.snapshot(),
     agents: store.list('agents'),
@@ -275,17 +271,9 @@ if (app.requestSingleInstanceLock()) {
     store.onMessage = (value) => emit({ type: 'message', value });
     const codexProvider = new CodexProvider(() => store.getSetting('codexBinary'));
     const mnemosyne = new MemoryService(store);
-    let claudeProvider: ClaudeProvider;
-    let brain: GbrainMemoryService;
-    const adapters = (setup: ProviderSetup) => {
-      claudeProvider = new ClaudeProvider(findClaudeBinary(store.getSetting('claudeBinary')));
-      brain = new GbrainMemoryService(findGbrainBinary(store.getSetting('gbrainBinary')), setup);
-      return { engine: setup.engine === 'claude' ? claudeProvider : codexProvider, memory: setup.memory === 'gbrain' ? brain : mnemosyne };
-    };
-    const initialAdapters = adapters(readProviderSetup(store.getSetting('providerSetup')));
-    codex = new EngineRouter(initialAdapters.engine, () => !!store.getSetting('providerSetup'));
+    codex = new EngineRouter(codexProvider);
     connectors = new ConnectorManager(store);
-    memory = new MemoryRouter(initialAdapters.memory, () => !!store.getSetting('providerSetup'));
+    memory = new MemoryRouter(mnemosyne);
     browser = new BrowserManager(store.getSetting('browserEnabled') === 'true',
       () => createBrowserBackend(join(app.getPath('userData'), 'browser')),
       (threadId, detail, signal) => approvalForExternal(detail, threadId, { title: 'Browser control for this response', signal }), refresh);
@@ -297,18 +285,8 @@ if (app.requestSingleInstanceLock()) {
       outputRoot,
       routineCwd: agentCwd,
       conversationFiles: join(app.getPath('userData'), 'conversation-files'),
-    }, createRuntimeServices(store, codex, refresh, app.getPath('userData')), browser);
-    onboarding = new OnboardingService(store, codexProvider, mnemosyne, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url), undefined, undefined, {
-      apply: setup => {
-        if (phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size) throw new Error('Stop active agents and routines, and wait for background work to finish before switching setup.');
-        const next = adapters(setup);
-        store.setSetting('providerSetup', JSON.stringify(setup));
-        store.setSetting('setupAutomationPaused', 'true');
-        codex.replace(next.engine); memory.replace(next.memory);
-      },
-      checkClaude: signal => claudeProvider.checkAccess(signal),
-      checkBrain: signal => brain.check(signal),
-    });
+    }, createRuntimeServices(store, refresh, app.getPath('userData')), browser);
+    onboarding = new OnboardingService(store, codexProvider, mnemosyne, join(app.getPath('userData'), 'runtime'), refresh, url => shell.openExternal(url));
     codex.on('status', refresh);
     codex.on('approval', (approval: Approval) => {
       if (shuttingDown || !store.isOpen) return;
@@ -336,7 +314,7 @@ if (app.requestSingleInstanceLock()) {
     });
     codex.setToolHandler(createToolDispatcher({ store, runtime, connectors, isShuttingDown: () => shuttingDown, approvalForExternal }));
     connectors.on('change', refresh);
-    const updateActive = () => !!(phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size || onboarding.hasActiveWork || runtime.brainBridge.hasActiveWork || ['working', 'opening', 'approval'].includes(browser.state.status) || activeIpcCount() > 1);
+    const updateActive = () => !!(phoneCapture?.hasActiveWork || runtime.hasActiveWork || codex.hasActiveWork || memory.hasActiveWork || approvals.size || onboarding.hasActiveWork || ['working', 'opening', 'approval'].includes(browser.state.status) || activeIpcCount() > 1);
     updates = new UpdateService({ ...updateConfiguration, version: app.getVersion(), initialMessage: pendingUpdate?.result?.message, architecture: process.arch,
       systemVersion: process.getSystemVersion(), root: join(app.getPath('userData'), 'updates'), supported: app.isPackaged && process.platform === 'darwin', changed: refresh,
       token: () => {
@@ -380,7 +358,7 @@ if (app.requestSingleInstanceLock()) {
     }
     connectors.start();
     runtime.start();
-    if (store.getSetting('providerSetup')) void memory
+    if (store.getSetting('setupAutomationPaused') !== 'true') void memory
       .migrateLegacy()
       .then(() => {
         if (store.isOpen) refresh();
@@ -398,7 +376,7 @@ if (app.requestSingleInstanceLock()) {
     phoneTimer = setInterval(() => void phoneCapture.sync(), 60_000);
     powerMonitor.on('resume', () => { runtime.tick(); void phoneCapture.sync(); });
     if (process.platform === 'darwin' && !app.isPackaged) app.dock?.show();
-    if (store.getSetting('providerSetup')) void codex.start().catch((error) => {
+    if (store.getSetting('setupAutomationPaused') !== 'true') void codex.start().catch((error) => {
       codex.status = `Error: ${String(error)}`;
       refresh();
     });

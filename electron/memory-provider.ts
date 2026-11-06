@@ -4,14 +4,9 @@ export type MemoryProvider = Pick<MemoryService, 'recall' | 'remember' | 'search
 
 export class MemoryRouter implements MemoryProvider {
   private pending = 0;
-  constructor(private provider: MemoryProvider, private enabled = () => true) {}
+  constructor(private readonly provider: MemoryProvider) {}
   get hasActiveWork() { return this.pending > 0; }
-  replace(provider: MemoryProvider) {
-    if (this.hasActiveWork) throw new Error('Wait for the current memory operation before switching setup.');
-    this.provider = provider;
-  }
   private async withProvider<T>(action: (provider: MemoryProvider) => Promise<T>) {
-    if (!this.enabled()) throw new Error('Choose your setup in Settings before using memory.');
     this.pending++;
     try { return await action(this.provider); } finally { this.pending--; }
   }

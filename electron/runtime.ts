@@ -5,7 +5,6 @@ import { attachmentContext, type Attachment } from '../shared/attachments.js';
 import { isRetiredAgentChat } from '../shared/conversations.js';
 import { modelTierForRole } from '../shared/model-policy.js';
 import type { OneOnOneMeeting } from '../shared/one-on-ones.js';
-import { readProviderSetup } from '../shared/provider-setup.js';
 import { describeSchedule, isDue } from '../shared/routines.js';
 import type { SkillProposal } from '../shared/skills.js';
 import { normalizeLabels, taskLabels } from '../shared/task-labels.js';
@@ -14,7 +13,6 @@ import type { Agent, AppEvent, Group, Message, Routine, RoutineRun, Task, Thread
 import { baseAgentInstructions, memoryInstructions } from './agent-instructions.js';
 import { cleanRoutineChange, cleanTaskProposalChange, connectorToolsFor, logText, memoryRecallTool, memoryTool, mentionedRoutines, proposeRoutineTool, slug, suggestTaskTool, taskProposalInstructions, taskProposalTools, taskReadTools, taskSourceKey, taskStatuses, type RunKind, } from './agent-tools.js';
 import { BrowserManager, browserInstructions } from './browser.js';
-import { claudeDraftInstructions, claudeDraftTools } from './claude-drafts.js';
 import type { ModelProvider, Tool } from './codex.js';
 import type { ConnectorManager } from './connectors.js';
 import type { Store } from './db.js';
@@ -48,8 +46,6 @@ export class Runtime {
   readonly skills: RuntimeServices['skills'];
   readonly oneOnOnes: RuntimeServices['oneOnOnes'];
   readonly gmail: RuntimeServices['gmail'];
-  readonly brainBridge: RuntimeServices['brainBridge'];
-  readonly claudeDrafts: RuntimeServices['claudeDrafts'];
   readonly slackMessages: RuntimeServices['slackMessages'];
   private active = new Map<string, Context>(); // Codex thread id → what it is running for
   private runningThreads = new Map<string, { cancelled: boolean }>();
@@ -62,12 +58,11 @@ export class Runtime {
   private get available() { return !this.stopped && this.store.isOpen; }
   get hasActiveWork() {
     return !!(this.active.size || this.runningThreads.size || this.runningRoutines.size || this.handingOffTasks.size
-      || this.claudeDrafts.hasActiveWork || this.gmail.hasActiveWork || this.slackMessages.hasActiveWork || this.gmail.snapshot().syncing || this.oneOnOnes.snapshot().syncing
+      || this.gmail.hasActiveWork || this.slackMessages.hasActiveWork || this.gmail.snapshot().syncing || this.oneOnOnes.snapshot().syncing
       || this.oneOnOnes.snapshot().meetings.some(meeting => meeting.status === 'preparing'));
   }
-  private get setup() { return readProviderSetup(this.store.getSetting('providerSetup')); }
   private connectedTools(kind: Parameters<typeof connectorToolsFor>[0]) {
-    return this.setup.connections === 'claude' ? [] : connectorToolsFor(kind, this.connectors.listTools());
+    return connectorToolsFor(kind, this.connectors.listTools());
   }
   constructor(
     private store: Store,
@@ -86,7 +81,7 @@ export class Runtime {
       isThreadRunning: id => this.runningThreads.has(id),
     });
     this.skills = features.skills; this.gmail = features.gmail; this.oneOnOnes = features.oneOnOnes;
-    this.brainBridge = features.brainBridge; this.claudeDrafts = features.claudeDrafts; this.slackMessages = features.slackMessages;
+    this.slackMessages = features.slackMessages;
     for (const proposal of this.skills.proposals())
       store.ensureSkillProposalMessage(proposal, this.skills.get(proposal.skillId).name);
   }
@@ -272,6 +267,9 @@ export class Runtime {
         && page.messages.length === 1 && page.messages[0].role === 'user';
       const proposals = new Map(this.skills.proposals().map(proposal => [proposal.id, proposal]));
       const history = page.messages.map((x) => {
+        if ((x.meta?.type === 'slack-draft' || x.meta?.type === 'email-draft') && x.meta.deliveryProvider === 'claude') {
+          return `System: Archived draft (read-only): ${JSON.stringify(x.meta)}`;
+        }
         if (x.meta?.type === 'slack-draft') return `System: Current inline Slack draft ${x.id}: ${JSON.stringify(x.meta)}`;
         if (x.meta?.type === 'email-draft') return `System: Current inline email draft ${x.id}: ${JSON.stringify(x.meta)}`;
         if (x.meta?.type === 'skill-change') {
@@ -286,7 +284,7 @@ export class Runtime {
       const task = thread.taskId ? this.store.get('tasks', thread.taskId) : undefined;
       const tools: Tool[] = [
         ...this.connectedTools(kind),
-        ...(this.setup.connections === 'claude' ? claudeDraftTools : [...this.gmail.tools(true), ...this.slackMessages.tools(true)]),
+        ...this.gmail.tools(true), ...this.slackMessages.tools(true),
         ...(await this.browser?.tools(kind) || []),
         memoryTool(agent),
         memoryRecallTool(agent),
@@ -361,7 +359,7 @@ export class Runtime {
   }
   private instructionsFor(kind: RunKind, agent: Agent) {
     const memoryGuidance = memoryInstructions(this.store.getSetting('memoryInstructions') || '');
-    const emailGuidance = this.setup.connections === 'claude' ? claudeDraftInstructions : this.gmail.snapshot().account ? gmailInstructions : 'Gmail is not configured. Ask the user to connect it in Settings when needed.';
+    const emailGuidance = this.gmail.snapshot().account ? gmailInstructions : 'Gmail is not configured. Ask the user to connect it in Settings when needed.';
     const collaboration = 'You are the single main assistant. Handle the work yourself. Agent mentions in older messages are context only; do not route work to other agents or promise specialist handoffs.';
     if (kind === 'task')
       return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) working on a task the user handed to you.
@@ -370,7 +368,7 @@ Direct Slack and Notion connector tools are read-only; use them to research. Whe
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
-${this.setup.connections !== 'claude' && this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
+${this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
 Finish with a short summary: the files you produced and anything that needs the user.
 ${memoryGuidance}`;
     return `${baseAgentInstructions}\n${agent.instructions}\nYou are ${agent.name} (${agent.role}) talking with the user in a thread in Aegir.
@@ -378,7 +376,7 @@ Address the user directly. Be clear about source links and tool failures. Connec
 ${collaboration}
 ${taskProposalInstructions}
 ${emailGuidance}
-${this.setup.connections !== 'claude' && this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
+${this.slackMessages.tools(true).length ? slackMessageInstructions : ''}
 To create or change a scheduled routine, call routines__propose_change; the user applies or discards it.
 ${memoryGuidance}`;
   }
@@ -407,11 +405,6 @@ ${memoryGuidance}`;
   ): Promise<unknown> {
     if (!this.available) throw new Error('Runtime is stopped');
     const context = this.active.get(codexThreadId);
-    if (provider === 'messages') {
-      if (!context?.threadId || !['chat', 'task'].includes(context.kind) || this.runningThreads.get(context.threadId)?.cancelled) throw new Error('Drafts require an active attended conversation.');
-      if (this.setup.connections !== 'claude') throw new Error('Claude drafting is unavailable in this setup.');
-      return this.claudeDrafts.call(tool, args, context.threadId);
-    }
     if (provider === 'slack_messages') {
       if (!context || (context.threadId && this.runningThreads.get(context.threadId)?.cancelled)) throw new Error('No active Slack composer session');
       if (!context.threadId || !['chat', 'task'].includes(context.kind)) throw new Error('Slack drafts require an attended conversation');
@@ -571,9 +564,7 @@ ${memoryGuidance}`;
   }
   stop() {
     this.stopped = true;
-    this.brainBridge.stop();
     this.oneOnOnes.stop();
-    this.claudeDrafts.stop();
     this.gmail.stop();
     this.slackMessages.stop();
     if (this.timer) clearInterval(this.timer);
@@ -586,14 +577,12 @@ ${memoryGuidance}`;
   tick() {
     if (!this.available) return;
     if (this.store.getSetting('setupAutomationPaused') === 'true') return;
-    this.brainBridge.tick();
     void this.oneOnOnes.tick();
     void this.gmail.tick();
     const now = new Date();
     for (const routine of this.store.routines())
       if (
         routine.enabled &&
-        !(this.setup.intake === 'external' && routine.id === this.store.getSetting('discoveryRoutineId')) &&
         !this.runningRoutines.has(routine.id) &&
         isDue(routine.schedule, routine.lastRunAt, routine.createdAt, now)
       )
@@ -629,7 +618,6 @@ ${memoryGuidance}`;
   }
   async runRoutine(routineId: string, trigger: RoutineRun['trigger']) {
     if (!this.available) throw new Error('Runtime is stopped');
-    if (this.setup.intake === 'external' && routineId === this.store.getSetting('discoveryRoutineId')) throw new Error('Legolas setup uses external discovery. Switch to Aegir setup to run built-in discovery.');
     const routine = this.store.routine(routineId);
     if (!routine) throw new Error('Routine not found');
     if (this.runningRoutines.has(routineId)) throw new Error('This routine is already running');

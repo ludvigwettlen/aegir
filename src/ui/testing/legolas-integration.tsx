@@ -17,7 +17,6 @@ const thread = { id: 'thread', groupId: 'general', title, kind: 'task' as const,
 const task = { id: 'task', title, notes: new URLSearchParams(location.search).has('notes') ? 'Revamp candidate — become the destination? Source jobs for a candidate.\n\nPLG / self-serve\nBYO-agent on top of an ATS?\nVolume screening / external sourcing' : '', label: null, dueAt: null, status: 'review' as const, agentId: 'Aegir', threadId: 'thread', outputDir: '/mock', sourceUrl: null, sourceKey: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null };
 const snapshot = { showTaskPriorities: localStorage.getItem('fixtureShowTaskPriorities') !== 'false', agents, groups, threads: [thread], tasks: [task], taskLists: [], taskLinks: [], routines: [], routineRuns: [], connectors: [{ id: 'slack', status: 'disconnected', detail: '' }, { id: 'notion', status: 'disconnected', detail: '' }], typography: defaultTypography, browserReviewEnabled: false, approvals: [], legacyMemoryCount: 0, memoryInstructions: '', codexStatus: 'Connected', launchAtLogin: false, browser: { status: 'off' }, mcpSettings: { slackClientId: '', slackConfigured: false } } as unknown as Snapshot;
 snapshot.taskViews = JSON.parse(localStorage.getItem('fixtureTaskViews') || '[]');
-if (new URLSearchParams(location.search).has('brainFiling')) snapshot.brainBridge = { importEnabled: false, importDir: '', exportEnabled: false, exportDir: '', filingEnabled: true, filingDir: '/mock/brain/files', externalSetup: false, paused: false, lastRunAt: null, error: '', report: null };
 if (new URLSearchParams(location.search).has('personal')) {
   Object.assign(task, { status: 'ready', threadId: null, agentId: null, outputDir: null });
   snapshot.threads = [];
@@ -52,7 +51,7 @@ ${commentStart}${encodeComment({ id: 'second', text: 'Add an example.' })} -->Se
 ` + files[0].content;
 const publish = () => listeners.forEach(listener => listener({ type: 'snapshot', value: structuredClone(snapshot) }));
 const reviewUndo: Task['status'][] = [];
-const actions = { filed: [] as { id: string; path: string; kind: string; content?: string }[], task, failPrioritySetting: false, prioritySettingDelay: 0, failReview: false, reviewDelay: 0, reviewCalls: 0, setTaskStatus: (status: Task['status']) => { Object.assign(task, { status }); publish(); }, failSend: false, failUpload: false, sent: [] as { text: string; paths?: string[] }[], reviews: [] as string[], uploads: [] as string[], failRead: false, failSave: false, failList: new URLSearchParams(location.search).has('failList'), files, copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false, failStartThread: false, started: [] as string[] };
+const actions = { task, failPrioritySetting: false, prioritySettingDelay: 0, failReview: false, reviewDelay: 0, reviewCalls: 0, setTaskStatus: (status: Task['status']) => { Object.assign(task, { status }); publish(); }, failSend: false, failUpload: false, sent: [] as { text: string; paths?: string[] }[], reviews: [] as string[], uploads: [] as string[], failRead: false, failSave: false, failList: new URLSearchParams(location.search).has('failList'), files, copied: [] as string[], revealed: [] as { threadId: string; path: string }[], failCopy: false, failStartThread: false, started: [] as string[] };
 Object.assign(window, { fixtureActions: actions });
 const creation = { fail: false, delay: 0, calls: [] as { id: string; name: string }[] };
 Object.assign(window, { fixtureCreation: creation });
@@ -64,10 +63,8 @@ const fixture: Partial<DesktopApi> = {
   deleteTaskView: async id => { snapshot.taskViews = (snapshot.taskViews ?? []).filter(view => view.id !== id); localStorage.setItem('fixtureTaskViews', JSON.stringify(snapshot.taskViews)); publish(); },
   captureTask: async text => { if (text.includes('FAIL')) throw new Error('AI capture failed'); return { title: 'Review captured task', notes: 'Context from your note', label: 'work', dueAt: null }; },
   createTask: async input => { const created = { ...task, ...input, labels: input.labels ?? (input.label ? [input.label] : []), label: input.labels?.[0] ?? input.label ?? null, listId: input.listId ?? null, id: crypto.randomUUID(), status: 'ready' as const, threadId: null, agentId: null, outputDir: null }; snapshot.tasks.push(created); publish(); return created; },
-  claudeRoutines: async () => ({ source: '/fixture/scheduled-tasks.json', tasks: [{ id: 'daily', name: 'Morning brief', description: 'External routine', enabled: true, schedule: 'Daily at 09:00', cron: '0 9 * * *', lastRunAt: null, runs: [] }] }),
   configureReminders: async (enabled, list) => { snapshot.reminders = { enabled, list, syncing: false, detail: enabled ? 'Ready to capture' : 'Off', lastSyncAt: null }; publish(); },
   syncReminders: async () => { if (snapshot.reminders) snapshot.reminders.detail = 'No new reminders'; publish(); },
-  fileToBrain: async (id, path, kind) => { actions.filed.push({ id, path, kind, content: files.find(file => file.path === path)?.content }); return '/mock/brain/files/copied.md'; },
   snapshot: async () => snapshot,
   setShowTaskPriorities: async show => {
     if (actions.prioritySettingDelay) await new Promise(resolve => setTimeout(resolve, actions.prioritySettingDelay));

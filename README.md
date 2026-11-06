@@ -12,17 +12,11 @@ For development, requires macOS, Node 20+, and pnpm. Run `pnpm install`, then `p
 
 ### Guided setup
 
-A fresh workspace opens a four-step guide: choose Aegir or Legolas, check the selected AI, check memory, then review connections. Existing installations keep their Aegir setup, even with Claude installed. **Settings → Getting started → Continue setup / Review setup → Choose your setup** changes providers. The explicit choice, current step and dismissal/completion are saved outside the application bundle. New workspaces and provider changes keep automatic routines, Gmail discovery, and calendar checks paused until setup is completed; Set up later keeps manual task management available and preserves an unmade choice across restarts.
+A fresh workspace guides you through Codex, Mnemosyne memory, and optional connections. Scheduled work stays paused until setup is complete. Former Legolas workspaces are prompted to review setup before scheduled work resumes. Existing tasks, conversations, and documents stay in place.
 
 - **Codex:** detects engines bundled with Codex or ChatGPT in `/Applications` and `~/Applications`, and standard CLI installations, or downloads a private copy with **Install Codex**. Neither desktop app is required for the private copy. **Sign in with ChatGPT** opens the app-server's browser authentication flow; Codex manages its credentials. Cancellation, retry, and account/model-catalog checks are available. Setup checks that the required Luna model appears in the account's catalog; this does not make an inference request or guarantee quota. `CODEX_BINARY` overrides the saved `codexBinary`, followed by detected desktop bundles and standard CLI locations.
 - **Memory:** **Set up memory** downloads a private uv installer, managed Python 3.12, and `mnemosyne-memory[embeddings]`. No system Python, Homebrew, Node, shell commands, or administrator password is required from the user. Installation verifies save/recall/delete against disposable memory storage before saving `mnemosyneBinary`; it does not replace existing memory banks. Existing installations are checked and reused without reinstalling. First-time search can download embedding-model data.
 - **Connections:** Notion uses the existing browser authorization flow. Slack can connect through a user's existing Composio consumer account, with optional office Slack app credentials in a disclosure. A connected Composio hub does not prove Slack access; test a Slack search. Gmail and Calendar still need an assisted Composio CLI setup; verify Gmail in Settings and Calendar in 1:1 prep. They are optional and never block completing onboarding.
-
-**Legolas setup** uses an existing Claude Code installation/account and an existing Obsidian/gbrain brain. Aegir does not install those dependencies. Select the brain folder and, under gbrain routing, its registered brain/source IDs. Every search and memory write checks `gbrain sources list --json --brain <id>` against the selected folder. Searches explicitly pass both `--brain` and `--source`; writes append to `inbox/aegir-memories.md` in that folder. Your existing gbrain workflow must index/file the inbox. Edit/delete brain pages in Obsidian; Aegir does not rewrite indexed pages. Brain memory is shared context, with agent scopes recorded as labels, not isolated memory banks.
-
-Claude runs use the installed user's connections and app tools, with app approval prompts for chat changes and shell commands. Unattended runs deny writes to external connections; annotated read-only tools are available. Native file writes stay inside task output folders, and native file reads stay inside the run's own folders (a task's output folder, or a chat's attachment folder). Fetching a web page asks for approval in chats and tasks; routines and meeting prep have no web tools. Shared delayed-send cards support configured Claude connections and Aegir delivery; live Claude connector delivery still requires validation with a signed-in account. Quick classification/routing runs have no tools or user connections. Default-tier replies use Claude Code's default model; lightweight work uses Sonnet. Account checks do not make a paid model call or verify quota.
-
-Switching is blocked while agents, approvals, memory operations or tracked background work are active. It keeps tasks, chats, account settings and memory stores; it does not migrate memories or import/export brain tasks/documents. Legolas suppresses built-in task discovery without changing saved routine enablement. Other routines and existing Gmail/Calendar integrations remain configured. Optional task intake/export and per-file brain filing are available in Settings; external routine display remains a subsequent slice. Shared draft cards now include a five-second send countdown, Undo and manual-send status; Claude card delivery supports the fork’s native Slack and Superhuman Mail connections, with live account validation still pending.
 
 Managed binaries and Python live under `<Electron userData>/runtime`; memory data and Codex credentials retain their providers' existing locations. Installers pin Codex 0.162.1, uv 0.13.1, and Mnemosyne 3.15.1. Codex/uv archive SHA-256 values are checked before extraction. Downloads and commands are time-bounded, duplicate installs are rejected, normal failures clean their new directories, and quitting cancels the installation before shutdown. A retry never deletes an existing installation or its data. Python and the Python packages are fetched from their normal upstream distribution services; transitive Python dependencies are not fully locked. The architecture-specific assets support Apple Silicon and Intel Macs; the real installer smoke checks were performed on Apple Silicon.
 
@@ -91,7 +85,7 @@ Current follow-up work is tracked in [TODO.md](TODO.md). Shared agent behavior a
 
 ## Security boundaries
 
-Connector reads use reviewed allowlists; write/destructive metadata overrides allowlist membership. Unknown tools require approval in chat and are excluded from tasks and unattended runs. Claude-native MCP tools follow the same rules. Claude Code's native file reads are limited to the run's folders, web fetches need an approval in attended runs, and unattended runs have no web tools; runs outside a task start in an empty working directory rather than the app data folder. Browser control remains a separate, explicit grant for attended chat/task responses.
+Connector reads use reviewed allowlists; write/destructive metadata overrides allowlist membership. Unknown tools require approval in chat and are excluded from tasks and unattended runs. Runs outside a task start in an empty working directory rather than the app data folder. Browser control remains a separate, explicit grant for attended chat/task responses.
 
 Chat and task web links accept HTTP/HTTPS URLs without embedded credentials. App protocol links are rejected. User-attached local files have a separate path validation and opening flow. Remote images in chat and documents require **Load remote image** before any request; reopening the view or changing the source requires consent again.
 
@@ -147,58 +141,19 @@ For tests against the Electron-built SQLite dependency, use `ELECTRON_RUN_AS_NOD
 
 **Priority visibility.** Settings → Task priorities → **Show task priorities** is on by default. Switch it off to hide priority controls, badges and shortcuts. This preference is saved on this computer; existing task priorities are preserved and shown again when enabled.
 
-### External Claude workflow and brain filing
-
-In **Settings → External workflow and brain filing**, select separate existing folders and explicitly enable the integrations you want. No integration is enabled merely because a brain folder exists. Legolas offers task import and export; both Aegir and Legolas offer per-file brain copies. Switching back to Aegir pauses external import/export while retaining the saved configuration. Background checks run once per minute only while the app is open and setup is finished; **Check now** runs the same bridge immediately.
-
-External routines publish one JSON object, an array of up to 100 objects, or one Markdown suggestion per file in the intake folder. Use `.json` or `.md`, with a maximum of 1 MB per file. Files must be unchanged for two seconds before intake; producers should write a temporary file and atomically rename it into place. A pass handles at most 50 files and 8 MB, leaving the rest for later.
-
-```json
-{
-  "title": "Reply to Sarah’s proposal",
-  "notes": "Sarah needs a decision before Friday.",
-  "sourceKey": "slack:T123:C123:1792576800.000001",
-  "sourceUrl": "https://example.slack.com/archives/C123/p1792576800000001",
-  "labels": ["work", "board"],
-  "dueAt": "2026-10-23"
-}
-```
-
-`title` and a stable `sourceKey` are required; all other fields are optional. Keys must identify the original request consistently across reruns and include account/workspace context. Reuse an existing Aegir source key when referring to an already-known request. A genuinely new request needs its own key. Markdown uses the same fields in YAML front matter and the document body as notes:
-
-```markdown
----
-title: Reply to Sarah’s proposal
-sourceKey: slack:T123:C123:1792576800.000001
-sourceUrl: https://example.slack.com/archives/C123/p1792576800000001
-labels: [work, board]
-dueAt: 2026-10-23
----
-Sarah needs a decision before Friday.
-```
-
-Imports become proposals in **Needs you**, with source identity retained. A whole file is validated before any of its tasks are created. Stable-key receipts survive completion, dismissal and deletion, including when a matching source was already in Aegir. Re-imports leave the existing task’s title, notes, date, status and manual priority intact. Different keys are treated as different requests; the bridge does not run another AI relevance or duplicate gate. External priorities, updates and closes are not accepted by this suggestion-only contract.
-
-Successful inputs move to `processed`; invalid files move to `rejected` with an error note. Settings shows imported/skipped/rejected/deferred counts and errors. Failed archiving preserves duplicate receipts, so retrying cannot create tasks twice. Intake does not execute commands or interpret notes as instructions.
-
-Task export writes `aegir-tasks.json` (a version-1 object containing `tasks`) and `aegir-tasks.md` to the chosen export folder. The JSON includes IDs, source keys/links, titles, notes, statuses (including completed and dismissed), priorities, dates, list IDs, timestamps and local output-workspace paths. External routines can read the workspace path to inspect generated results. These are generated snapshots: edit tasks in Aegir. Files are replaced atomically and rewritten only when their content changes. They do not include conversation transcripts, attachment contents or memory stores.
-
-**File to brain** appears on open documents and sent conversation attachments after enabling filing. Document edits must save successfully before copying. Each explicit click copies the selected file to the chosen folder under a unique name, preserving the original and existing destination files. Only that file is copied; linked files and document images stay in the task workspace. Filing does not index, reorganize, mirror future edits or commit the brain. gbrain search/memory availability still needs validation against a configured installation independently of this file bridge.
-
 **Snooze and staying on a task.** Use **Snooze** in task details, press **S** outside a text field, or choose Snooze in the command palette. Pick Tomorrow, Next week (next Monday), or a future date. Snooze hides ready/review/blocked tasks from active and custom lists until that local date, while keeping their real due date, priority and repeat schedule. Find them in Upcoming and choose **Unsnooze** to bring them back early. Snoozes persist across restarts and support task Undo. Date-dependent lists refresh every 30 seconds and when the app regains focus.
 
 Changing a task’s date, list or snooze can remove its row from the view you are using. Its details stay open so you can finish editing; an explanatory notice offers **Back to list**. Selecting another task or switching views also releases it. Completing, dismissing or deleting a task keeps ordinary next-task navigation.
 
 ### Task capture, planning and personal integrations
 
-- **AI capture** beside quick add uses your selected Codex/Claude engine to prepare a task. Review/edit its title and notes before adding. It has no tools or connection access. Your original note stays available if preparation or creation fails. Ordinary quick add remains available without AI.
+- **AI capture** beside quick add uses Codex to prepare a task. Review/edit its title and notes before adding. It has no tools or connection access. Your original note stays available if preparation or creation fails. Ordinary quick add remains available without AI.
 - **Today** sets the task deadline to today and clears snooze. It works across custom lists and supports Undo. For repeating tasks, it updates the recurrence anchor through the existing deadline behavior.
 - **Labels** supports up to 20 labels per task (40 characters each). Use Add labels/the label chip in task details or B to edit comma-separated labels and choose existing ones. Quick add accepts multiple hashtags. Labels are normalized and deduplicated; existing single labels carry over. Undo, recurrence, search, AI capture and task import/export retain multiple labels.
 - **Filtered views** appear in the sidebar. Click + beside Filtered views or use Filter and sort in a task list. Choose a scope (all open tasks, a built-in view or a custom list), select labels with All/Any matching, and optionally filter status/priority and sort. Name it and Save view. Update view saves edits/renames; Save as new view copies it; Delete view removes only the view. Selecting it again restores its saved filters. Views persist in the local app database; previous local presets migrate automatically. Unsaved per-list filter preferences remain local. All open tasks includes suggestions and snoozed tasks; Completed is a separate scope.
-- **Settings → Personal integrations → Apple Reminders capture** imports non-repeating reminders from the named list, with either engine setup. Capture starts disabled. Save the list and enable it, then Check now or wait for the minute check after setup is complete. Captures become ordinary tasks; this is not bidirectional task synchronization. Imported reminders are completed only after their timed/date alerts can fire; location or unschedulable alerts stay in Reminders. Reopened/deleted task captures are remembered, preventing re-import. Duplicate list names are rejected. macOS permission is requested by the native helper on first check.
-- **Refresh external routines** displays supported Claude desktop schedules and recent run results, read-only, with either setup. Claude owns those schedules. Its local file format is not a public API; unsupported/missing data shows an empty result.
+- **Settings → Personal integrations → Apple Reminders capture** imports non-repeating reminders from the named list. Capture starts disabled. Save the list and enable it, then Check now or wait for the minute check after setup is complete. Captures become ordinary tasks; this is not bidirectional task synchronization. Imported reminders are completed only after their timed/date alerts can fire; location or unschedulable alerts stay in Reminders. Reopened/deleted task captures are remembered, preventing re-import. Duplicate list names are rejected. macOS permission is requested by the native helper on first check.
 
-The macOS build compiles `native/reminders/main.swift` with EventKit and bundles the helper plus Reminders permission descriptions. The module cache stays under the ignored build folder. Live Claude/gbrain and connector checks still require configured accounts/tools; fixture checks do not validate a live delivery.
+The macOS build compiles `native/reminders/main.swift` with EventKit and bundles the helper plus Reminders permission descriptions. The module cache stays under the ignored build folder. Live connector checks still require configured accounts/tools; fixture checks do not validate a live delivery.
 
 ### Notion workflows
 

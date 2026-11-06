@@ -1,45 +1,10 @@
-import { dialog } from 'electron';
-import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
-import { readAttachment } from './attachments.js';
-import { readClaudeRoutines } from './claude-schedule.js';
-import { readDocument } from './documents.js';
 import type { IpcDependencies, IpcHandle } from './ipc.js';
 
-export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<IpcDependencies, 'store' | 'runtime' | 'refresh' | 'onboarding' | 'phoneCapture' | 'connectors' | 'memory'> & { documentRoot: (id: string) => string; attachmentRoot: (id: string) => string }) {
-  const { store, runtime, refresh, onboarding, phoneCapture, connectors, memory, documentRoot, attachmentRoot } = dependencies;
-
-  handle('brain-bridge-configure', value => runtime.brainBridge.configure(value));
-
-  handle('brain-bridge-run', () => runtime.brainBridge.run());
-
-  handle('brain-bridge-folder', async (purpose: string) => {
-    if (!['import', 'export', 'filing'].includes(purpose)) throw new Error('Choose a workflow folder.');
-    const result = await dialog.showOpenDialog({ title: purpose === 'import' ? 'Choose the external task intake folder' : purpose === 'export' ? 'Choose the task export folder' : 'Choose the brain filing folder', properties: ['openDirectory', 'createDirectory'] });
-    return result.canceled ? null : result.filePaths[0] || null;
-  });
-
-  handle('brain-bridge-file', (id: string, path: string, kind: string) => {
-    if (kind === 'document') {
-      const document = readDocument(documentRoot(id), path);
-      return runtime.brainBridge.file(join(documentRoot(id), document.path), basename(document.path));
-    }
-    if (kind === 'attachment') {
-      const file = readAttachment(attachmentRoot(id), path);
-      if (!store.messagesForThread(id).some(message => message.meta?.type === 'attachments' && message.meta.files.some(item => item.path === file.path))) throw new Error('Choose an attachment already sent in this conversation.');
-      return runtime.brainBridge.file(file.path, file.name);
-    }
-    throw new Error('Choose a task document or conversation attachment.');
-  });
+export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<IpcDependencies, 'store' | 'runtime' | 'refresh' | 'onboarding' | 'phoneCapture' | 'connectors' | 'memory'>) {
+  const { store, runtime, refresh, onboarding, phoneCapture, connectors, memory } = dependencies;
 
   handle('setup-check', () => onboarding.check());
 
-  handle('setup-select', choice => onboarding.select(choice));
-
-  handle('setup-brain-folder', async () => {
-    const result = await dialog.showOpenDialog({ title: 'Choose your Obsidian brain folder', properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0] || null;
-  });
 
   handle('setup-install', kind => onboarding.installComponent(kind));
 
@@ -53,24 +18,24 @@ export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<Ip
 
   handle('gmail-sync', () => runtime.gmail.sync());
 
-  handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).update(id, revision, fields));
+  handle('gmail-draft-update', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.update(id, revision, fields));
 
   // These renderer-only endpoints are the user's explicit approval of the displayed draft.
-  handle('gmail-draft-cancel', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).cancelSend(id, revision));
+  handle('gmail-draft-cancel', (id: string, revision: number) => runtime.gmail.cancelSend(id, revision));
 
-  handle('gmail-draft-manual', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).markSentManually(id, revision));
+  handle('gmail-draft-manual', (id: string, revision: number) => runtime.gmail.markSentManually(id, revision));
 
-  handle('gmail-draft-send', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.gmail).queueSend(id, revision, fields));
+  handle('gmail-draft-send', (id: string, revision: number, fields: import('../shared/gmail.js').EmailFields) => runtime.gmail.queueSend(id, revision, fields));
 
-  handle('slack-draft-targets', (kind: 'people' | 'channels', query: string, cursor?: string, draftId?: string) => (draftId && runtime.claudeDrafts.owns(draftId) ? runtime.claudeDrafts : runtime.slackMessages).findTargets(kind, query, cursor));
+  handle('slack-draft-targets', (kind: 'people' | 'channels', query: string, cursor?: string) => runtime.slackMessages.findTargets(kind, query, cursor));
 
-  handle('slack-draft-update', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).update(id, revision, fields));
+  handle('slack-draft-update', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.update(id, revision, fields));
 
-  handle('slack-draft-cancel', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).cancelSend(id, revision));
+  handle('slack-draft-cancel', (id: string, revision: number) => runtime.slackMessages.cancelSend(id, revision));
 
-  handle('slack-draft-manual', (id: string, revision: number) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).markSentManually(id, revision));
+  handle('slack-draft-manual', (id: string, revision: number) => runtime.slackMessages.markSentManually(id, revision));
 
-  handle('slack-draft-send', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => (runtime.claudeDrafts.owns(id) ? runtime.claudeDrafts : runtime.slackMessages).queueSend(id, revision, fields));
+  handle('slack-draft-send', (id: string, revision: number, fields: import('../shared/slack-messages.js').SlackFields) => runtime.slackMessages.queueSend(id, revision, fields));
 
   handle('one-on-ones-configure', (account: string, enabled: boolean) => {
     runtime.oneOnOnes.configure(account, enabled);
@@ -85,9 +50,7 @@ export function registerIntegrationsIpc(handle: IpcHandle, dependencies: Pick<Ip
 
   handle('one-on-ones-update', (id: string, change: { agenda?: string; hidden?: boolean; autoPrepare?: boolean }, expected?: string) => runtime.oneOnOnes.update(id, change, expected));
 
-  let claudeRead: ReturnType<typeof readClaudeRoutines> | null = null;
 
-  handle('claude-routines', () => claudeRead ||= readClaudeRoutines(join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions')).finally(() => { claudeRead = null; }));
 
   handle('configure-reminders', (enabled: boolean, list: string) => phoneCapture.configure(enabled, list));
 
