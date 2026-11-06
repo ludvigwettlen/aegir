@@ -2,13 +2,7 @@
 
 ## User flow
 
-Current users rebuild and install **0.1.1** once (`pnpm install`, `pnpm build`). Keep the application in a writable Applications folder; updates cannot be applied from a DMG or App Translocation location. Existing chats, tasks and settings remain under Electron userData.
-
-In Settings → App updates, expand GitHub access and save your own token. Then use **Check for updates → Download update → Restart to update**. Checks include prereleases, but only releases with a valid signed manifest for this Mac are considered. The previous helper-only test release is ignored. Nothing installs automatically, and active work blocks restart.
-
-The current private repository is **ludvigwettlen/aegir**. Browser sign-in does not grant the app access. Owners can create a fine-grained token limited to this repository with **Contents: read**. GitHub's fine-grained tokens have limitations for repository collaborators: those users may need a classic token with `repo` scope, which also grants access to their other private repositories. This broader scope must be understood when choosing it. Aegir only sends read requests. Tokens are encrypted with Electron safeStorage (macOS Keychain) and stored locally; plaintext never enters snapshots, release files, or logs. Save/remove are explicit controls. Expired access is recoverable by saving a replacement token. Browser-based OAuth would require registering an OAuth app and is not implemented.
-
-See [GitHub token limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) and [release asset permissions](https://docs.github.com/en/rest/releases/assets).
+Keep Aegir in a writable Applications folder. In Settings → App updates, choose **Check for updates → Download update → Restart to update**. Public releases can be checked without GitHub credentials. Aegir verifies the release signature before downloading and the archive checksum before installing. Updates require an explicit restart and wait for active work to finish.
 
 ## Trust and downloads
 

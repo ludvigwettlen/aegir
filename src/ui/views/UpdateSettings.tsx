@@ -29,9 +29,8 @@ export function UpdateSettings({ value }: { value?: UpdateState }) {
         {['checking', 'downloading'].includes(value.status) && <Button variant="outline" size="sm" onClick={() => void api.cancelUpdate()}>Cancel</Button>}
       </div>
       <details>
-        <summary>GitHub access · {value.authenticated ? 'saved on this Mac' : 'required for this private repository'}</summary>
-        <p>Use your own GitHub token. Repository owners can use a fine-grained token restricted to Aegir with Contents: read. Collaborators may need a classic token with repo access, which grants broader access to their private repositories. Aegir only uses it to read releases, and encrypts it on this Mac using macOS Keychain.</p>
-        <p><a href="https://github.com/settings/personal-access-tokens/new" onClick={event => { event.preventDefault(); void api.openExternal('https://github.com/settings/personal-access-tokens/new'); }}>Create a fine-grained token</a>{' · '}<a href="https://github.com/settings/tokens/new" onClick={event => { event.preventDefault(); void api.openExternal('https://github.com/settings/tokens/new'); }}>Create a classic token</a></p>
+        <summary>GitHub access · {value.authenticated ? 'saved on this Mac' : 'optional'}</summary>
+        <p>Public updates work without a token. If you save one, Aegir uses it to read releases and encrypts it on this Mac using macOS Keychain.</p>
         <label className="ws-field"><span>GitHub access token</span><input type="password" autoComplete="off" spellCheck={false} value={token} disabled={busy} onChange={event => setToken(event.target.value)} /></label>
         <div className="update-actions">
           <Button variant="outline" size="sm" disabled={busy || !token.trim()} onClick={() => void action(async () => { await api.saveUpdateToken(token.trim()); setToken(''); })}>Save access</Button>

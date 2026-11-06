@@ -43,6 +43,16 @@ describe('signed releases', () => {
     const newerOS = fixture((async input => new Response(String(input).includes('/assets/1') ? signed({ ...manifest, minimumSystemVersion: '99.0' }) : JSON.stringify(releases()))) as typeof fetch);
     await newerOS.check(); expect(newerOS.state().availableVersion).toBeUndefined();
   });
+  it('checks a public release without sending an authorization header', async () => {
+    const fetcher = (async (input, options) => {
+      expect(new Headers(options?.headers).has('authorization')).toBe(false);
+      return new Response(String(input).includes('/assets/1') ? signed() : JSON.stringify(releases()));
+    }) as typeof fetch;
+    const service = fixture(fetcher);
+    service.saveToken('');
+    await service.check();
+    expect(service.state().availableVersion).toBe('0.1.2');
+  });
   it('reports auth failures and supports cancellation and duplicate operation rejection', async () => {
     const denied = fixture((async () => new Response('denied', { status: 401 })) as typeof fetch);
     await denied.check(); expect(denied.state().status).toBe('error'); expect(denied.state().message).toContain('GitHub access');

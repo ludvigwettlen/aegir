@@ -28,7 +28,8 @@ export async function githubRequest(path: string, token: string, signal: AbortSi
     const isApi = url.origin === 'https://api.github.com';
     const response = await fetcher(url, { signal, redirect: 'manual', headers: {
       Accept: /\/releases\/assets\/\d+$/.test(url.pathname) ? 'application/octet-stream' : 'application/vnd.github+json', 'User-Agent': 'Aegir-Updater',
-      ...(isApi ? { Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' } : {}),
+      ...(isApi ? { 'X-GitHub-Api-Version': '2022-11-28' } : {}),
+      ...(isApi && token ? { Authorization: `Bearer ${token}` } : {}),
     } });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location'); await response.body?.cancel();
@@ -37,7 +38,7 @@ export async function githubRequest(path: string, token: string, signal: AbortSi
       if (next.protocol !== 'https:' || next.username || next.password || !['release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(next.hostname)) throw new Error('Untrusted update redirect.');
       url = next; continue;
     }
-    if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(response.status === 401 || response.status === 403 || response.status === 404 ? 'GitHub access failed. Check that your token can read ludvigwettlen/aegir and has not expired. Collaborators may need a classic token with repo access.' : `Update request failed (${response.status}).`); }
+    if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(response.status === 401 || response.status === 403 || response.status === 404 ? 'GitHub access failed. Check your saved GitHub access or try again later.' : `Update request failed (${response.status}).`); }
     return response;
   }
   throw new Error('Too many update redirects.');
@@ -93,7 +94,7 @@ export class UpdateService {
       this.manifest = undefined; this.asset = undefined; this.candidate = undefined;
       this.change({ status: 'checking', availableVersion: undefined, notes: undefined, progress: undefined, message: 'Checking GitHub releases…' });
       if (!this.options.publicKey) throw new Error('No trusted release key is configured. Rebuild the app with release configuration.');
-      const token = this.options.token(); if (!token) throw new Error('Add GitHub access below to check this private repository.');
+      const token = this.options.token();
       const request = (path: string) => githubRequest(path, token, signal, this.options.fetch);
       const releases = z.array(releaseSchema).parse(JSON.parse(await boundedText(await request(`/repos/${this.options.repository}/releases?per_page=30`), 2 * 1024 ** 2)));
       let best: { manifest: UpdateManifest; asset: Asset } | undefined;
