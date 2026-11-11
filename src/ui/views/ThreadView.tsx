@@ -389,6 +389,7 @@ export function Composer({
   onStop?: () => void;
   kind?: 'chat' | 'task';
 }) {
+  const [queued, setQueued] = useState<{ text: string; attachments: Attachment[] }[]>([]);
   const [files, setFiles] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const uploadLock = useRef(false);
@@ -482,7 +483,7 @@ export function Composer({
     const draft = value;
     const skills = selectedSkills;
     const text = withSkillCommands(draft, skills);
-    if ((!text && !attached.length) || busy || sendingRef.current || uploadLock.current || invalidSelection) return;
+    if ((!text && !attached.length) || sendingRef.current || uploadLock.current || invalidSelection) return;
     sendingRef.current = true;
     setSending(true); setSendError('');
     setValue(''); setPicker(null); setSelectedSkills([]);
@@ -493,6 +494,11 @@ export function Composer({
       setSelectedSkills(next => [...skills, ...next.filter(skill => !skills.some(item => item.id === skill.id))]);
     };
     try {
+      if (busy || queued.length) {
+        setQueued(previous => [...previous, { text, attachments: attached }]);
+        setFiles(previous => previous.filter(file => !attached.some(sent => sent.path === file.path)));
+        return;
+      }
       const sent = await onSend(text, attached);
       if (sent === false) restoreDraft();
       else setFiles(previous => previous.filter(file => !attached.some(sent => sent.path === file.path)));
@@ -504,6 +510,19 @@ export function Composer({
       setSending(false);
     }
   };
+  useEffect(() => {
+    if (busy || sendingRef.current || !queued.length || sendError) return;
+    const next = queued[0];
+    sendingRef.current = true;
+    setSending(true);
+    void Promise.resolve().then(() => onSend(next.text, next.attachments)).then(sent => {
+      if (sent === false) setSendError('Could not send queued message. Retry when ready.');
+      else setQueued(previous => previous.slice(1));
+    }).catch(cause => setSendError(String(cause))).finally(() => {
+      sendingRef.current = false;
+      setSending(false);
+    });
+  }, [busy, queued, sending, sendError, onSend]);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) setPicker(null);
@@ -547,6 +566,15 @@ export function Composer({
   const routines = options.filter((option) => option.kind === 'routine');
   return (
     <div className="ws-composer-wrap">
+      {!!queued.length && <div aria-label="Queued messages">
+        <p role="status">{queued.length} queued · Sends when the agent is ready. Keep this conversation open.</p>
+        {queued.map((item, index) => <div key={index}>
+          <span>{item.text || `${item.attachments.length} attachments`}</span>
+          <Button variant="ghost" size="sm" disabled={sending} aria-label={`Remove queued message ${index + 1}`} onClick={() => setQueued(previous => previous.filter((_, i) => i !== index))}>Remove</Button>
+        </div>)}
+        {sendError && <Button variant="ghost" size="sm" onClick={() => setSendError('')}>Retry queue</Button>}
+      </div>}
+
       {picker && (options.length > 0 || picker.kind === 'skill') && (
         <div className="ws-picker" id={pickerId} role="listbox" aria-label={picker.kind === 'skill' ? 'Skills' : 'Mention'}>
           {picker.kind === 'skill' && <>
@@ -620,8 +648,8 @@ export function Composer({
           )}
           <button
             className="ws-send"
-            aria-label="Send"
-            disabled={busy || sending || uploading || invalidSelection || (!value.trim() && !selectedSkills.length && !files.length)}
+            aria-label={busy ? "Queue message" : "Send"}
+            disabled={sending || uploading || invalidSelection || (!value.trim() && !selectedSkills.length && !files.length)}
             onClick={submit}
           >
             <Send size={15} />

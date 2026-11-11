@@ -398,3 +398,7 @@ The Back to workspace button and Escape return to the preceding task list, chat,
 The full `SkillsView` appears directly beneath the assistant, including search, ownership filters, create/import, editing, history and proposal review. It loads on first visiting the category and stays mounted during category changes. Its loading, empty, populated and retryable failure states stay visible without a Manage skills disclosure. At wide sizes its list/detail layout has a bounded 680 px height with internal scrolling; at 1100 px and below it stacks the list above the editor, bounds the list's scrolling and lets the page scroll. Long descriptions wrap. At the app's compact 900 px width the settings rail remains available, cards and actions wrap, and text scaling follows the application setting. No animation is introduced.
 
 Connections offers Slack through Composio. The Composio account and key fields are under a disclosure alongside connect, reconnect, and disconnect controls and connection status.
+
+### Conversation message queue
+
+While an agent works, Enter or the send control queues the composer contents, skills, and attachments. Queued items appear above the composer in delivery order with individually named Remove controls. Delivery pauses on failure and offers Retry queue. The queue belongs to the open conversation and is cleared when its composer unmounts; the status text asks users to keep it open. Existing Button primitives provide keyboard focus and disabled states.
