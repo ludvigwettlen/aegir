@@ -68,11 +68,11 @@ function groupTasks(list: TaskView, tasks: Task[], sort: TaskFilter['sort'] = 'd
   const groups = new Map<string, Task[]>();
   for (const task of sorted) {
     const key =
-      list === 'needs' ? taskStatusText[task.status] : taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'No label';
+      list === 'inbox' ? (task.status === 'proposed' ? 'Suggested' : 'Your tasks') : list === 'needs' ? taskStatusText[task.status] : taskLabels(task).length ? taskLabels(task).map(label => `#${label}`).join(' · ') : 'No label';
     groups.set(key, [...(groups.get(key) || []), task]);
   }
   return [...groups].sort(([a], [b]) =>
-    list === 'needs' ? 0 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
+    list === 'inbox' ? (a === b ? 0 : a === 'Your tasks' ? -1 : 1) : list === 'needs' ? 0 : a === 'No label' ? 1 : b === 'No label' ? -1 : a.localeCompare(b),
   );
 }
 
